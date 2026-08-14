@@ -1,0 +1,919 @@
+/*
+  Palette mirrors the WPF theme dictionaries (Themes/Dark.xaml, Themes/Light.xaml).
+  The host sends a setTheme message which flips data-theme on <html>; keeping both
+  palettes here means the switch costs nothing and never flashes the wrong colours.
+*/
+:root,
+:root[data-theme="dark"] {
+    --bg: #1a1b1e;
+    --panel: #212327;
+    --panel-border: #33363b;
+    --fg: #e6e8eb;
+    --fg-muted: #9098a3;
+    --fg-faint: #6b7280;
+    --control: #2a2d33;
+    --control-border: #3c4048;
+    --control-hover: #343840;
+    --accent: #4c9aff;
+    --warning: #e0b341;
+
+    --kind-function: #7aa2f7;
+    --kind-type: #c39af0;
+    --kind-constant: #e0af68;
+    --kind-variable: #7dcfff;
+    --kind-module: #9ece6a;
+    --kind-macro: #f7768e;
+    --kind-interface: #2ac3a2;
+
+    --edge: #5a616d;
+    --edge-weak: #7a6a4a;
+    --node-text: #e6e8eb;
+}
+
+:root[data-theme="light"] {
+    --bg: #fbfbfc;
+    --panel: #ffffff;
+    --panel-border: #dfe2e7;
+    --fg: #1b1d21;
+    --fg-muted: #5c6470;
+    --fg-faint: #8a919c;
+    --control: #f1f2f5;
+    --control-border: #d5d9df;
+    --control-hover: #e7e9ee;
+    --accent: #1a6fd4;
+    --warning: #9a6b00;
+
+    --kind-function: #2f5fbf;
+    --kind-type: #7a3fb0;
+    --kind-constant: #a3630a;
+    --kind-variable: #0f7490;
+    --kind-module: #3f7a26;
+    --kind-macro: #bd2b45;
+    --kind-interface: #0d8a70;
+
+    --edge: #9aa2ae;
+    --edge-weak: #b79a63;
+    --node-text: #1b1d21;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: "Segoe UI", system-ui, sans-serif;
+    font-size: 12.5px;
+    /* The canvas owns all gestures; browser text selection only gets in the way. */
+    user-select: none;
+    cursor: default;
+}
+
+/* ---- View sections ----
+
+   All five views are stacked in the same box and only one is ever shown. Each is
+   position:absolute so a view laid out while hidden still has a container to measure
+   once it comes back. */
+
+.view {
+    position: absolute;
+    inset: 0;
+}
+
+.view[hidden] {
+    display: none;
+}
+
+#canvas,
+#paths-canvas {
+    position: absolute;
+    inset: 0;
+}
+
+.plot {
+    position: absolute;
+    inset: 0;
+}
+
+#treemap {
+    top: 32px;
+    bottom: 26px;
+}
+
+.scroll-pane {
+    position: absolute;
+    inset: 0;
+    overflow-y: auto;
+    padding: 14px 16px 24px;
+    /* Unlike the canvases, this pane is text the reader may well want to copy. */
+    user-select: text;
+}
+
+/* ---- Empty state ---- */
+
+.overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    pointer-events: none;
+    background: var(--bg);
+}
+
+.overlay[hidden] {
+    display: none;
+}
+
+.overlay p {
+    max-width: 380px;
+    margin: 0;
+    text-align: center;
+    color: var(--fg-muted);
+    line-height: 1.55;
+}
+
+/* ---- Truncation notice ---- */
+
+.notice {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 5px 11px;
+    border: 1px solid var(--control-border);
+    border-radius: 4px;
+    background: var(--panel);
+    color: var(--warning);
+    font-size: 11px;
+}
+
+.notice[hidden] {
+    display: none;
+}
+
+/* ---- Selection popover ---- */
+
+.popover {
+    position: absolute;
+    z-index: 5;
+    min-width: 168px;
+    max-width: 280px;
+    padding: 8px 10px;
+    border: 1px solid var(--control-border);
+    border-radius: 6px;
+    background: var(--panel);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+}
+
+.popover[hidden] {
+    display: none;
+}
+
+.popover-title {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+
+.popover-sub {
+    margin-top: 2px;
+    color: var(--fg-muted);
+    font-size: 10.5px;
+    overflow-wrap: anywhere;
+}
+
+.popover-btn {
+    display: block;
+    width: 100%;
+    margin-top: 6px;
+    padding: 4px 7px;
+    border: 1px solid var(--control-border);
+    border-radius: 4px;
+    background: var(--control);
+    color: var(--fg);
+    font-family: inherit;
+    font-size: 11px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.popover-btn:hover {
+    background: var(--control-hover);
+}
+
+.popover-btn[hidden] {
+    display: none;
+}
+
+/* Per-call-site rows shown when an edge is selected. */
+.popover-sites {
+    margin-top: 6px;
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+.popover-sites[hidden] {
+    display: none;
+}
+
+.popover-site {
+    display: block;
+    width: 100%;
+    padding: 3px 6px;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--fg);
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10.5px;
+    text-align: left;
+    cursor: pointer;
+    overflow-wrap: anywhere;
+}
+
+.popover-site:hover {
+    background: var(--control-hover);
+}
+
+.popover-site .site-line {
+    color: var(--fg-muted);
+    margin-right: 6px;
+}
+
+/* ---- Right-click menu ---- */
+
+.context-menu {
+    position: absolute;
+    z-index: 7;
+    min-width: 168px;
+    padding: 4px;
+    border: 1px solid var(--control-border);
+    border-radius: 6px;
+    background: var(--panel);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.32);
+}
+
+.context-menu[hidden] {
+    display: none;
+}
+
+.context-menu-title {
+    padding: 4px 8px 5px;
+    border-bottom: 1px solid var(--panel-border);
+    margin-bottom: 4px;
+    color: var(--fg-faint);
+    font-size: 10.5px;
+    /* Symbol names can be long; the menu must not stretch to fit one. */
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.context-menu button {
+    display: block;
+    width: 100%;
+    padding: 5px 8px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--fg);
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.context-menu button:hover {
+    background: var(--control-hover);
+}
+
+/* ---- Hidden-element bar ---- */
+
+/*
+  Sits opposite the truncation notice so the two never overlap. It is the only record
+  that something was removed from the picture, so it states a count rather than just
+  offering a button.
+*/
+.hidden-bar {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px 4px 10px;
+    border: 1px solid var(--control-border);
+    border-radius: 4px;
+    background: var(--panel);
+    color: var(--fg-muted);
+    font-size: 11px;
+}
+
+.hidden-bar[hidden] {
+    display: none;
+}
+
+.hidden-bar button {
+    padding: 3px 9px;
+    border: 1px solid var(--control-border);
+    border-radius: 3px;
+    background: var(--control);
+    color: var(--fg);
+    font: inherit;
+    cursor: pointer;
+}
+
+.hidden-bar button:hover {
+    background: var(--control-hover);
+}
+
+/* ---- Legend ---- */
+
+/*
+  Everything inside the legend is sized in em so one custom property scales the whole
+  block — text, swatches and rule samples together. The host sets --legend-font-size from
+  the saved preference; the fallback is the size the legend has always drawn at, so an
+  unset preference changes nothing.
+*/
+.legend {
+    position: absolute;
+    left: 10px;
+    bottom: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4em;
+    padding: 0.7em 1em;
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--fg-muted);
+    font-size: var(--legend-font-size, 10.5px);
+    opacity: 0.92;
+    /* The legend sits over the canvas; only its own buttons may take clicks. */
+    pointer-events: none;
+}
+
+.legend-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+}
+
+/* ---- Legend size control ---- */
+
+.legend-size {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    margin-bottom: 0.15em;
+    pointer-events: auto;
+}
+
+.legend-size .legend-size-label {
+    flex: 1;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--fg-faint);
+}
+
+.legend-size button {
+    width: 1.9em;
+    height: 1.5em;
+    padding: 0;
+    border: 1px solid var(--control-border);
+    border-radius: 3px;
+    background: var(--control);
+    color: var(--fg);
+    font: inherit;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.legend-size button:hover:not(:disabled) {
+    background: var(--control-hover);
+}
+
+.legend-size button:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+/* Wider than the A−/A+ steppers because it states a word rather than a symbol. */
+.legend-size button.legend-toggle {
+    width: 3em;
+}
+
+.legend-size button.legend-toggle[aria-pressed="false"] {
+    color: var(--fg-faint);
+}
+
+.swatch {
+    width: 0.86em;
+    height: 0.86em;
+    margin-left: 0.6em;
+    border-radius: 2px;
+}
+
+.legend-group > .swatch:first-child,
+.legend-group > .line:first-child {
+    margin-left: 0;
+}
+
+.swatch-function { background: var(--kind-function); }
+.swatch-type { background: var(--kind-type); }
+.swatch-constant { background: var(--kind-constant); }
+.swatch-macro { background: var(--kind-macro); }
+.swatch-module { background: var(--kind-module); }
+.swatch-variable { background: var(--kind-variable); }
+.swatch-interface { background: var(--kind-interface); }
+
+/* Visibility swatches: outline style is the encoding, so the fill stays neutral. */
+.swatch-outline {
+    width: 1.05em;
+    height: 1.05em;
+    background: transparent;
+    border: 1.5px solid var(--fg-muted);
+    border-radius: 3px;
+}
+
+.swatch-vis-internal { border-style: dashed; }
+.swatch-vis-private { border-style: dotted; }
+
+.legend-italic {
+    font-style: italic;
+}
+
+.line-inherits {
+    border-top: 2px solid var(--edge);
+    position: relative;
+}
+
+.line-inherits::after {
+    content: "▷";
+    position: absolute;
+    right: -0.3em;
+    top: -0.85em;
+    font-size: 0.86em;
+    color: var(--edge);
+}
+
+.line {
+    width: 1.9em;
+    height: 0;
+    margin-left: 0.6em;
+    border-top-width: 2px;
+}
+
+.line-unique {
+    border-top: 2px solid var(--edge);
+}
+
+.line-ambiguous {
+    border-top: 2px dashed var(--edge);
+}
+
+.line-weak {
+    border-top: 2px dotted var(--edge-weak);
+}
+
+/* =========================================================================
+   Composition inspector
+   ========================================================================= */
+
+.comp-header {
+    padding-bottom: 10px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--panel-border);
+}
+
+.comp-title {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.comp-name {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 16px;
+    color: var(--fg);
+    overflow-wrap: anywhere;
+}
+
+.comp-sub {
+    margin-top: 3px;
+    color: var(--fg-muted);
+    font-size: 11px;
+    overflow-wrap: anywhere;
+}
+
+.comp-signature {
+    margin-top: 7px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    background: var(--control);
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 11.5px;
+    overflow-wrap: anywhere;
+}
+
+.comp-value {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-top: 7px;
+}
+
+.comp-value-label {
+    color: var(--fg-faint);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.comp-section {
+    margin-top: 16px;
+}
+
+.comp-section h2 {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0 0 7px;
+    color: var(--fg-faint);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+}
+
+.comp-section h2 .count {
+    padding: 0 5px;
+    border-radius: 8px;
+    background: var(--control);
+    color: var(--fg-muted);
+    font-size: 10px;
+    letter-spacing: 0;
+}
+
+.comp-none {
+    margin-top: 18px;
+    color: var(--fg-muted);
+    line-height: 1.6;
+}
+
+.card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+    gap: 7px;
+}
+
+.card {
+    padding: 7px 9px;
+    border: 1px solid var(--panel-border);
+    border-left-width: 3px;
+    border-radius: 4px;
+    background: var(--panel);
+    cursor: pointer;
+}
+
+.card:hover {
+    background: var(--control-hover);
+}
+
+.card.selected {
+    border-color: var(--accent);
+    border-left-color: var(--accent);
+}
+
+.card-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+.card-name {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+
+.card-type,
+.card-value {
+    margin-top: 2px;
+    color: var(--fg-muted);
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10.5px;
+    overflow-wrap: anywhere;
+}
+
+.card-value {
+    color: var(--kind-constant);
+}
+
+.card-facts {
+    margin-top: 4px;
+    color: var(--fg-faint);
+    font-size: 10px;
+}
+
+.badge {
+    padding: 1px 5px;
+    border: 1px solid var(--control-border);
+    border-radius: 3px;
+    background: var(--control);
+    color: var(--fg-muted);
+    font-size: 9.5px;
+    white-space: nowrap;
+}
+
+.link-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 4px 6px;
+    border-radius: 3px;
+    flex-wrap: wrap;
+}
+
+.link-row.clickable {
+    cursor: pointer;
+}
+
+.link-row.clickable:hover {
+    background: var(--control-hover);
+}
+
+.link-row.selected {
+    background: var(--control);
+    box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.link-where {
+    color: var(--fg-muted);
+    font-size: 10.5px;
+    overflow-wrap: anywhere;
+}
+
+.dot {
+    margin: 0 5px;
+    color: var(--fg-faint);
+}
+
+.faint {
+    color: var(--fg-faint);
+    font-style: italic;
+}
+
+.warn {
+    color: var(--warning);
+    font-size: 10px;
+    font-style: italic;
+}
+
+.mono {
+    font-family: "Cascadia Mono", Consolas, monospace;
+}
+
+/* =========================================================================
+   Path tracer
+   ========================================================================= */
+
+.notice-warn {
+    color: var(--warning);
+}
+
+.route-list {
+    position: absolute;
+    left: 10px;
+    bottom: 10px;
+    min-width: 220px;
+    max-width: min(460px, 62%);
+    max-height: 42%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 8px 10px;
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    background: var(--panel);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+}
+
+.route-list[hidden] {
+    display: none;
+}
+
+.route-heading {
+    margin-bottom: 5px;
+    color: var(--fg-faint);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.route {
+    /* Wraps rather than scrolls: a route long enough to overflow is exactly the one worth
+       reading in full, and a horizontal scrollbar hides its far end. */
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 1px 0;
+    width: 100%;
+    padding: 4px 6px;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--fg);
+    font-family: inherit;
+    font-size: 11px;
+    text-align: left;
+    cursor: default;
+}
+
+.route + .route {
+    margin-top: 2px;
+    border-top: 1px solid var(--panel-border);
+}
+
+.route:hover {
+    background: var(--control-hover);
+}
+
+.route-step {
+    font-family: "Cascadia Mono", Consolas, monospace;
+}
+
+.route-arrow {
+    margin: 0 5px;
+    color: var(--fg-faint);
+}
+
+/* =========================================================================
+   Treemap
+   ========================================================================= */
+
+.crumbs {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 2px;
+    height: 32px;
+    padding: 0 10px;
+}
+
+.crumb {
+    padding: 2px 5px;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--accent);
+    font-family: inherit;
+    font-size: 11.5px;
+    cursor: pointer;
+}
+
+.crumb:hover {
+    background: var(--control-hover);
+}
+
+.crumb-current {
+    color: var(--fg);
+    cursor: default;
+}
+
+.crumb-sep {
+    color: var(--fg-faint);
+}
+
+.tile {
+    cursor: pointer;
+    stroke-width: 1;
+}
+
+.tile:hover {
+    stroke: var(--accent);
+    stroke-width: 2;
+}
+
+/* Fill is set per tile from the tile's own colour; see labelColour in treemap.js. */
+.tile-label,
+.tile-sub {
+    pointer-events: none;
+    font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+.tile-label {
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.tile-sub {
+    font-size: 9.5px;
+    opacity: 0.75;
+}
+
+.legend-scale {
+    flex-direction: row;
+    align-items: center;
+    gap: 7px;
+    left: auto;
+    right: 10px;
+    bottom: 4px;
+}
+
+.legend-scale .scale-bar {
+    width: 84px;
+    height: 8px;
+    border-radius: 2px;
+    background: linear-gradient(to right, var(--kind-module), var(--kind-macro));
+}
+
+/* =========================================================================
+   Dependency wheel
+   ========================================================================= */
+
+.wheel-arc {
+    cursor: pointer;
+    stroke-width: 1;
+}
+
+.ribbon {
+    fill-opacity: 0.55;
+    stroke-width: 0.5;
+}
+
+.ribbon:hover {
+    fill-opacity: 0.85;
+}
+
+.ribbon.faded {
+    fill-opacity: 0.06;
+}
+
+.wheel-label {
+    pointer-events: none;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    font-size: 11px;
+}
+
+.view-note {
+    position: absolute;
+    left: 10px;
+    bottom: 8px;
+    right: 10px;
+    color: var(--fg-muted);
+    font-size: 10.5px;
+}
+
+/* =========================================================================
+   Shared tooltip
+   ========================================================================= */
+
+.tip {
+    position: absolute;
+    z-index: 6;
+    max-width: 260px;
+    padding: 6px 9px;
+    border: 1px solid var(--control-border);
+    border-radius: 5px;
+    background: var(--panel);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+    pointer-events: none;
+}
+
+.tip[hidden] {
+    display: none;
+}
+
+.tip-title {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 11.5px;
+    overflow-wrap: anywhere;
+}
+
+.tip-line {
+    margin-top: 2px;
+    color: var(--fg-muted);
+    font-size: 10.5px;
+}
+
+.tip-hint {
+    margin-top: 4px;
+    color: var(--fg-faint);
+    font-size: 10px;
+    font-style: italic;
+}

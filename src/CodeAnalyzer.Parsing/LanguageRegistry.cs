@@ -1,0 +1,101 @@
+using CodeAnalyzer.Core.Domain;
+
+namespace CodeAnalyzer.Parsing;
+
+/// <summary>
+/// Maps file extensions to language definitions. Adding a language means adding an
+/// entry here plus a query pack folder; nothing else in the pipeline changes.
+/// </summary>
+public static class LanguageRegistry
+{
+    public const string C = LanguageNames.C;
+    public const string Cpp = LanguageNames.Cpp;
+    public const string CSharp = LanguageNames.CSharp;
+    public const string Python = LanguageNames.Python;
+    public const string Verilog = LanguageNames.Verilog;
+    public const string Html = LanguageNames.Html;
+
+    private static readonly LanguageDefinition[] Definitions =
+    [
+        new()
+        {
+            Name = C,
+            GrammarId = "C",
+            Extensions = [".c", ".h"],
+            QueryPackName = "c",
+        },
+        new()
+        {
+            Name = Cpp,
+            GrammarId = "CPP",
+            Extensions = [".cpp", ".cxx", ".cc", ".c++", ".hpp", ".hxx", ".hh", ".h++", ".ipp", ".inl"],
+            QueryPackName = "cpp",
+        },
+        new()
+        {
+            Name = CSharp,
+            GrammarId = "C#",
+            Extensions = [".cs"],
+            QueryPackName = "csharp",
+        },
+        new()
+        {
+            Name = Python,
+            GrammarId = "Python",
+            Extensions = [".py", ".pyi", ".pyw"],
+            QueryPackName = "python",
+        },
+        new()
+        {
+            Name = Verilog,
+            GrammarId = "Verilog",
+            Extensions = [".v", ".vh", ".sv", ".svh", ".vlg"],
+            QueryPackName = "verilog",
+            CallerKinds = new HashSet<SymbolKind> { SymbolKind.Module, SymbolKind.Function },
+        },
+        new()
+        {
+            Name = Html,
+            GrammarId = "HTML",
+            Extensions = [".html", ".htm", ".xhtml"],
+            QueryPackName = "html",
+        },
+    ];
+
+    private static readonly Dictionary<string, LanguageDefinition> ByExtension =
+        BuildExtensionMap();
+
+    private static readonly Dictionary<string, LanguageDefinition> ByName =
+        Definitions.ToDictionary(d => d.Name, StringComparer.OrdinalIgnoreCase);
+
+    private static Dictionary<string, LanguageDefinition> BuildExtensionMap()
+    {
+        var map = new Dictionary<string, LanguageDefinition>(StringComparer.OrdinalIgnoreCase);
+        foreach (var definition in Definitions)
+        {
+            foreach (var extension in definition.Extensions)
+            {
+                map[extension] = definition;
+            }
+        }
+
+        return map;
+    }
+
+    /// <summary>All languages currently supported, in registration order.</summary>
+    public static IReadOnlyList<LanguageDefinition> All => Definitions;
+
+    /// <summary>Returns the language for a file extension, or null when unsupported.</summary>
+    public static LanguageDefinition? ForExtension(string extension) =>
+        ByExtension.GetValueOrDefault(extension);
+
+    public static LanguageDefinition? ForName(string name) =>
+        ByName.GetValueOrDefault(name);
+
+    /// <summary>
+    /// True when a query pack exists for this language. Languages are registered here
+    /// before their packs are written, so the pipeline checks this before parsing.
+    /// </summary>
+    public static bool HasQueryPack(LanguageDefinition definition) =>
+        QueryPack.Exists(definition.QueryPackName);
+}

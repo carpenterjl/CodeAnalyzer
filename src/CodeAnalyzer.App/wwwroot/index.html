@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <!--
+      Everything this page needs is bundled next to it. connect-src 'none' means a
+      compromised or mistaken script cannot phone home, and there is no CDN to be
+      offline from. The host also refuses navigation away from this origin.
+
+      The sha256 hash whitelists one specific inline stylesheet: cytoscape injects
+      "<container class> { position: relative; }" on startup. Pinning the hash keeps
+      style-src strict instead of falling back to 'unsafe-inline'. If a cytoscape upgrade
+      changes that text the hash stops matching, and the rule is simply blocked again --
+      harmless, because the canvases are already positioned in app.css. bridge.js reports
+      any violation to the host log, so a stale hash shows up rather than passing unnoticed.
+
+      d3 needs no exception: it sets styles through the CSSOM, which style-src does not
+      police, rather than by writing style attributes.
+
+      frame-ancestors is deliberately absent: it is ignored in a <meta> policy, and the
+      host blocks framing by refusing every navigation off this origin.
+    -->
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'none';
+                   script-src 'self';
+                   style-src 'self' 'sha256-pgvDUBa4IjFA2yuSJ2cqcyxmNYJMborsd0ORcRv9vw8=';
+                   img-src 'self' data:;
+                   font-src 'self';
+                   connect-src 'none';
+                   base-uri 'none';
+                   form-action 'none';" />
+    <title>Dependency graph</title>
+    <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+
+    <!-- ============ Neighbourhood graph ============ -->
+    <section id="view-graph" class="view">
+        <div id="canvas"></div>
+
+        <!-- Shown when there is nothing to draw. Text comes from the host. -->
+        <div id="overlay" class="overlay">
+            <p id="overlay-text">Loading…</p>
+        </div>
+
+        <!-- Says out loud when the node cap cut the fragment short. -->
+        <div id="truncation" class="notice" hidden>
+            Result capped at the node limit &mdash; some neighbours are not shown.
+        </div>
+
+        <!-- Expansion affordances for the selected node. Only rendered for directions
+             that actually have more to show, so a button never leads to nothing. -->
+        <div id="popover" class="popover" hidden>
+            <div class="popover-title" id="popover-title"></div>
+            <div class="popover-sub" id="popover-sub"></div>
+            <button type="button" id="expand-callers" class="popover-btn" hidden></button>
+            <button type="button" id="expand-callees" class="popover-btn" hidden></button>
+            <!-- Per-call-site rows when an edge is selected; each jumps to its line. -->
+            <div id="popover-sites" class="popover-sites" hidden></div>
+        </div>
+
+        <!-- Restores anything removed by the right-click menu. Hidden while nothing is. -->
+        <div id="hidden-bar" class="hidden-bar" hidden>
+            <span id="hidden-count"></span>
+            <button type="button" id="show-hidden">Show hidden</button>
+        </div>
+
+        <!-- Right-click actions for a node or an edge. Built in graph.js. -->
+        <div id="context-menu" class="context-menu" hidden>
+            <div class="context-menu-title" id="context-menu-title"></div>
+            <div id="context-menu-items"></div>
+        </div>
+
+        <div id="legend" class="legend">
+            <div class="legend-size">
+                <span class="legend-size-label">Legend</span>
+                <button type="button" id="legend-smaller" title="Smaller legend text">A&minus;</button>
+                <button type="button" id="legend-larger" title="Larger legend text">A+</button>
+            </div>
+            <div class="legend-size">
+                <span class="legend-size-label">Detail</span>
+                <button type="button" id="legend-details" class="legend-toggle" aria-pressed="true"
+                        title="Show parameters and declared facts on each node">on</button>
+            </div>
+            <div class="legend-group">
+                <span class="swatch swatch-function"></span>function
+                <span class="swatch swatch-type"></span>type
+                <span class="swatch swatch-interface"></span>interface
+                <span class="swatch swatch-constant"></span>constant
+                <span class="swatch swatch-macro"></span>macro
+                <span class="swatch swatch-module"></span>module
+                <span class="swatch swatch-variable"></span>variable
+            </div>
+            <div class="legend-group">
+                <span class="line line-unique"></span>exact match
+                <span class="line line-ambiguous"></span>one of several
+                <span class="line line-weak"></span>cross-language
+                <span class="line line-inherits"></span>inherits
+            </div>
+            <div class="legend-group">
+                <span class="swatch swatch-outline"></span>public / unstated
+                <span class="swatch swatch-outline swatch-vis-internal"></span>internal
+                <span class="swatch swatch-outline swatch-vis-private"></span>private / protected
+                <span class="legend-italic">italic = override</span>
+            </div>
+            <div class="legend-group">
+                <span class="legend-italic">node lines: name(parameters) · value · what it is</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- ============ Composition inspector ============ -->
+    <section id="view-composition" class="view" hidden>
+        <div id="composition" class="scroll-pane"></div>
+        <div class="overlay" id="composition-empty">
+            <p>Select a symbol to see what it is made of.</p>
+        </div>
+    </section>
+
+    <!-- ============ Path tracer ============ -->
+    <section id="view-paths" class="view" hidden>
+        <div id="paths-canvas"></div>
+        <div id="paths-note" class="notice" hidden></div>
+        <div id="paths-routes" class="route-list" hidden></div>
+        <div class="overlay" id="paths-empty">
+            <p>Pick a start and an end symbol to trace how one reaches the other.</p>
+        </div>
+    </section>
+
+    <!-- ============ Dependency treemap ============ -->
+    <section id="view-treemap" class="view" hidden>
+        <nav id="treemap-crumbs" class="crumbs"></nav>
+        <div id="treemap" class="plot"></div>
+        <div id="treemap-tip" class="tip" hidden></div>
+        <div id="treemap-legend" class="legend legend-scale">
+            <span>self-contained</span>
+            <span class="scale-bar"></span>
+            <span>depends outward</span>
+        </div>
+        <div class="overlay" id="treemap-empty">
+            <p>Nothing indexed here yet.</p>
+        </div>
+    </section>
+
+    <!-- ============ Import / include wheel ============ -->
+    <section id="view-wheel" class="view" hidden>
+        <div id="wheel" class="plot"></div>
+        <div id="wheel-tip" class="tip" hidden></div>
+        <div id="wheel-note" class="view-note"></div>
+        <div class="overlay" id="wheel-empty">
+            <p>No dependencies to draw.</p>
+        </div>
+    </section>
+
+    <script src="lib/cytoscape.min.js"></script>
+    <script src="lib/layout-base.js"></script>
+    <script src="lib/cose-base.js"></script>
+    <script src="lib/cytoscape-fcose.js"></script>
+    <script src="lib/dagre.min.js"></script>
+    <script src="lib/cytoscape-dagre.js"></script>
+    <script src="lib/d3.min.js"></script>
+    <script src="bridge.js"></script>
+    <script src="views.js"></script>
+    <script src="graph.js"></script>
+    <script src="views/composition.js"></script>
+    <script src="views/paths.js"></script>
+    <script src="views/treemap.js"></script>
+    <script src="views/wheel.js"></script>
+</body>
+</html>

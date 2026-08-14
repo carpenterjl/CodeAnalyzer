@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>CodeAnalyzer.App</RootNamespace>
+    <AssemblyName>CodeAnalyzer</AssemblyName>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AvalonEdit" Version="6.3.1.120" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4129.50" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CodeAnalyzer.Core\CodeAnalyzer.Core.csproj" />
+    <ProjectReference Include="..\CodeAnalyzer.Parsing\CodeAnalyzer.Parsing.csproj" />
+  </ItemGroup>
+
+  <!--
+    The graph page and its bundled libraries ship next to the exe and are served from a
+    virtual host, so they must land in the output folder with their structure intact.
+    Update (not Include): the SDK already globs these as None items.
+  -->
+  <ItemGroup>
+    <None Update="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,661 @@
+<Window x:Class="CodeAnalyzer.App.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:CodeAnalyzer.App.ViewModels"
+        xmlns:view="clr-namespace:CodeAnalyzer.App.Views"
+        xmlns:avalon="http://icsharpcode.net/sharpdevelop/avalonedit"
+        mc:Ignorable="d"
+        d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
+        Title="{Binding Title}"
+        Height="820" Width="1400"
+        MinHeight="560" MinWidth="960"
+        Background="{DynamicResource App.Background}"
+        TextOptions.TextFormattingMode="Display"
+        UseLayoutRounding="True">
+
+    <Window.InputBindings>
+        <KeyBinding Modifiers="Control" Key="O" Command="{Binding OpenWorkspaceCommand}" />
+        <KeyBinding Key="F5" Command="{Binding ReindexCommand}" />
+        <KeyBinding Modifiers="Control" Key="F" Command="{Binding FocusSearchCommand}" />
+        <KeyBinding Modifiers="Control" Key="D1" Command="{Binding Graph.SelectViewCommand}" CommandParameter="Graph" />
+        <KeyBinding Modifiers="Control" Key="D2" Command="{Binding Graph.SelectViewCommand}" CommandParameter="Composition" />
+        <KeyBinding Modifiers="Control" Key="D3" Command="{Binding Graph.SelectViewCommand}" CommandParameter="Paths" />
+        <KeyBinding Modifiers="Control" Key="D4" Command="{Binding Graph.SelectViewCommand}" CommandParameter="Treemap" />
+        <KeyBinding Modifiers="Control" Key="D5" Command="{Binding Graph.SelectViewCommand}" CommandParameter="Wheel" />
+        <KeyBinding Modifiers="Control" Key="E" Command="{Binding ExportPngCommand}" />
+        <KeyBinding Modifiers="Control+Shift" Key="E" Command="{Binding ExportJsonCommand}" />
+        <KeyBinding Modifiers="Control" Key="T" Command="{Binding ToggleThemeCommand}" />
+        <KeyBinding Modifiers="Control" Key="L" Command="{Binding ToggleLiveUpdatesCommand}" />
+        <KeyBinding Modifiers="Control" Key="OemComma" Command="{Binding OpenSettingsCommand}" />
+    </Window.InputBindings>
+
+    <Window.Resources>
+
+        <!-- Workspace tree node: tri-state checkbox + lazy expand -->
+        <HierarchicalDataTemplate DataType="{x:Type vm:DirectoryNodeViewModel}"
+                                  ItemsSource="{Binding Children}">
+            <StackPanel Orientation="Horizontal" Margin="0,1">
+                <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}"
+                          IsThreeState="True"
+                          VerticalAlignment="Center"
+                          Margin="0,0,6,0" />
+                <TextBlock Text="{Binding Name}" VerticalAlignment="Center">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsIgnored}" Value="True">
+                                    <Setter Property="Foreground" Value="{DynamicResource App.Foreground.Faint}" />
+                                    <Setter Property="ToolTip" Value="Excluded by ignore rules" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+                <TextBlock Text="…" Margin="6,0,0,0" Style="{StaticResource Caption}"
+                           VerticalAlignment="Center"
+                           Visibility="{Binding IsLoadingChildren, Converter={StaticResource BoolToVisibility}}" />
+            </StackPanel>
+        </HierarchicalDataTemplate>
+
+        <!--
+            Search result row. The descriptor sits on its own line rather than in the
+            right-hand chip the kind label used to occupy: "public static method · overload
+            1 of 3" is several times the width of "method", and as a chip it squeezed the
+            name — the one thing the row exists to show — down to an ellipsis.
+        -->
+        <DataTemplate x:Key="SearchResultTemplate" DataType="{x:Type vm:SearchResultItem}">
+            <StackPanel Margin="4,3">
+                <!-- Container-prefixed and parameter-suffixed, so Device.Send, Radio.Send
+                     and Radio.Send(byte[], int) all read apart. -->
+                <TextBlock Text="{Binding DisplayName, Mode=OneWay}" FontWeight="SemiBold"
+                           TextTrimming="CharacterEllipsis" />
+                <TextBlock Text="{Binding Descriptor}" Style="{StaticResource Caption}"
+                           TextTrimming="CharacterEllipsis" />
+                <TextBlock Style="{StaticResource Caption}" TextTrimming="CharacterEllipsis"
+                           Foreground="{DynamicResource App.Foreground.Faint}">
+                    <Run Text="{Binding RelativePath, Mode=OneWay}" />
+                    <Run Text=":" />
+                    <Run Text="{Binding Line, Mode=OneWay}" />
+                </TextBlock>
+            </StackPanel>
+        </DataTemplate>
+
+        <!-- Caller/callee row. Ambiguous links are labelled, never presented as certain. -->
+        <DataTemplate x:Key="RelatedSymbolTemplate" DataType="{x:Type vm:RelatedSymbolItem}">
+            <Button Style="{StaticResource RowButton}"
+                    Command="{Binding DataContext.FocusSymbolCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                    CommandParameter="{Binding SymbolId}"
+                    ToolTip="Open this symbol">
+                <Grid Margin="0,3">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="{Binding Name}" Style="{StaticResource Mono}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Style="{StaticResource Caption}" TextTrimming="CharacterEllipsis">
+                            <Run Text="{Binding RelativePath, Mode=OneWay}" />
+                            <Run Text=":" />
+                            <Run Text="{Binding Line, Mode=OneWay}" />
+                        </TextBlock>
+                        <TextBlock Text="{Binding ConfidenceLabel}"
+                                   Style="{StaticResource Caption}"
+                                   Foreground="{DynamicResource App.Warning}"
+                                   FontStyle="Italic"
+                                   Visibility="{Binding IsAmbiguous, Converter={StaticResource BoolToVisibility}}" />
+                    </StackPanel>
+                    <TextBlock Grid.Column="1" Text="{Binding KindLabel}"
+                               Style="{StaticResource Caption}" VerticalAlignment="Top" Margin="6,0,0,0" />
+                </Grid>
+            </Button>
+        </DataTemplate>
+
+        <!--
+            One member of an overload set. The parameter list is the row: these declarations
+            share a name and differ in nothing else the pane could show.
+        -->
+        <DataTemplate x:Key="OverloadTemplate" DataType="{x:Type vm:OverloadItem}">
+            <Button Style="{StaticResource RowButton}"
+                    Command="{Binding DataContext.FocusSymbolCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                    CommandParameter="{Binding SymbolId}"
+                    ToolTip="Open this overload">
+                <Grid Margin="0,3">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="{Binding Parameters}" Style="{StaticResource Mono}"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Style="{StaticResource Caption}">
+                            <Run Text="line " />
+                            <Run Text="{Binding Line, Mode=OneWay}" />
+                        </TextBlock>
+                    </StackPanel>
+                    <TextBlock Grid.Column="1" Text="this one"
+                               Style="{StaticResource Caption}"
+                               FontStyle="Italic"
+                               VerticalAlignment="Top" Margin="6,0,0,0"
+                               Visibility="{Binding IsCurrent, Converter={StaticResource BoolToVisibility}}" />
+                </Grid>
+            </Button>
+        </DataTemplate>
+
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- ============ Toolbar ============ -->
+        <Border Grid.Row="0" Background="{DynamicResource App.Panel.Background}"
+                BorderBrush="{DynamicResource App.Panel.Border}" BorderThickness="0,0,0,1"
+                Padding="10,7">
+            <StackPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Orientation="Horizontal">
+                        <Button Content="Open workspace…" Command="{Binding OpenWorkspaceCommand}"
+                                ToolTip="Open a workspace folder (Ctrl+O)" />
+                        <Button Content="Re-index" Command="{Binding ReindexCommand}" Margin="6,0,0,0"
+                                ToolTip="Re-index the selected directories (F5)" />
+                        <Button Content="{Binding LiveUpdateLabel}"
+                                Command="{Binding ToggleLiveUpdatesCommand}"
+                                MinWidth="76" Margin="6,0,0,0"
+                                ToolTip="Re-index files as they change on disk (Ctrl+L). Turn this off during a build." />
+                        <Button Content="Settings…" Command="{Binding OpenSettingsCommand}" Margin="6,0,0,0"
+                                ToolTip="Ignore rules and file size cap for this workspace (Ctrl+,)" />
+                    </StackPanel>
+
+                    <!-- View tabs. Each is a toggle bound to the one view-mode property, so
+                         exactly one can ever be active. -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center">
+                        <RadioButton Style="{StaticResource ViewTab}" Content="Graph"
+                                     Command="{Binding Graph.SelectViewCommand}" CommandParameter="Graph"
+                                     IsChecked="{Binding Graph.ViewMode, Mode=OneWay,
+                                                 Converter={StaticResource ViewModeToBool}, ConverterParameter=Graph}"
+                                     ToolTip="Callers and callees around the selected symbol" />
+                        <RadioButton Style="{StaticResource ViewTab}" Content="Composition"
+                                     Command="{Binding Graph.SelectViewCommand}" CommandParameter="Composition"
+                                     IsChecked="{Binding Graph.ViewMode, Mode=OneWay,
+                                                 Converter={StaticResource ViewModeToBool}, ConverterParameter=Composition}"
+                                     ToolTip="Members, instantiations and type relations of the selected symbol" />
+                        <RadioButton Style="{StaticResource ViewTab}" Content="Paths"
+                                     Command="{Binding Graph.SelectViewCommand}" CommandParameter="Paths"
+                                     IsChecked="{Binding Graph.ViewMode, Mode=OneWay,
+                                                 Converter={StaticResource ViewModeToBool}, ConverterParameter=Paths}"
+                                     ToolTip="How one symbol reaches another" />
+                        <RadioButton Style="{StaticResource ViewTab}" Content="Treemap"
+                                     Command="{Binding Graph.SelectViewCommand}" CommandParameter="Treemap"
+                                     IsChecked="{Binding Graph.ViewMode, Mode=OneWay,
+                                                 Converter={StaticResource ViewModeToBool}, ConverterParameter=Treemap}"
+                                     ToolTip="Where the code is, and how much of it looks outward" />
+                        <RadioButton Style="{StaticResource ViewTab}" Content="Wheel"
+                                     Command="{Binding Graph.SelectViewCommand}" CommandParameter="Wheel"
+                                     IsChecked="{Binding Graph.ViewMode, Mode=OneWay,
+                                                 Converter={StaticResource ViewModeToBool}, ConverterParameter=Wheel}"
+                                     ToolTip="Dependencies between top-level directories" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="2" Orientation="Horizontal">
+                        <!-- Layout and export only mean anything to the neighbourhood graph. -->
+                        <Button Content="{Binding Graph.LayoutLabel}"
+                                Command="{Binding Graph.ToggleLayoutCommand}"
+                                MinWidth="92" Margin="0,0,6,0"
+                                Visibility="{Binding Graph.IsGraphView, Converter={StaticResource BoolToVisibility}}"
+                                ToolTip="Switch between a force-directed cluster view and a left-to-right call hierarchy" />
+
+                        <Button Content="PNG" Command="{Binding ExportPngCommand}" Margin="0,0,6,0"
+                                Visibility="{Binding Graph.IsGraphView, Converter={StaticResource BoolToVisibility}}"
+                                ToolTip="Export the graph as a PNG image (Ctrl+E)" />
+                        <Button Content="JSON" Command="{Binding ExportJsonCommand}" Margin="0,0,6,0"
+                                Visibility="{Binding Graph.IsGraphView, Converter={StaticResource BoolToVisibility}}"
+                                ToolTip="Export the graph's facts as JSON (Ctrl+Shift+E)" />
+
+                        <Button Content="{Binding Graph.WheelSourceLabel}"
+                                Command="{Binding Graph.ToggleWheelSourceCommand}"
+                                MinWidth="150" Margin="0,0,6,0"
+                                Visibility="{Binding Graph.IsWheelView, Converter={StaticResource BoolToVisibility}}"
+                                ToolTip="Count include and import lines, or every resolved symbol reference" />
+
+                        <Button Content="Theme" Command="{Binding ToggleThemeCommand}"
+                                ToolTip="Switch between the dark and light themes (Ctrl+T)" />
+                    </StackPanel>
+                </Grid>
+
+                <!-- Path endpoints. Only shown over the view they belong to, and set by an
+                     explicit action so that browsing the graph mid-choice moves neither end. -->
+                <Grid Margin="0,7,0,0"
+                      Visibility="{Binding Graph.IsPathsView, Converter={StaticResource BoolToVisibility}}">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                        <TextBlock Text="From" Style="{StaticResource Caption}" VerticalAlignment="Center" />
+                        <Border Style="{StaticResource EndpointChip}">
+                            <TextBlock Text="{Binding Graph.PathStartName}" Style="{StaticResource Mono}"
+                                       TextTrimming="CharacterEllipsis" MaxWidth="180" />
+                        </Border>
+                        <Button Content="Use selection" Command="{Binding SetPathStartCommand}" Padding="8,2" />
+
+                        <TextBlock Text="To" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="18,0,0,0" />
+                        <Border Style="{StaticResource EndpointChip}">
+                            <TextBlock Text="{Binding Graph.PathEndName}" Style="{StaticResource Mono}"
+                                       TextTrimming="CharacterEllipsis" MaxWidth="180" />
+                        </Border>
+                        <Button Content="Use selection" Command="{Binding SetPathEndCommand}" Padding="8,2" />
+
+                        <Button Content="Swap" Command="{Binding Graph.SwapPathEndpointsCommand}"
+                                Padding="8,2" Margin="14,0,0,0" />
+                        <Button Content="Clear" Command="{Binding Graph.ClearPathEndpointsCommand}"
+                                Padding="8,2" Margin="5,0,0,0" />
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <!-- ============ Content ============ -->
+        <Grid Grid.Row="1" Margin="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="300" MinWidth="220" />
+                <ColumnDefinition Width="6" />
+                <ColumnDefinition Width="*" MinWidth="360" />
+                <ColumnDefinition Width="6" />
+                <ColumnDefinition Width="340" MinWidth="240" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Left dock: search + workspace tree -->
+            <Grid Grid.Column="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" MinHeight="140" />
+                    <RowDefinition Height="6" />
+                    <RowDefinition Height="*" MinHeight="140" />
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0" Style="{StaticResource PanelBorder}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Text="SEARCH SYMBOLS" Style="{StaticResource SectionHeader}" />
+
+                        <TextBox x:Name="SearchBox" Grid.Row="1" Margin="8,0,8,6"
+                                 Text="{Binding Search.Query, UpdateSourceTrigger=PropertyChanged}"
+                                 PreviewKeyDown="OnSearchBoxKeyDown"
+                                 ToolTip="Fuzzy symbol search (Ctrl+F). Down moves into the results; Escape clears." />
+
+                        <!-- Kind filters. Nothing selected means no filter, which is why
+                             there is no "All" chip to get out of step with the rest. -->
+                        <Grid Grid.Row="2" Margin="8,0,8,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <ItemsControl Grid.Column="0" ItemsSource="{Binding Search.KindFilters}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:SearchKindFilter}">
+                                        <ToggleButton Style="{StaticResource FilterChip}"
+                                                      Content="{Binding Label}"
+                                                      IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                      ToolTip="Show only symbols of this kind. With none selected, every kind is listed." />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <Button Grid.Column="1" Content="Clear"
+                                    Command="{Binding ClearSearchFiltersCommand}"
+                                    Padding="7,1" Margin="4,0,0,4" VerticalAlignment="Top"
+                                    Visibility="{Binding Search.HasKindFilter, Converter={StaticResource BoolToVisibility}}"
+                                    ToolTip="Remove every kind filter" />
+                        </Grid>
+
+                        <Grid Grid.Row="3">
+                            <ListBox x:Name="SearchResults"
+                                     ItemsSource="{Binding Search.Results}"
+                                     SelectedItem="{Binding Search.SelectedResult}"
+                                     ItemTemplate="{StaticResource SearchResultTemplate}"
+                                     Margin="4,0,4,4" />
+                            <TextBlock Text="{Binding Search.EmptyMessage}"
+                                       Style="{StaticResource Caption}"
+                                       TextWrapping="Wrap"
+                                       Margin="12"
+                                       VerticalAlignment="Top"
+                                       Visibility="{Binding Search.Results.Count, Converter={StaticResource ZeroToVisibility}}" />
+                        </Grid>
+                    </Grid>
+                </Border>
+
+                <GridSplitter Grid.Row="1" Height="6" HorizontalAlignment="Stretch" Background="Transparent" />
+
+                <Border Grid.Row="2" Style="{StaticResource PanelBorder}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Text="WORKSPACE" Style="{StaticResource SectionHeader}" />
+
+                        <Grid Grid.Row="1">
+                            <TreeView ItemsSource="{Binding WorkspaceTree.Roots}" Margin="4,0,4,4">
+                                <TreeView.ItemContainerStyle>
+                                    <Style TargetType="TreeViewItem">
+                                        <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                                        <Setter Property="Foreground" Value="{DynamicResource App.Foreground}" />
+                                    </Style>
+                                </TreeView.ItemContainerStyle>
+                            </TreeView>
+                            <TextBlock Text="No workspace open."
+                                       Style="{StaticResource Caption}"
+                                       Margin="12"
+                                       VerticalAlignment="Top"
+                                       Visibility="{Binding WorkspaceTree.HasWorkspace, Converter={StaticResource InverseBoolToVisibility}}" />
+                        </Grid>
+
+                        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="8,0,8,8">
+                            <Button Content="All" Command="{Binding WorkspaceTree.SelectAllCommand}" Padding="8,3" />
+                            <Button Content="None" Command="{Binding WorkspaceTree.SelectNoneCommand}" Padding="8,3" Margin="5,0,0,0" />
+                            <Button Content="Apply selection" Command="{Binding WorkspaceTree.ApplySelectionCommand}" Padding="8,3" Margin="5,0,0,0" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch" Background="Transparent" />
+
+            <!-- Center: visualization + code preview -->
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" MinHeight="200" />
+                    <RowDefinition Height="6" />
+                    <RowDefinition Height="240" MinHeight="80" />
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0" Style="{StaticResource PanelBorder}" ClipToBounds="True">
+                    <!-- Filled from the container with the injected GraphView. -->
+                    <ContentControl x:Name="GraphHost" />
+                </Border>
+
+                <GridSplitter Grid.Row="1" Height="6" HorizontalAlignment="Stretch" Background="Transparent" />
+
+                <Border Grid.Row="2" Style="{StaticResource PanelBorder}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <DockPanel Grid.Row="0" LastChildFill="False">
+                            <TextBlock DockPanel.Dock="Left" Text="SOURCE" Style="{StaticResource SectionHeader}" />
+                            <TextBlock DockPanel.Dock="Right" Style="{StaticResource Caption}" Margin="8,8,8,4"
+                                       Text="{Binding Preview.RelativePath}" TextTrimming="CharacterEllipsis" />
+                        </DockPanel>
+
+                        <Grid Grid.Row="1">
+                            <avalon:TextEditor IsReadOnly="True"
+                                               ShowLineNumbers="True"
+                                               WordWrap="False"
+                                               Margin="8,0,8,8"
+                                               BorderThickness="0"
+                                               Background="Transparent"
+                                               Foreground="{DynamicResource App.Foreground}"
+                                               LineNumbersForeground="{DynamicResource App.Foreground.Faint}"
+                                               FontFamily="{DynamicResource App.MonoFontFamily}"
+                                               FontSize="12"
+                                               HorizontalScrollBarVisibility="Auto"
+                                               VerticalScrollBarVisibility="Auto"
+                                               view:CodePreviewBehavior.SourceText="{Binding Preview.Text}"
+                                               view:CodePreviewBehavior.FilePath="{Binding Preview.RelativePath}"
+                                               view:CodePreviewBehavior.HighlightLine="{Binding Preview.HighlightLine}"
+                                               Visibility="{Binding Preview.HasContent, Converter={StaticResource BoolToVisibility}}" />
+                            <TextBlock Text="{Binding Preview.EmptyMessage}"
+                                       Style="{StaticResource Caption}"
+                                       Margin="12,4,12,12"
+                                       VerticalAlignment="Top"
+                                       Visibility="{Binding Preview.HasContent, Converter={StaticResource InverseBoolToVisibility}}" />
+                        </Grid>
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <GridSplitter Grid.Column="3" Width="6" HorizontalAlignment="Stretch" Background="Transparent" />
+
+            <!-- Right dock: symbol facts -->
+            <Border Grid.Column="4" Style="{StaticResource PanelBorder}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Text="DETAILS" Style="{StaticResource SectionHeader}" />
+
+                    <Grid Grid.Row="1">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="8,0,8,8"
+                                      Visibility="{Binding Detail.HasSymbol, Converter={StaticResource BoolToVisibility}}">
+                            <StackPanel>
+                                <TextBlock Text="{Binding Detail.Name}" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap" />
+
+                                <!--
+                                    The descriptor states the modifiers, the type or the
+                                    kind, and the overload position in one line, so the
+                                    kind label alone is no longer enough here.
+                                -->
+                                <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+                                    <TextBlock Text="{Binding Detail.Descriptor}" Style="{StaticResource Caption}"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text=" · " Style="{StaticResource Caption}" />
+                                    <TextBlock Text="{Binding Detail.Language}" Style="{StaticResource Caption}" />
+                                </StackPanel>
+
+                                <TextBlock Style="{StaticResource Caption}" Margin="0,2,0,0" TextTrimming="CharacterEllipsis">
+                                    <Run Text="{Binding Detail.RelativePath, Mode=OneWay}" />
+                                    <Run Text=":" />
+                                    <Run Text="{Binding Detail.Line, Mode=OneWay}" />
+                                </TextBlock>
+
+                                <TextBlock Text="{Binding Detail.Signature}" Style="{StaticResource Mono}"
+                                           TextWrapping="Wrap" Margin="0,8,0,0"
+                                           Visibility="{Binding Detail.Signature, Converter={StaticResource NullToCollapsed}}" />
+
+                                <!-- Verbatim modifier keywords, e.g. "public sealed override" -->
+                                <TextBlock Margin="0,6,0,0" TextWrapping="Wrap"
+                                           Visibility="{Binding Detail.Modifiers, Converter={StaticResource NullToCollapsed}}">
+                                    <Run Text="modifiers:" Foreground="{DynamicResource App.Foreground.Muted}" />
+                                    <Run Text="{Binding Detail.Modifiers, Mode=OneWay}" FontFamily="Cascadia Mono, Consolas" />
+                                </TextBlock>
+
+                                <!-- Literal initializer, verbatim from source -->
+                                <Border Margin="0,8,0,0" Padding="7,4" CornerRadius="4"
+                                        Background="{DynamicResource App.Control.Background}"
+                                        BorderBrush="{DynamicResource App.Control.Border}" BorderThickness="1"
+                                        Visibility="{Binding Detail.Value, Converter={StaticResource NullToCollapsed}}">
+                                    <StackPanel>
+                                        <TextBlock Text="VALUE" Style="{StaticResource Caption}" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding Detail.Value}" Style="{StaticResource Mono}"
+                                                   TextWrapping="Wrap" Margin="0,2,0,0"
+                                                   Foreground="{DynamicResource Kind.Constant}" />
+                                    </StackPanel>
+                                </Border>
+
+                                <!--
+                                    Other definitions of this name in this scope. Only ever
+                                    populated when there is more than one, so the heading
+                                    never appears over a symbol's own single self.
+                                -->
+                                <TextBlock Text="OVERLOADS" Style="{StaticResource SectionHeader}" Margin="0,14,0,4"
+                                           Visibility="{Binding Detail.Overloads.Count, Converter={StaticResource NonZeroToVisibility}}" />
+                                <ItemsControl ItemsSource="{Binding Detail.Overloads}"
+                                              ItemTemplate="{StaticResource OverloadTemplate}" />
+
+                                <!-- Composition: struct fields, class methods, module ports -->
+                                <TextBlock Text="MEMBERS" Style="{StaticResource SectionHeader}" Margin="0,14,0,4"
+                                           Visibility="{Binding Detail.Members.Count, Converter={StaticResource NonZeroToVisibility}}" />
+                                <ItemsControl ItemsSource="{Binding Detail.Members}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="0,2">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Grid.Column="0">
+                                                    <TextBlock Text="{Binding Name}" Style="{StaticResource Mono}" />
+                                                    <TextBlock Style="{StaticResource Caption}" TextTrimming="CharacterEllipsis">
+                                                        <Run Text="{Binding TypeText, Mode=OneWay}" />
+                                                    </TextBlock>
+                                                </StackPanel>
+                                                <TextBlock Grid.Column="1" Text="{Binding Value}"
+                                                           Style="{StaticResource Mono}" VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource Kind.Constant}" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <TextBlock Text="CALLED BY" Style="{StaticResource SectionHeader}" Margin="0,14,0,4"
+                                           Visibility="{Binding Detail.Callers.Count, Converter={StaticResource NonZeroToVisibility}}" />
+                                <ItemsControl ItemsSource="{Binding Detail.Callers}"
+                                              ItemTemplate="{StaticResource RelatedSymbolTemplate}" />
+
+                                <TextBlock Text="DEPENDS ON" Style="{StaticResource SectionHeader}" Margin="0,14,0,4"
+                                           Visibility="{Binding Detail.Callees.Count, Converter={StaticResource NonZeroToVisibility}}" />
+                                <ItemsControl ItemsSource="{Binding Detail.Callees}"
+                                              ItemTemplate="{StaticResource RelatedSymbolTemplate}" />
+
+                                <!-- Names that matched no definition in the workspace. Listed
+                                     rather than guessed at, so the graph stays factual. -->
+                                <TextBlock Text="UNRESOLVED" Style="{StaticResource SectionHeader}" Margin="0,14,0,4"
+                                           Visibility="{Binding Detail.UnresolvedReferences.Count, Converter={StaticResource NonZeroToVisibility}}" />
+                                <ItemsControl ItemsSource="{Binding Detail.UnresolvedReferences}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal" Margin="0,2">
+                                                <TextBlock Text="{Binding Name}" Style="{StaticResource Mono}"
+                                                           Foreground="{DynamicResource App.Foreground.Faint}" />
+                                                <TextBlock Text="{Binding KindLabel}" Style="{StaticResource Caption}" Margin="6,0,0,0" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Text="Not defined in this workspace."
+                                           Style="{StaticResource Caption}" Margin="0,4,0,0" FontStyle="Italic"
+                                           Visibility="{Binding Detail.UnresolvedReferences.Count, Converter={StaticResource NonZeroToVisibility}}" />
+                            </StackPanel>
+                        </ScrollViewer>
+                        <TextBlock Text="{Binding Detail.EmptyMessage}"
+                                   Style="{StaticResource Caption}"
+                                   TextWrapping="Wrap"
+                                   Margin="12,4,12,12"
+                                   VerticalAlignment="Top"
+                                   Visibility="{Binding Detail.HasSymbol, Converter={StaticResource InverseBoolToVisibility}}" />
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- ============ Error list ============ -->
+        <!-- Files whose last parse was imperfect. Selecting one opens it in the preview.
+             Toggled from the status bar, and only offered when there is something to show. -->
+        <Border Grid.Row="2" Background="{DynamicResource App.Panel.Background}"
+                BorderBrush="{DynamicResource App.Panel.Border}" BorderThickness="0,1,0,0"
+                Visibility="{Binding IsErrorPaneVisible, Converter={StaticResource BoolToVisibility}}">
+            <Grid MaxHeight="180">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <DockPanel Grid.Row="0" LastChildFill="False">
+                    <TextBlock DockPanel.Dock="Left" Text="FILES WITH ERRORS" Style="{StaticResource SectionHeader}" />
+                    <Button DockPanel.Dock="Right" Content="✕" Padding="6,0" Margin="8,6"
+                            Command="{Binding ToggleErrorPaneCommand}"
+                            ToolTip="Hide the error list" />
+                </DockPanel>
+
+                <ListBox Grid.Row="1" Margin="8,0,8,8"
+                         ItemsSource="{Binding FileErrors}"
+                         SelectedItem="{Binding SelectedError}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="2,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="2*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="3*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{Binding RelativePath}"
+                                           Style="{StaticResource Mono}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="1" Text="{Binding Language}"
+                                           Style="{StaticResource Caption}" Margin="10,0" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="2" Text="{Binding Description}"
+                                           Style="{StaticResource Caption}" TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Border>
+
+        <!-- ============ Status bar ============ -->
+        <Border Grid.Row="3" Background="{DynamicResource App.StatusBar.Background}"
+                BorderBrush="{DynamicResource App.Panel.Border}" BorderThickness="0,1,0,0"
+                Padding="10,5">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0" Text="{Binding Status.Message}"
+                           Style="{StaticResource Caption}" VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" />
+
+                <Button Grid.Column="1" Content="{Binding ErrorSummary}" Margin="10,0,0,0" Padding="8,2"
+                        Command="{Binding ToggleErrorPaneCommand}"
+                        Visibility="{Binding HasFileErrors, Converter={StaticResource BoolToVisibility}}"
+                        ToolTip="Show or hide the list of files whose last parse was imperfect" />
+
+                <TextBlock Grid.Column="2" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="12,0"
+                           Visibility="{Binding Status.IsIndexing, Converter={StaticResource BoolToVisibility}}">
+                    <Run Text="{Binding Status.FilesProcessed, Mode=OneWay}" />
+                    <Run Text="/" />
+                    <Run Text="{Binding Status.FilesDiscovered, Mode=OneWay}" />
+                    <Run Text=" files" />
+                </TextBlock>
+
+                <ProgressBar Grid.Column="3" Width="170" VerticalAlignment="Center"
+                             Value="{Binding Status.ProgressPercent, Mode=OneWay, TargetNullValue=0}"
+                             IsIndeterminate="{Binding Status.ProgressPercent, Converter={StaticResource NullToBool}}"
+                             Visibility="{Binding Status.IsIndexing, Converter={StaticResource BoolToVisibility}}" />
+
+                <Button Grid.Column="4" Content="Cancel" Margin="10,0,0,0" Padding="8,2"
+                        Command="{Binding Status.CancelCommand}"
+                        Visibility="{Binding Status.IsIndexing, Converter={StaticResource BoolToVisibility}}" />
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

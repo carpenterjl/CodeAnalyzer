@@ -1,0 +1,59 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+
+# Visual Studio / Rider / VS Code local state
+.vs/
+.idea/
+*.user
+*.suo
+*.userprefs
+*.sln.docstates
+launchSettings.json
+
+# NuGet
+*.nupkg
+*.snupkg
+packages/
+.packages/
+
+# Test and coverage output
+[Tt]est[Rr]esult*/
+*.trx
+*.coverage
+*.coverem
+coverage*.json
+coverage*.xml
+coverage*.info
+*.received.*
+
+# Native / interop leftovers
+*.pdb
+*.dll.config
+*.ilk
+*.exp
+
+# Local tooling
+.claude/
+*.log
+
+# OS noise
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Deliberately NOT ignored
+#
+#   src/CodeAnalyzer.App/wwwroot/lib/   — cytoscape, fcose, dagre and d3 are vendored on
+#                                        purpose. The graph page loads with no network
+#                                        access at all, so the bundle is source, not a
+#                                        restorable dependency. Their licences sit beside
+#                                        them in lib/licenses/ and must ship with them.
+#
+#   src/CodeAnalyzer.Parsing/Queries/   — the .scm query packs are embedded resources.
+#
+# Runtime caches live outside the tree, under %LOCALAPPDATA%\CodeAnalyzer\ (per-workspace
+# index.db, WebView2 user data, session.json), so nothing here needs to exclude them.
