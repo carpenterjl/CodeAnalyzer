@@ -222,4 +222,46 @@ public class CAnalyzerTests : IDisposable
         Assert.Equal(computeIndex, local.ContainerLocalIndex);
         Assert.Equal("5", local.Value);
     }
+
+    [Fact]
+    public void TrippingTheMatchLimitKeepsSymbolsAndStatesTheIncompleteness()
+    {
+        // A small limit stands in for the real 100k default, which no test-sized fixture
+        // can reach. With the C pack it is *nested struct declarations* that hold one
+        // in-progress match per level (a member pattern's capture completes only after
+        // the nested struct's whole subtree); nested calls and parens complete
+        // immediately and never accumulate. Probed empirically: healthy declaration
+        // shapes need fewer than 8 concurrent matches, so 16 cannot misfire on them —
+        // the same reasoning, scaled, that makes 100k safe for real code.
+        var nested = "int kept = 1;\n" + BuildNestedStructs(48);
+
+        using (var strangled = new TreeSitterAnalyzer(LanguageRegistry.ForName(LanguageRegistry.C)!)
+        {
+            MaxMatchesInProgress = 16,
+        })
+        {
+            var result = strangled.Analyze("test.c", nested, CancellationToken.None);
+
+            // Everything extracted is kept, and the incompleteness is stated — the file
+            // must never pretend it is fine.
+            Assert.Equal(FileStatus.ParseError, result.Status);
+            Assert.Contains("dropped query matches", result.ErrorMessage);
+            Assert.Contains(result.Symbols, s => s.Name == "kept");
+        }
+
+        using (var normal = new TreeSitterAnalyzer(LanguageRegistry.ForName(LanguageRegistry.C)!))
+        {
+            var result = normal.Analyze("test.c", nested, CancellationToken.None);
+
+            Assert.Equal(FileStatus.Ok, result.Status);
+            Assert.Null(result.ErrorMessage);
+        }
+    }
+
+    private static string BuildNestedStructs(int depth)
+    {
+        var open = string.Concat(Enumerable.Range(0, depth).Select(i => $"struct S{i} {{ "));
+        var close = string.Concat(Enumerable.Range(0, depth).Reverse().Select(i => $"}} s{i}; "));
+        return open + "int leaf; " + close.TrimEnd().TrimEnd(';') + ";";
+    }
 }

@@ -129,13 +129,14 @@ public static class CodePreviewBehavior
     }
 
     /// <summary>
-    /// Recolours the shared highlighting definitions for a dark background.
+    /// Recolours the shared highlighting definitions to the active theme's syntax palette.
     /// <para>
-    /// AvalonEdit ships a single palette tuned for black-on-white. On the dark surface its
-    /// near-black identifiers and punctuation disappear entirely, so every colour has to be
-    /// dealt with, not just the ones worth styling: named roles get a deliberate colour and
-    /// anything else is lifted until it is legible. The original palette is snapshotted on
-    /// first use so switching back to the light theme restores it exactly.
+    /// AvalonEdit ships a single palette tuned for black-on-white, and it agrees with neither
+    /// of the design system's themes. Named roles are repainted from the <c>Syntax.*</c> keys
+    /// the live theme dictionary defines — so a keyword is the same cyan the graph draws with
+    /// — and on the dark surface anything left unstyled is lifted until it is legible, since
+    /// near-black identifiers there disappear entirely. The original palette is snapshotted on
+    /// first use, so a role this method has no opinion about is restored exactly.
     /// </para>
     /// </summary>
     public static void ApplySyntaxTheme(bool dark)
@@ -146,12 +147,7 @@ public static class CodePreviewBehavior
         {
             colour.Foreground = original;
 
-            if (!dark)
-            {
-                continue;
-            }
-
-            var replacement = DarkColourFor(colour.Name) ?? Lift(original);
+            var replacement = ThemeColourFor(colour.Name) ?? (dark ? Lift(original) : null);
             if (replacement.HasValue)
             {
                 colour.Foreground = new SimpleHighlightingBrush(replacement.Value);
@@ -217,20 +213,34 @@ public static class CodePreviewBehavior
         }
     }
 
-    private static Color? DarkColourFor(string? name) => name is null ? null : Role(name) switch
+    /// <summary>
+    /// The theme's colour for a highlighting role, or null for roles the design system has
+    /// no opinion about. Resolved from the live dictionary rather than a table here, so the
+    /// preview, the detail pane and the graph page cannot drift apart.
+    /// </summary>
+    private static Color? ThemeColourFor(string? name)
     {
-        SyntaxRole.Comment => Color.FromRgb(0x6A, 0x82, 0x6A),
-        SyntaxRole.String => Color.FromRgb(0x9E, 0xCE, 0x6A),
-        SyntaxRole.Number => Color.FromRgb(0xE0, 0xAF, 0x68),
-        SyntaxRole.Preprocessor => Color.FromRgb(0xF7, 0x76, 0x8E),
-        SyntaxRole.Type => Color.FromRgb(0xC3, 0x9A, 0xF0),
-        SyntaxRole.Method => Color.FromRgb(0x7D, 0xCF, 0xFF),
-        SyntaxRole.Keyword => Color.FromRgb(0x7A, 0xA2, 0xF7),
-        _ => null,
-    };
+        var key = name is null ? null : Role(name) switch
+        {
+            SyntaxRole.Comment => "Syntax.Comment",
+            SyntaxRole.String => "Syntax.String",
+            SyntaxRole.Number => "Syntax.Number",
+            // Preprocessor directives are the macro family, and are coloured as one.
+            SyntaxRole.Preprocessor => "Kind.Macro",
+            SyntaxRole.Type => "Syntax.Type",
+            SyntaxRole.Method => "Syntax.Function",
+            SyntaxRole.Keyword => "Syntax.Keyword",
+            _ => null,
+        };
 
-    /// <summary>Default text colour for anything the palette leaves unstyled.</summary>
-    private static readonly Color UnstyledForeground = Color.FromRgb(0xC8, 0xCE, 0xD6);
+        return key is not null && Application.Current?.TryFindResource(key) is SolidColorBrush brush
+            ? brush.Color
+            : null;
+    }
+
+    /// <summary>Default text colour for anything the palette leaves unstyled: the dark
+    /// theme's ordinary body foreground, matching Syntax.Variable.</summary>
+    private static readonly Color UnstyledForeground = Color.FromRgb(0xDB, 0xE2, 0xFD);
 
     /// <summary>Below this relative luminance a colour is unreadable on the dark surface.</summary>
     private const double MinimumLuminance = 0.45;

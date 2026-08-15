@@ -1,3 +1,5 @@
+using System.IO;
+
 namespace CodeAnalyzer.Core.Crawling;
 
 /// <summary>
@@ -21,6 +23,12 @@ public static class IgnoreRules
         "packages", ".nuget",
         ".next", ".nuxt", ".cache",
         "CMakeFiles",
+        "site-packages", "TestResults",
+        "x64", "Win32", "ARM64",
+
+        // Debug and Release are deliberately NOT here. Extras are add-only: a user whose
+        // build outputs to Debug/ fixes it with one settings line, but a user whose
+        // *source* lives in Debug/ would have no way to un-ignore a built-in at all.
     };
 
     /// <summary>File extensions that never contain source we can index.</summary>
@@ -43,6 +51,18 @@ public static class IgnoreRules
 
     public static bool IsIgnoredFileExtension(string extension) =>
         IgnoredFileExtensions.Contains(extension);
+
+    /// <summary>
+    /// True when a directory is the root of a Python environment, whatever it is named.
+    /// A venv declares itself with its own pyvenv.cfg (conda with conda-meta); the
+    /// name list above catches .venv/venv/env, but a checked-in environment called
+    /// anything else — the reported case was "Environment", 4,458 parseable files —
+    /// walks straight past a name rule. Cost: two stats per crawled directory, beside
+    /// an enumeration that already touches it.
+    /// </summary>
+    public static bool IsEnvironmentRoot(string directoryFullPath) =>
+        File.Exists(Path.Combine(directoryFullPath, "pyvenv.cfg"))
+        || Directory.Exists(Path.Combine(directoryFullPath, "conda-meta"));
 
     /// <summary>
     /// Default cap on file size. Anything larger is almost always generated or vendored,

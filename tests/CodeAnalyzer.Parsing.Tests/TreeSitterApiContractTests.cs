@@ -254,6 +254,50 @@ public class TreeSitterApiContractTests
     }
 
     [Fact]
+    public void MatchLimit_BoundsInProgressMatchesAndReportsExceeding()
+    {
+        // The analyzer caps in-progress matches to bound native memory on pathological
+        // files, and reports the file's symbol list as possibly incomplete when the cap
+        // bit. The semantics this pins, established empirically: the limit is on
+        // *concurrently in-progress* matches, not on the total returned. A pattern whose
+        // captures complete at the node it starts on never accumulates state — even 64
+        // levels of nesting stay under a limit of 1 (first Execute). Only a pattern that
+        // must stay open across its subtree (here: capturing the closing paren, which
+        // arrives after all the nested content) holds one match per level, trips the
+        // limit, and visibly drops matches (second and third). That is exactly the shape
+        // of a pathological machine-generated file, which is why the cap is a safe memory
+        // bound and not a silent truncation of healthy files.
+        using var language = new Language("C");
+        using var parser = new Parser(language);
+
+        var nested = "int x = " + new string('(', 64) + "1" + new string(')', 64) + ";\n";
+        using var tree = parser.Parse(nested)!;
+
+        var nodeQuery = language.CreateQuery("(parenthesized_expression) @p");
+        var pairQuery = language.CreateQuery("(parenthesized_expression \")\" @close) @p");
+
+        using (var singleStep = nodeQuery.Execute(tree.RootNode, new QueryOptions { MatchLimit = 1 }))
+        {
+            Assert.Equal(64, singleStep.Matches.Count());
+            Assert.False(singleStep.IsMatchLimitExceeded);
+        }
+
+        using (var unlimited = pairQuery.Execute(tree.RootNode))
+        {
+            Assert.Equal(64, unlimited.Matches.Count());
+            Assert.False(unlimited.IsMatchLimitExceeded);
+        }
+
+        using (var limited = pairQuery.Execute(tree.RootNode, new QueryOptions { MatchLimit = 1 }))
+        {
+            // Drain the cursor first: the flag describes the last execution.
+            var kept = limited.Matches.Count();
+            Assert.True(limited.IsMatchLimitExceeded);
+            Assert.True(kept < 64);
+        }
+    }
+
+    [Fact]
     public void ParsersAreIndependentAcrossThreads()
     {
         // Each worker owns a Parser; a shared Language is only read. This asserts that

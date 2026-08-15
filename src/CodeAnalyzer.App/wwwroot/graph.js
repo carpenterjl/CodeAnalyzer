@@ -79,7 +79,7 @@
                     "text-wrap": "wrap",
                     "text-valign": "center",
                     "text-halign": "center",
-                    "font-family": "Cascadia Mono, Consolas, monospace",
+                    "font-family": cssVar("--font-mono"),
                     "font-size": 11,
                     color: cssVar("--node-text"),
                     "text-max-width": 190,
@@ -222,6 +222,43 @@
             }
         });
 
+        // I/O boundary stubs: small tag nodes hanging off their caller. Not symbols —
+        // they draw where data leaves or enters the workspace, and their direction came
+        // from the catalog's documented contract or the user's own mark, never from
+        // the syntax.
+        var ioColour = cssVar("--kind-io");
+        style.push({
+            selector: "node[?isIoStub]",
+            style: {
+                shape: "round-tag",
+                "background-color": ioColour,
+                "border-color": ioColour,
+                "background-opacity": 0.24,
+                "font-size": 10
+            }
+        });
+        style.push({
+            selector: 'edge[kind = "io"]',
+            style: {
+                width: 1.4,
+                "line-color": ioColour,
+                "target-arrow-color": ioColour,
+                "source-arrow-color": ioColour,
+                "target-arrow-shape": "triangle",
+                "arrow-scale": 0.75
+            }
+        });
+        style.push({
+            // An inout API sends and receives in one call, so its link points both ways.
+            selector: "edge[?bidirectional]",
+            style: { "source-arrow-shape": "triangle" }
+        });
+        style.push({
+            // Stubs are all detail, so the DETAIL toggle takes them with it.
+            selector: ".detail-hidden",
+            style: { display: "none" }
+        });
+
         return style;
     }
 
@@ -298,6 +335,24 @@
         return lines.join("\n");
     }
 
+    var DIRECTION_GLYPHS = { out: "▶", in: "◀", inout: "⇄" };
+
+    /*
+      A stub's label: the glyph says which way the data goes, the argument text says what
+      crosses, and the last line says who asserted the direction — a fact about the
+      catalog or the user, never about the syntax.
+    */
+    function stubLabel(data) {
+        var lines = [(DIRECTION_GLYPHS[data.direction] || "") + " " + data.name];
+
+        if (data.argText) {
+            lines.push(truncate(data.argText, MAX_LABEL_PARAMETERS));
+        }
+
+        lines.push(data.directionLabel + " · " + data.source);
+        return lines.join("\n");
+    }
+
     function toElements(graph) {
         var result = [];
 
@@ -347,7 +402,74 @@
             });
         });
 
+        (graph.ioStubs || []).forEach(function (stub) {
+            result.push({
+                group: "nodes",
+                data: {
+                    id: stub.id,
+                    name: stub.name,
+                    label: stubLabel(stub),
+                    isIoStub: true,
+                    direction: stub.direction,
+                    directionLabel: stub.directionLabel,
+                    source: stub.source,
+                    gateNote: stub.gateNote || "",
+                    argText: stub.argText || "",
+                    siteCount: stub.siteCount || 1,
+                    refIds: stub.refIds || [],
+                    // The fields every node handler reads, so a stub never breaks them.
+                    container: "",
+                    kind: "io",
+                    group: "io",
+                    path: "",
+                    line: 0,
+                    totalCallers: 0,
+                    totalCallees: 0,
+                    hiddenCallers: 0,
+                    hiddenCallees: 0
+                }
+            });
+
+            // Output points at the stub, input comes from it; an inout link carries an
+            // arrow at both ends via the bidirectional flag.
+            var outward = stub.direction !== "in";
+            result.push({
+                group: "edges",
+                data: {
+                    id: stub.id + ":link",
+                    source: outward ? stub.caller : stub.id,
+                    target: outward ? stub.id : stub.caller,
+                    kind: "io",
+                    kindId: -1,
+                    confidence: "unique",
+                    confidenceLabel: "boundary",
+                    line: 0,
+                    candidates: 1,
+                    callSites: stub.siteCount || 1,
+                    bidirectional: stub.direction === "inout"
+                }
+            });
+        });
+
         return result;
+    }
+
+    /*
+      The DETAIL toggle takes the stubs with it: they are all detail, and a crowded canvas
+      scanned with details off should read as the plain call graph.
+    */
+    function applyStubVisibility() {
+        var stubs = cy.nodes("[?isIoStub]");
+        if (stubs.length === 0) {
+            return;
+        }
+
+        var affected = stubs.union(stubs.connectedEdges());
+        if (showNodeDetails) {
+            affected.removeClass("detail-hidden");
+        } else {
+            affected.addClass("detail-hidden");
+        }
     }
 
     // ---- Layout ------------------------------------------------------------
@@ -411,8 +533,12 @@
     */
     function updateHiddenCounts() {
         cy.nodes().forEach(function (node) {
-            node.data("hiddenCallers", Math.max(0, node.data("totalCallers") - node.incomers("edge").length));
-            node.data("hiddenCallees", Math.max(0, node.data("totalCallees") - node.outgoers("edge").length));
+            // io links are not symbol references: the stored totals never counted them,
+            // so the drawn count must not either, or every stub would eat one badge slot.
+            node.data("hiddenCallers", Math.max(0,
+                node.data("totalCallers") - node.incomers('edge[kind != "io"]').length));
+            node.data("hiddenCallees", Math.max(0,
+                node.data("totalCallees") - node.outgoers('edge[kind != "io"]').length));
         });
     }
 
@@ -606,6 +732,12 @@
         elements.legendDetails.setAttribute("aria-pressed", String(showNodeDetails));
         elements.legendDetails.textContent = showNodeDetails ? "on" : "off";
         relabelAll();
+
+        // Stubs come and go with the toggle, which changes what the layout has to place.
+        if (cy.nodes("[?isIoStub]").length > 0) {
+            applyStubVisibility();
+            runLayout(currentLayout, true);
+        }
     }
 
     /*
@@ -616,7 +748,8 @@
     function relabelAll() {
         cy.batch(function () {
             cy.nodes().forEach(function (node) {
-                node.data("label", nodeLabel(node.data(), showNodeDetails));
+                var data = node.data();
+                node.data("label", data.isIoStub ? stubLabel(data) : nodeLabel(data, showNodeDetails));
             });
         });
     }
@@ -640,8 +773,43 @@
         elements.popover.hidden = true;
     }
 
+    /*
+      The stub's popover states the whole honesty chain in one line: which way the data
+      goes, who said so, and — for gated matches — the co-occurrence rule that admitted a
+      generic member name. Site rows arrive in the detail pane, not here.
+    */
+    function showStubPopover(node) {
+        var data = node.data();
+
+        elements.popoverTitle.textContent =
+            (DIRECTION_GLYPHS[data.direction] || "") + " " + data.name;
+
+        var parts = [data.directionLabel + " boundary", data.source];
+        if (data.gateNote) {
+            parts.push(data.gateNote);
+        }
+        if (data.argText) {
+            parts.push(data.argText);
+        }
+        parts.push(data.siteCount + (data.siteCount === 1 ? " call site" : " call sites"));
+        elements.popoverSub.textContent = parts.join("  ·  ");
+
+        elements.expandCallers.hidden = true;
+        elements.expandCallees.hidden = true;
+        elements.popoverSites.hidden = true;
+        elements.popoverSites.textContent = "";
+
+        elements.popover.hidden = false;
+        positionPopover(node);
+    }
+
     function showPopover(node) {
         var data = node.data();
+
+        if (data.isIoStub) {
+            showStubPopover(node);
+            return;
+        }
 
         // textContent, never innerHTML: these strings come out of the user's source.
         elements.popoverTitle.textContent = data.container
@@ -807,6 +975,22 @@
         var id = node.id();
         var now = Date.now();
 
+        // A stub is not a symbol: its id must never reach the symbol paths, and there is
+        // nothing to re-root on. Clicking it asks the host for the per-site facts.
+        if (node.data("isIoStub")) {
+            lastTap = { id: null, at: 0 };
+            highlightNeighbourhood(node);
+            showPopover(node);
+            bridge.post("ioStubSelected", {
+                name: node.data("name"),
+                directionLabel: node.data("directionLabel"),
+                source: node.data("source"),
+                gateNote: node.data("gateNote") || null,
+                refIds: node.data("refIds")
+            });
+            return;
+        }
+
         // Rolled by hand rather than relying on a dbltap event, so the behaviour does not
         // depend on which build of the renderer is bundled.
         if (lastTap.id === id && now - lastTap.at < DOUBLE_TAP_MS) {
@@ -826,6 +1010,16 @@
         var edge = event.target;
         var id = edge.id();
         var now = Date.now();
+
+        // An io link is half of its stub: clicking it means the stub, and the edge-detail
+        // query has no rows to answer for it anyway.
+        if (edge.data("kind") === "io") {
+            var stub = edge.connectedNodes("[?isIoStub]");
+            if (stub.length > 0) {
+                stub.emit("tap");
+            }
+            return;
+        }
 
         // Double-tap on an edge jumps the preview to its first call site.
         if (lastTap.id === id && now - lastTap.at < DOUBLE_TAP_MS) {
@@ -917,6 +1111,7 @@
         setOverlay(null);
         cy.add(added);
         updateHiddenCounts();
+        applyStubVisibility();
         elements.truncation.hidden = !graph.truncated;
 
         runLayout(currentLayout, false);
@@ -965,6 +1160,7 @@
         }
 
         updateHiddenCounts();
+        applyStubVisibility();
 
         if (graph.truncated) {
             elements.truncation.hidden = false;
@@ -1085,6 +1281,13 @@
                 if (d.modifiers) { entry.modifiers = d.modifiers; }
                 if (d.container) { entry.container = d.container; }
                 if (d.isFocus) { entry.isFocus = true; }
+                if (d.isIoStub) {
+                    // The direction is not a source fact, so the export names its source.
+                    entry.ioBoundary = { direction: d.directionLabel, source: d.source };
+                    if (d.argText) { entry.argText = d.argText; }
+                    delete entry.path;
+                    delete entry.line;
+                }
                 return entry;
             }),
             edges: cy.edges(":visible").map(function (edge) {

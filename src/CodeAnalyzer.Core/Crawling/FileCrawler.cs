@@ -29,6 +29,7 @@ public sealed class FileCrawler : IFileCrawler
 {
     private readonly WorkspaceSettings _settings;
     private readonly Func<string, bool> _isSupportedExtension;
+    private readonly GitIgnoreRules? _gitIgnore;
 
     /// <param name="isSupportedExtension">
     /// Decides whether an extension has a language mapping. Injected so Core stays
@@ -37,12 +38,18 @@ public sealed class FileCrawler : IFileCrawler
     /// <param name="settings">
     /// The workspace's ignore extras and size cap. Defaults to the built-in rules alone.
     /// </param>
+    /// <param name="gitIgnore">
+    /// The repository's .gitignore rules, when the workspace opted into honoring them.
+    /// Null means the built-in and per-workspace rules alone decide.
+    /// </param>
     public FileCrawler(
         Func<string, bool> isSupportedExtension,
-        WorkspaceSettings? settings = null)
+        WorkspaceSettings? settings = null,
+        GitIgnoreRules? gitIgnore = null)
     {
         _isSupportedExtension = isSupportedExtension;
         _settings = settings ?? WorkspaceSettings.Default;
+        _gitIgnore = gitIgnore;
     }
 
     public IEnumerable<FileWorkItem> Crawl(WorkspaceSelection selection, CancellationToken cancellationToken)
@@ -68,6 +75,16 @@ public sealed class FileCrawler : IFileCrawler
                 continue;
             }
 
+            // A selected directory that is itself ignorable — newly excluded by a rule
+            // change, or structurally an environment root — is skipped here too, so the
+            // crawl agrees with the greyed-out state the tree shows for it. The workspace
+            // root itself is exempt: the user pointed the tool there deliberately.
+            if (relativeStart.Length > 0
+                && _settings.IsIgnoredDirectory(startPath, Path.GetFileName(startPath)))
+            {
+                continue;
+            }
+
             var pending = new Stack<string>();
             pending.Push(startPath);
 
@@ -83,10 +100,17 @@ public sealed class FileCrawler : IFileCrawler
 
                 foreach (var subdirectory in SafeEnumerateDirectories(directory))
                 {
-                    if (!_settings.IsIgnoredDirectoryName(Path.GetFileName(subdirectory)))
+                    if (_settings.IsIgnoredDirectory(subdirectory, Path.GetFileName(subdirectory)))
                     {
-                        pending.Push(subdirectory);
+                        continue;
                     }
+
+                    if (_gitIgnore?.IsDirectoryIgnored(subdirectory) == true)
+                    {
+                        continue;
+                    }
+
+                    pending.Push(subdirectory);
                 }
 
                 foreach (var file in SafeEnumerateFiles(directory))
@@ -149,6 +173,12 @@ public sealed class FileCrawler : IFileCrawler
             return null;
         }
 
+        // Ancestors were already pruned on the way down; only the file itself is asked.
+        if (_gitIgnore?.IsFileIgnored(fullPath) == true)
+        {
+            return null;
+        }
+
         try
         {
             var info = new FileInfo(fullPath);
@@ -175,7 +205,30 @@ public sealed class FileCrawler : IFileCrawler
     {
         try
         {
-            return Directory.EnumerateDirectories(path).ToList();
+            // DirectoryInfo enumeration returns attributes already populated from the
+            // Win32 listing, so the reparse-point check costs no extra stat.
+            var kept = new List<string>();
+
+            foreach (var info in new DirectoryInfo(path).EnumerateDirectories())
+            {
+                // Junctions and symlinks are not descended. A link cycle produces
+                // ever-deeper *distinct* paths — the visited set keys on literal paths,
+                // so the crawl would never terminate — and even an acyclic link indexes
+                // the same physical file twice, giving one definition two rows and every
+                // caller a fabricated "2 candidates" ambiguity. The LinkTarget half is
+                // load-bearing: cloud-sync placeholders (OneDrive) are reparse points
+                // with no link target and must still crawl. Source reachable only
+                // through a symlink now needs an opt-in that does not exist yet — a
+                // decision deferred, not an oversight.
+                if ((info.Attributes & FileAttributes.ReparsePoint) != 0 && info.LinkTarget is not null)
+                {
+                    continue;
+                }
+
+                kept.Add(info.FullName);
+            }
+
+            return kept;
         }
         catch (Exception e) when (e is UnauthorizedAccessException or DirectoryNotFoundException or IOException)
         {

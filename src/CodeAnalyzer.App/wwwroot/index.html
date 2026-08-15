@@ -104,6 +104,9 @@
                 <span class="legend-italic">italic = override</span>
             </div>
             <div class="legend-group">
+                <span class="swatch swatch-io"></span>I/O boundary (catalog or your mark) · ▶ data leaves · ◀ data arrives
+            </div>
+            <div class="legend-group">
                 <span class="legend-italic">node lines: name(parameters) · value · what it is</span>
             </div>
         </div>
@@ -152,6 +155,14 @@
         </div>
     </section>
 
+    <!-- ============ I/O boundaries ============ -->
+    <section id="view-boundaries" class="view" hidden>
+        <div id="boundaries" class="scroll-pane"></div>
+        <div class="overlay" id="boundaries-empty">
+            <p>No catalog API matched and nothing is marked.</p>
+        </div>
+    </section>
+
     <script src="lib/cytoscape.min.js"></script>
     <script src="lib/layout-base.js"></script>
     <script src="lib/cose-base.js"></script>
@@ -166,5 +177,6 @@
     <script src="views/paths.js"></script>
     <script src="views/treemap.js"></script>
     <script src="views/wheel.js"></script>
+    <script src="views/boundaries.js"></script>
 </body>
 </html>

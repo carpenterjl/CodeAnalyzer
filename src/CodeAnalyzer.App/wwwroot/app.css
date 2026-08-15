@@ -1,21 +1,36 @@
 /*
-  Palette mirrors the WPF theme dictionaries (Themes/Dark.xaml, Themes/Light.xaml).
-  The host sends a setTheme message which flips data-theme on <html>; keeping both
-  palettes here means the switch costs nothing and never flashes the wrong colours.
+  Obsidian Syntax — the graph page's half of the design system.
+
+  The palette mirrors the WPF theme dictionaries (Themes/Dark.xaml, Themes/Light.xaml) token
+  for token: the layered navy ramp in dark, paper surfaces and darkened accents in light. The
+  host sends a setTheme message which flips data-theme on <html>; keeping both palettes here
+  means the switch costs nothing and never flashes the wrong colours.
+
+  The variable names are the contract with the view scripts (views.js reads --kind-<group>,
+  --accent, --panel and --bg through getComputedStyle), so they are kept even where the
+  design system's own token is named differently.
 */
 :root,
 :root[data-theme="dark"] {
-    --bg: #1a1b1e;
-    --panel: #212327;
-    --panel-border: #33363b;
-    --fg: #e6e8eb;
-    --fg-muted: #9098a3;
-    --fg-faint: #6b7280;
-    --control: #2a2d33;
-    --control-border: #3c4048;
-    --control-hover: #343840;
-    --accent: #4c9aff;
+    /* Layered obsidian: canvas, panel, raised, hover, highest. */
+    --bg: #0b1326;
+    --panel: #131b2e;
+    --panel-raised: #171f33;
+    --panel-border: #3d494c;
+    --fg: #dbe2fd;
+    --fg-muted: #bcc9cd;
+    --fg-faint: #869397;
+    --control: #171f33;
+    --control-border: #3d494c;
+    --control-hover: #222a3e;
+    --control-high: #2d3449;
+    /* Cyan is reserved strictly for interaction. */
+    --accent: #4cd7f6;
+    --accent-solid: #06b6d4;
+    --nav-accent: #c0c1ff;
+    --success: #4edea3;
     --warning: #e0b341;
+    --danger: #ffb4ab;
 
     --kind-function: #7aa2f7;
     --kind-type: #c39af0;
@@ -24,36 +39,79 @@
     --kind-module: #9ece6a;
     --kind-macro: #f7768e;
     --kind-interface: #2ac3a2;
+    --kind-io: #ff9e64;
 
     --edge: #5a616d;
     --edge-weak: #7a6a4a;
-    --node-text: #e6e8eb;
+    --node-text: #dbe2fd;
+
+    --selection-bg: #1b3a4a;
+    --focus-ring: rgba(76, 215, 246, 0.45);
+    --shadow-popover: 0 6px 18px rgba(0, 0, 0, 0.28);
+    --shadow-menu: 0 6px 18px rgba(0, 0, 0, 0.32);
+    --shadow-panel: 0 6px 18px rgba(0, 0, 0, 0.22);
 }
 
 :root[data-theme="light"] {
     --bg: #fbfbfc;
     --panel: #ffffff;
+    --panel-raised: #f4f5f7;
     --panel-border: #dfe2e7;
-    --fg: #1b1d21;
+    --fg: #1c1f23;
     --fg-muted: #5c6470;
-    --fg-faint: #8a919c;
-    --control: #f1f2f5;
-    --control-border: #d5d9df;
-    --control-hover: #e7e9ee;
-    --accent: #1a6fd4;
-    --warning: #9a6b00;
+    --fg-faint: #8a929e;
+    --control: #f4f5f7;
+    --control-border: #dfe2e7;
+    --control-hover: #e9ecf0;
+    --control-high: #dde1e6;
+    --accent: #0e7490;
+    --accent-solid: #0891b2;
+    --nav-accent: #4a4bab;
+    --success: #0f7a52;
+    --warning: #a9791c;
+    --danger: #c0392b;
 
-    --kind-function: #2f5fbf;
-    --kind-type: #7a3fb0;
-    --kind-constant: #a3630a;
-    --kind-variable: #0f7490;
-    --kind-module: #3f7a26;
-    --kind-macro: #bd2b45;
+    --kind-function: #2c5dbf;
+    --kind-type: #7a3fb5;
+    --kind-constant: #9a6712;
+    --kind-variable: #1b7a99;
+    --kind-module: #3f7a28;
+    --kind-macro: #c0395a;
     --kind-interface: #0d8a70;
+    --kind-io: #b35a1f;
 
     --edge: #9aa2ae;
     --edge-weak: #b79a63;
-    --node-text: #1b1d21;
+    --node-text: #1c1f23;
+
+    --selection-bg: #cfe3fa;
+    --focus-ring: rgba(8, 145, 178, 0.28);
+    --shadow-popover: 0 6px 18px rgba(17, 24, 38, 0.12);
+    --shadow-menu: 0 6px 18px rgba(17, 24, 38, 0.16);
+    --shadow-panel: 0 6px 18px rgba(17, 24, 38, 0.1);
+}
+
+/*
+  Shape, type and motion are theme-independent.
+
+  The brand faces (Plus Jakarta Sans, Inter, JetBrains Mono) are not shipped with the app and
+  this page is offline by policy — connect-src is 'none', so there is no font to fetch. Each
+  stack therefore falls back to the system faces the window has always drawn with.
+*/
+:root {
+    --font-ui: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+
+    --radius-sm: 2px;
+    --radius-default: 4px;
+    --radius-md: 6px;
+    --radius-full: 9999px;
+
+    --duration-fast: 120ms;
+    --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+    --transition-control: background-color var(--duration-fast) var(--ease-standard),
+        border-color var(--duration-fast) var(--ease-standard),
+        color var(--duration-fast) var(--ease-standard);
 }
 
 * {
@@ -67,11 +125,56 @@ body {
     overflow: hidden;
     background: var(--bg);
     color: var(--fg);
-    font-family: "Segoe UI", system-ui, sans-serif;
-    font-size: 12.5px;
+    font-family: var(--font-ui);
+    font-size: 13px;
     /* The canvas owns all gestures; browser text selection only gets in the way. */
     user-select: none;
     cursor: default;
+}
+
+::selection {
+    background: var(--selection-bg);
+    color: var(--fg);
+}
+
+/*
+  Motion is nearly absent by design: 120ms on colour, nothing else. Hover lightens a fill one
+  tonal step — it never moves anything and never changes opacity.
+*/
+button,
+.card,
+.link-row,
+.route,
+.crumb {
+    transition: var(--transition-control);
+}
+
+/* Focus is a 2px cyan ring, the same affordance the WPF controls carry. */
+:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+/* Scrollbars: 10px, no arrows, a rounded thumb on a bare track. */
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--control-hover);
+    border: 2px solid transparent;
+    border-radius: var(--radius-full);
+    background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--control-high);
+    background-clip: content-box;
 }
 
 /* ---- View sections ----
@@ -148,8 +251,8 @@ body {
     transform: translateX(-50%);
     padding: 5px 11px;
     border: 1px solid var(--control-border);
-    border-radius: 4px;
-    background: var(--panel);
+    border-radius: var(--radius-default);
+    background: var(--panel-raised);
     color: var(--warning);
     font-size: 11px;
 }
@@ -167,9 +270,9 @@ body {
     max-width: 280px;
     padding: 8px 10px;
     border: 1px solid var(--control-border);
-    border-radius: 6px;
-    background: var(--panel);
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+    border-radius: var(--radius-md);
+    background: var(--panel-raised);
+    box-shadow: var(--shadow-popover);
 }
 
 .popover[hidden] {
@@ -177,7 +280,7 @@ body {
 }
 
 .popover-title {
-    font-family: "Cascadia Mono", Consolas, monospace;
+    font-family: var(--font-mono);
     font-size: 12px;
     overflow-wrap: anywhere;
 }
@@ -195,7 +298,7 @@ body {
     margin-top: 6px;
     padding: 4px 7px;
     border: 1px solid var(--control-border);
-    border-radius: 4px;
+    border-radius: var(--radius-default);
     background: var(--control);
     color: var(--fg);
     font-family: inherit;
@@ -228,10 +331,10 @@ body {
     width: 100%;
     padding: 3px 6px;
     border: 0;
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     background: transparent;
     color: var(--fg);
-    font-family: "Cascadia Mono", Consolas, monospace;
+    font-family: var(--font-mono);
     font-size: 10.5px;
     text-align: left;
     cursor: pointer;
@@ -255,9 +358,9 @@ body {
     min-width: 168px;
     padding: 4px;
     border: 1px solid var(--control-border);
-    border-radius: 6px;
-    background: var(--panel);
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.32);
+    border-radius: var(--radius-md);
+    background: var(--panel-raised);
+    box-shadow: var(--shadow-menu);
 }
 
 .context-menu[hidden] {
@@ -282,7 +385,7 @@ body {
     width: 100%;
     padding: 5px 8px;
     border: 0;
-    border-radius: 4px;
+    border-radius: var(--radius-default);
     background: transparent;
     color: var(--fg);
     font: inherit;
@@ -312,8 +415,8 @@ body {
     gap: 8px;
     padding: 4px 6px 4px 10px;
     border: 1px solid var(--control-border);
-    border-radius: 4px;
-    background: var(--panel);
+    border-radius: var(--radius-default);
+    background: var(--panel-raised);
     color: var(--fg-muted);
     font-size: 11px;
 }
@@ -325,7 +428,7 @@ body {
 .hidden-bar button {
     padding: 3px 9px;
     border: 1px solid var(--control-border);
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     background: var(--control);
     color: var(--fg);
     font: inherit;
@@ -353,7 +456,7 @@ body {
     gap: 0.4em;
     padding: 0.7em 1em;
     border: 1px solid var(--panel-border);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: var(--panel);
     color: var(--fg-muted);
     font-size: var(--legend-font-size, 10.5px);
@@ -390,7 +493,7 @@ body {
     height: 1.5em;
     padding: 0;
     border: 1px solid var(--control-border);
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     background: var(--control);
     color: var(--fg);
     font: inherit;
@@ -420,7 +523,7 @@ body {
     width: 0.86em;
     height: 0.86em;
     margin-left: 0.6em;
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
 }
 
 .legend-group > .swatch:first-child,
@@ -435,6 +538,7 @@ body {
 .swatch-module { background: var(--kind-module); }
 .swatch-variable { background: var(--kind-variable); }
 .swatch-interface { background: var(--kind-interface); }
+.swatch-io { background: var(--kind-io); }
 
 /* Visibility swatches: outline style is the encoding, so the fill stays neutral. */
 .swatch-outline {
@@ -442,7 +546,7 @@ body {
     height: 1.05em;
     background: transparent;
     border: 1.5px solid var(--fg-muted);
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
 }
 
 .swatch-vis-internal { border-style: dashed; }
@@ -503,7 +607,7 @@ body {
 }
 
 .comp-name {
-    font-family: "Cascadia Mono", Consolas, monospace;
+    font-family: var(--font-mono);
     font-size: 16px;
     color: var(--fg);
     overflow-wrap: anywhere;
@@ -519,9 +623,9 @@ body {
 .comp-signature {
     margin-top: 7px;
     padding: 5px 8px;
-    border-radius: 4px;
+    border-radius: var(--radius-default);
     background: var(--control);
-    font-family: "Cascadia Mono", Consolas, monospace;
+    font-family: var(--font-mono);
     font-size: 11.5px;
     overflow-wrap: anywhere;
 }
@@ -558,7 +662,7 @@ body {
 
 .comp-section h2 .count {
     padding: 0 5px;
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     background: var(--control);
     color: var(--fg-muted);
     font-size: 10px;
@@ -581,7 +685,7 @@ body {
     padding: 7px 9px;
     border: 1px solid var(--panel-border);
     border-left-width: 3px;
-    border-radius: 4px;
+    border-radius: var(--radius-default);
     background: var(--panel);
     cursor: pointer;
 }
@@ -603,7 +707,7 @@ body {
 }
 
 .card-name {
-    font-family: "Cascadia Mono", Consolas, monospace;
+    font-family: var(--font-mono);
     font-size: 12px;
     overflow-wrap: anywhere;
 }
@@ -612,7 +716,7 @@ body {
 .card-value {
     margin-top: 2px;
     color: var(--fg-muted);
-    font-family: "Cascadia Mono", Consolas, monospace;
+    font-family: var(--font-mono);
     font-size: 10.5px;
     overflow-wrap: anywhere;
 }
@@ -630,7 +734,7 @@ body {
 .badge {
     padding: 1px 5px;
     border: 1px solid var(--control-border);
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     background: var(--control);
     color: var(--fg-muted);
     font-size: 9.5px;
@@ -642,7 +746,7 @@ body {
     align-items: baseline;
     gap: 8px;
     padding: 4px 6px;
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     flex-wrap: wrap;
 }
 
@@ -682,7 +786,7 @@ body {
 }
 
 .mono {
-    font-family: "Cascadia Mono", Consolas, monospace;
+    font-family: var(--font-mono);
 }
 
 /* =========================================================================
@@ -704,9 +808,9 @@ body {
     overflow-y: auto;
     padding: 8px 10px;
     border: 1px solid var(--panel-border);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: var(--panel);
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+    box-shadow: var(--shadow-panel);
 }
 
 .route-list[hidden] {
@@ -731,7 +835,7 @@ body {
     width: 100%;
     padding: 4px 6px;
     border: 0;
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     background: transparent;
     color: var(--fg);
     font-family: inherit;
@@ -750,7 +854,7 @@ body {
 }
 
 .route-step {
-    font-family: "Cascadia Mono", Consolas, monospace;
+    font-family: var(--font-mono);
 }
 
 .route-arrow {
@@ -778,7 +882,7 @@ body {
 .crumb {
     padding: 2px 5px;
     border: 0;
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     background: transparent;
     color: var(--accent);
     font-family: inherit;
@@ -813,7 +917,7 @@ body {
 .tile-label,
 .tile-sub {
     pointer-events: none;
-    font-family: "Segoe UI", system-ui, sans-serif;
+    font-family: var(--font-ui);
 }
 
 .tile-label {
@@ -838,7 +942,7 @@ body {
 .legend-scale .scale-bar {
     width: 84px;
     height: 8px;
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     background: linear-gradient(to right, var(--kind-module), var(--kind-macro));
 }
 
@@ -866,7 +970,7 @@ body {
 
 .wheel-label {
     pointer-events: none;
-    font-family: "Segoe UI", system-ui, sans-serif;
+    font-family: var(--font-ui);
     font-size: 11px;
 }
 
@@ -889,9 +993,9 @@ body {
     max-width: 260px;
     padding: 6px 9px;
     border: 1px solid var(--control-border);
-    border-radius: 5px;
-    background: var(--panel);
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+    border-radius: var(--radius-md);
+    background: var(--panel-raised);
+    box-shadow: var(--shadow-popover);
     pointer-events: none;
 }
 
@@ -900,7 +1004,7 @@ body {
 }
 
 .tip-title {
-    font-family: "Cascadia Mono", Consolas, monospace;
+    font-family: var(--font-mono);
     font-size: 11.5px;
     overflow-wrap: anywhere;
 }
@@ -916,4 +1020,79 @@ body {
     color: var(--fg-faint);
     font-size: 10px;
     font-style: italic;
+}
+
+/* =========================================================================
+   I/O boundaries view
+   ========================================================================= */
+
+.bnd-note {
+    margin: 14px 16px 0;
+    color: var(--fg-muted);
+    font-size: 11px;
+    font-style: italic;
+}
+
+.bnd-columns {
+    display: flex;
+    align-items: flex-start;
+    gap: 18px;
+    padding: 10px 16px 20px;
+}
+
+.bnd-col {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.bnd-col > h1 {
+    margin: 8px 0 4px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--fg);
+}
+
+.bnd-row {
+    padding: 6px 8px;
+    margin-bottom: 6px;
+    border: 1px solid var(--panel-border);
+    border-left: 3px solid var(--kind-io);
+    border-radius: var(--radius-default);
+    background: var(--panel);
+}
+
+.bnd-row.clickable {
+    cursor: pointer;
+}
+
+.bnd-row.clickable:hover {
+    background: var(--control-hover);
+}
+
+.bnd-row.selected {
+    border-color: var(--accent);
+    border-left-color: var(--accent);
+}
+
+.bnd-row-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+/* The verbatim argument list is the data on the wire, so it keeps the mono face. */
+.bnd-args {
+    margin-top: 2px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--fg-muted);
+    overflow-wrap: anywhere;
+}
+
+.bnd-where {
+    margin-top: 2px;
+    color: var(--fg-faint);
+    font-size: 10px;
+    overflow-wrap: anywhere;
 }

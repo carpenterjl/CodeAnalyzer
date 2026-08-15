@@ -1,3 +1,4 @@
+using CodeAnalyzer.Core.Crawling;
 using CodeAnalyzer.Core.Watching;
 using Xunit;
 
@@ -42,12 +43,16 @@ public class WorkspaceWatcherTests : IDisposable
     private static bool IsSource(string extension) =>
         extension is ".c" or ".h" or ".py";
 
-    private BatchCollector StartWatching(params string[] selection)
+    private BatchCollector StartWatching(params string[] selection) =>
+        StartWatching(gitIgnoreProvider: null, selection);
+
+    private BatchCollector StartWatching(Func<GitIgnoreRules?>? gitIgnoreProvider, params string[] selection)
     {
         _watcher = new WorkspaceWatcher(_root, IsSource)
         {
             QuietPeriod = Quiet,
             MaxDelay = TimeSpan.FromSeconds(2),
+            GitIgnoreProvider = gitIgnoreProvider,
         };
 
         var collector = new BatchCollector(_watcher);
@@ -73,6 +78,55 @@ public class WorkspaceWatcherTests : IDisposable
         var batch = collector.WaitForNext();
         Assert.Contains("main.c", batch.ChangedFiles);
         Assert.False(batch.ResyncRequired);
+    }
+
+    [Fact]
+    public void AGitIgnoreEditForcesAResyncWhenHonored()
+    {
+        Directory.CreateDirectory(Path.Combine(_root, ".git"));
+        Write(".gitignore", "gen/\n");
+
+        var collector = StartWatching(() => GitIgnoreRules.TryDiscover(_root));
+
+        // Editing the rules invalidates crawl decisions the index already embodies, and
+        // nothing tracks which — a full re-index is the honest answer.
+        Write(".gitignore", "gen/\n*.tmp\n");
+
+        var batch = collector.WaitForNext();
+        Assert.True(batch.ResyncRequired);
+        Assert.Empty(batch.ChangedFiles);
+    }
+
+    [Fact]
+    public void AGitIgnoreEditChangesNothingWhenNotHonored()
+    {
+        Directory.CreateDirectory(Path.Combine(_root, ".git"));
+        Write(".gitignore", "gen/\n");
+
+        var collector = StartWatching();
+
+        Write(".gitignore", "gen/\n*.tmp\n");
+        Write("main.c", "int main(void) { return 0; }");
+
+        var batch = collector.WaitForNext();
+        Assert.Equal(["main.c"], batch.ChangedFiles);
+        Assert.False(batch.ResyncRequired);
+    }
+
+    [Fact]
+    public void AGitIgnoredFileDoesNotWakeTheIndexer()
+    {
+        Directory.CreateDirectory(Path.Combine(_root, ".git"));
+        Write(".gitignore", "gen/\n");
+
+        var collector = StartWatching(() => GitIgnoreRules.TryDiscover(_root));
+
+        Write("gen/lut.c", "int lut[] = {1};");
+        Write("src/main.c", "int main(void) { return 0; }");
+
+        var batch = collector.WaitForBatchWhere(b => b.ChangedFiles.Contains("src/main.c"));
+        Assert.NotNull(batch);
+        Assert.DoesNotContain("gen/lut.c", batch.ChangedFiles);
     }
 
     [Fact]

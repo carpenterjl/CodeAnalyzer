@@ -16,5 +16,8 @@ public interface IDialogService
     /// </summary>
     WorkspaceSettings? EditSettings(WorkspaceSettings current);
 
+    /// <summary>A yes/no question. True means yes.</summary>
+    bool Confirm(string title, string message);
+
     void ShowError(string title, string message);
 }

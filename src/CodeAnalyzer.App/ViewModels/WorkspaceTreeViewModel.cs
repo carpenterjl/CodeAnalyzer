@@ -23,7 +23,10 @@ public sealed partial class WorkspaceTreeViewModel : ObservableObject
     /// <summary>Raised when the user applies a selection; carries relative directory paths.</summary>
     public event EventHandler<IReadOnlyList<string>>? SelectionApplied;
 
-    public async Task LoadWorkspaceAsync(string rootPath, WorkspaceSettings? settings = null)
+    public async Task LoadWorkspaceAsync(
+        string rootPath,
+        WorkspaceSettings? settings = null,
+        GitIgnoreRules? gitIgnore = null)
     {
         Roots.Clear();
         WorkspaceRoot = rootPath;
@@ -36,7 +39,8 @@ public sealed partial class WorkspaceTreeViewModel : ObservableObject
             rootPath,
             string.Empty,
             parent: null,
-            settings);
+            settings,
+            gitIgnore);
 
         Roots.Add(root);
 

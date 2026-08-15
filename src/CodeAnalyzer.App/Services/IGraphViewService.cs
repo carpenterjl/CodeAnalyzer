@@ -30,6 +30,9 @@ public enum GraphViewMode
 
     /// <summary>Dependencies between top-level directories.</summary>
     Wheel,
+
+    /// <summary>Where data leaves and enters the workspace: outputs facing inputs.</summary>
+    Boundaries,
 }
 
 /// <summary>A request from the page to pull in more neighbours for one node.</summary>
@@ -44,6 +47,18 @@ public sealed record GraphEdgeSelection(long SourceId, long TargetId, ReferenceK
 
 /// <summary>An edge (or one of its call-site rows) asked to open the source at a line.</summary>
 public sealed record GraphEdgeActivation(long SourceId, int Line);
+
+/// <summary>
+/// An I/O boundary stub was clicked. The display strings ride along because the page is
+/// the only place that still holds them — direction and source were decided host-side
+/// when the stub was built, and the ref ids are what the per-site query needs.
+/// </summary>
+public sealed record IoStubSelection(
+    string Name,
+    string DirectionLabel,
+    string Source,
+    string? GateNote,
+    IReadOnlyList<long> RefIds);
 
 /// <summary>What form an export should take.</summary>
 public enum GraphExportFormat
@@ -93,6 +108,9 @@ public interface IGraphViewService
 
     /// <summary>An edge was double-clicked, or one of its call-site rows was chosen.</summary>
     event EventHandler<GraphEdgeActivation>? EdgeActivated;
+
+    /// <summary>An I/O boundary stub was clicked. The shell shows its sites in the pane.</summary>
+    event EventHandler<IoStubSelection>? IoStubSelected;
 
     /// <summary>
     /// The legend's font size was changed from the page. Carries the new size in CSS
@@ -153,6 +171,9 @@ public interface IGraphViewService
 
     /// <summary>Replaces the dependency wheel.</summary>
     Task ShowWheelAsync(WheelPayload? payload);
+
+    /// <summary>Replaces the boundaries view. Null empties it.</summary>
+    Task ShowBoundariesAsync(BoundariesPayload? payload);
 
     /// <summary>
     /// Asks the page to export the current graph. The answer arrives on

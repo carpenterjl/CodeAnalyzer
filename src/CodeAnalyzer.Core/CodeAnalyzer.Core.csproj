@@ -9,4 +9,9 @@
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The built-in I/O API catalog travels inside the assembly, same as the query packs. -->
+    <EmbeddedResource Include="Resources\io-catalog.json" />
+  </ItemGroup>
+
 </Project>

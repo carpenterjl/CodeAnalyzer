@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Data;
+using CodeAnalyzer.Core.Domain;
 
 namespace CodeAnalyzer.App.Converters;
 
@@ -81,6 +82,33 @@ public sealed class EnumToBoolConverter : IValueConverter
     // to write back — and writing back would fight the command over the same property.
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         Binding.DoNothing;
+}
+
+/// <summary>
+/// A kind label ("method", "struct", "macro") → the visual family the graph colours by
+/// ("function", "type", …), so a row in the list and its node in the picture agree without
+/// the row carrying a second copy of the kind.
+/// <para>
+/// The label is the only thing the row records, so the enum is recovered from it rather
+/// than plumbed through: the labels are unique per kind. The group name is returned rather
+/// than a brush because the styles that consume it pick their colour with DynamicResource,
+/// and a brush resolved here would keep the old theme's value after a swap.
+/// </para>
+/// </summary>
+public sealed class KindLabelToGroupConverter : IValueConverter
+{
+    private static readonly Dictionary<string, string> GroupByLabel =
+        Enum.GetValues<SymbolKind>()
+            .GroupBy(KindLabels.For)
+            .ToDictionary(g => g.Key, g => SymbolKindGroups.For(g.First()), StringComparer.OrdinalIgnoreCase);
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is string label && GroupByLabel.TryGetValue(label.Trim(), out var group)
+            ? group
+            : string.Empty;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
 }
 
 /// <summary>

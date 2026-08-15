@@ -75,6 +75,14 @@ public sealed class WorkspaceWatcher : IDisposable
     public bool IsWatching { get; private set; }
 
     /// <summary>
+    /// Supplies the repository's ignore rules at batch time, or null when the workspace
+    /// does not honor them. A provider rather than an instance because GitIgnoreRules
+    /// caches rule files internally — each batch asks fresh so an edited .gitignore is
+    /// respected from the very next batch.
+    /// </summary>
+    public Func<GitIgnoreRules?>? GitIgnoreProvider { get; init; }
+
+    /// <summary>
     /// Starts watching, limited to the given selection. Restarting with a new selection is
     /// how the watcher follows the user checking or unchecking directories.
     /// </summary>
@@ -232,6 +240,15 @@ public sealed class WorkspaceWatcher : IDisposable
         }
 
         var name = segments[^1];
+
+        // An edited .gitignore changes what the whole crawl means, so it must reach the
+        // batch even though its "extension" maps to no language. Classification answers
+        // it with a full re-index rather than a parse.
+        if (name.Equals(".gitignore", StringComparison.OrdinalIgnoreCase))
+        {
+            relativePath = relative;
+            return true;
+        }
         var extension = Path.GetExtension(name);
 
         // A path with no extension is very likely a directory, and a directory that has been
@@ -362,19 +379,60 @@ public sealed class WorkspaceWatcher : IDisposable
         var directories = new List<string>();
         var removed = new List<string>();
 
+        // The cheap per-event filter can only use names; here, with the batch settled and
+        // disk access allowed, the structural environment rule and the repository's own
+        // .gitignore join in so the watcher agrees with the crawler. Memoised per batch —
+        // sibling files share every ancestor.
+        var environmentMemo = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        var gitIgnore = GitIgnoreProvider?.Invoke();
+
         foreach (var fullPath in fullPaths)
         {
+            // An edited, created or deleted .gitignore invalidates crawl decisions the
+            // index already embodies, and nothing tracks which ones. A full re-index is
+            // the honest answer, and the size-and-stamp gate makes it cheap. Only when
+            // rules are being honored — otherwise the file changes nothing.
+            if (Path.GetFileName(fullPath).Equals(".gitignore", StringComparison.OrdinalIgnoreCase))
+            {
+                if (gitIgnore is not null)
+                {
+                    resyncRequired = true;
+                }
+
+                continue;
+            }
+
             if (!IsRelevant(fullPath, out var relative))
+            {
+                continue;
+            }
+
+            if (IsUnderEnvironmentRoot(fullPath, environmentMemo))
             {
                 continue;
             }
 
             if (Directory.Exists(fullPath))
             {
+                if (IgnoreRules.IsEnvironmentRoot(fullPath))
+                {
+                    continue;
+                }
+
+                if (gitIgnore?.IsPathIgnoredIncludingAncestors(fullPath, isDirectory: true) == true)
+                {
+                    continue;
+                }
+
                 directories.Add(relative);
             }
             else if (File.Exists(fullPath))
             {
+                if (gitIgnore?.IsPathIgnoredIncludingAncestors(fullPath, isDirectory: false) == true)
+                {
+                    continue;
+                }
+
                 // Extension-less files slip past the cheap filter because they look like
                 // directories; the crawler would not have indexed them.
                 var extension = Path.GetExtension(fullPath);
@@ -396,6 +454,37 @@ public sealed class WorkspaceWatcher : IDisposable
             RemovedPaths = removed,
             ResyncRequired = resyncRequired,
         };
+    }
+
+    /// <summary>
+    /// Walks a path's ancestors (below the workspace root, exclusive) asking whether any
+    /// is a Python environment root. Ancestors of a deleted path may be gone too — the
+    /// stats just answer false, and the removal flows through, which is harmless: a path
+    /// that was never indexed removes nothing.
+    /// </summary>
+    private bool IsUnderEnvironmentRoot(string fullPath, Dictionary<string, bool> memo)
+    {
+        var directory = Path.GetDirectoryName(fullPath);
+
+        while (directory is not null
+            && directory.Length > _root.Length
+            && directory.StartsWith(_root, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!memo.TryGetValue(directory, out var isEnvironment))
+            {
+                isEnvironment = IgnoreRules.IsEnvironmentRoot(directory);
+                memo[directory] = isEnvironment;
+            }
+
+            if (isEnvironment)
+            {
+                return true;
+            }
+
+            directory = Path.GetDirectoryName(directory);
+        }
+
+        return false;
     }
 
     private static string[] NormaliseScope(IReadOnlyList<string> selectedDirectories)

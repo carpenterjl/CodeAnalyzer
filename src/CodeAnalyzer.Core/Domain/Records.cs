@@ -168,6 +168,11 @@ public sealed record ParseResult
     public IReadOnlyList<ReferenceRecord> References { get; init; } = [];
     public IReadOnlyList<FileDependencyRecord> Dependencies { get; init; } = [];
 
-    /// <summary>Set when <see cref="Status"/> is <see cref="FileStatus.ParseError"/>.</summary>
+    /// <summary>
+    /// Set when <see cref="Status"/> is <see cref="FileStatus.ParseError"/> (a hard
+    /// failure that produced nothing — routine syntax errors store null) or
+    /// <see cref="FileStatus.Skipped"/> (the reason the tool decided not to index the
+    /// file; a skip must always state why).
+    /// </summary>
     public string? ErrorMessage { get; init; }
 }

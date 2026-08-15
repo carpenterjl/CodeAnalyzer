@@ -46,6 +46,7 @@ public sealed class WebView2GraphViewService(IUiDispatcher dispatcher, ILogger<W
     public event EventHandler<GraphExpandRequest>? ExpandRequested;
     public event EventHandler<GraphEdgeSelection>? EdgeSelected;
     public event EventHandler<GraphEdgeActivation>? EdgeActivated;
+    public event EventHandler<IoStubSelection>? IoStubSelected;
     public event EventHandler<double>? LegendSizeChanged;
     public event EventHandler<bool>? NodeDetailsChanged;
     public event EventHandler<string>? ScriptError;
@@ -190,6 +191,30 @@ public sealed class WebView2GraphViewService(IUiDispatcher dispatcher, ILogger<W
                     }
                     break;
 
+                case "ioStubSelected":
+                    if (payload?["name"]?.GetValue<string>() is { } stubName)
+                    {
+                        var refIds = new List<long>();
+                        if (payload["refIds"] is JsonArray refArray)
+                        {
+                            foreach (var raw in refArray)
+                            {
+                                if (TryGetLong(raw, out var refId))
+                                {
+                                    refIds.Add(refId);
+                                }
+                            }
+                        }
+
+                        IoStubSelected?.Invoke(this, new IoStubSelection(
+                            stubName,
+                            payload["directionLabel"]?.GetValue<string>() ?? "",
+                            payload["source"]?.GetValue<string>() ?? "",
+                            payload["gateNote"]?.GetValue<string>(),
+                            refIds));
+                    }
+                    break;
+
                 case "legendSizeChanged":
                     if (payload?["size"]?.GetValue<double>() is { } legendSize)
                     {
@@ -295,6 +320,9 @@ public sealed class WebView2GraphViewService(IUiDispatcher dispatcher, ILogger<W
     public Task ShowWheelAsync(WheelPayload? payload) =>
         PostAsync("setWheel", new WheelMessage(payload));
 
+    public Task ShowBoundariesAsync(BoundariesPayload? payload) =>
+        PostAsync("setBoundaries", new BoundariesMessage(payload));
+
     public Task RequestExportAsync(GraphExportFormat format) =>
         PostAsync("exportView", new ExportMessage(format == GraphExportFormat.Json ? "json" : "png"));
 
@@ -313,6 +341,7 @@ public sealed class WebView2GraphViewService(IUiDispatcher dispatcher, ILogger<W
         GraphViewMode.Paths => "paths",
         GraphViewMode.Treemap => "treemap",
         GraphViewMode.Wheel => "wheel",
+        GraphViewMode.Boundaries => "boundaries",
         _ => "graph",
     };
 
@@ -445,4 +474,7 @@ public sealed class WebView2GraphViewService(IUiDispatcher dispatcher, ILogger<W
     private sealed record TreemapMessage([property: JsonPropertyName("treemap")] TreemapPayload? Treemap);
 
     private sealed record WheelMessage([property: JsonPropertyName("wheel")] WheelPayload? Wheel);
+
+    private sealed record BoundariesMessage(
+        [property: JsonPropertyName("boundaries")] BoundariesPayload? Boundaries);
 }

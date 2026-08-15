@@ -39,6 +39,17 @@ public sealed record IndexProgress
     public string? CurrentFile { get; init; }
 
     /// <summary>
+    /// The oldest file currently inside a parser when it has been there longer than the
+    /// heartbeat threshold; null in every ordinary report. This is what keeps a slow
+    /// parse distinguishable from a wedged pipeline — the status bar names the file and
+    /// counts upward instead of freezing.
+    /// </summary>
+    public string? SlowFile { get; init; }
+
+    /// <summary>Whole seconds the slow file has been parsing. Set exactly when <see cref="SlowFile"/> is.</summary>
+    public int? SlowFileSeconds { get; init; }
+
+    /// <summary>
     /// Null while crawling, because the total is not known until the walk finishes.
     /// The UI shows an indeterminate bar in that case.
     /// </summary>

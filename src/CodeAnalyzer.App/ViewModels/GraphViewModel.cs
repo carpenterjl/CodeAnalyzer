@@ -34,6 +34,9 @@ public sealed partial class GraphViewModel : ObservableObject
         _service.EdgeSelected += (_, selection) => EdgeSelected?.Invoke(this, selection);
         _service.EdgeActivated += (_, activation) => EdgeActivated?.Invoke(this, activation);
 
+        // Same shape again: the per-site rows behind a stub live in the index.
+        _service.IoStubSelected += (_, selection) => IoStubSelected?.Invoke(this, selection);
+
         // Forwarded rather than acted on here: the shell owns which path the treemap is
         // showing, and letting both switch the view would load the level twice, in a
         // racing order.
@@ -149,6 +152,9 @@ public sealed partial class GraphViewModel : ObservableObject
 
     /// <summary>An edge asked to open the source at a call site.</summary>
     public event EventHandler<GraphEdgeActivation>? EdgeActivated;
+
+    /// <summary>An I/O stub was clicked: show its sites and framing in the detail pane.</summary>
+    public event EventHandler<IoStubSelection>? IoStubSelected;
 
     /// <summary>A treemap tile or wheel arc was opened. Carries a workspace-relative path.</summary>
     public event EventHandler<string>? DrillRequested;
@@ -379,6 +385,9 @@ public sealed partial class GraphViewModel : ObservableObject
 
     public Task ShowWheelAsync(DependencyWheel? wheel) =>
         _service.ShowWheelAsync(wheel is null ? null : ViewPayloadBuilder.Build(wheel));
+
+    public Task ShowBoundariesAsync(IReadOnlyList<Core.Domain.IoBoundarySite>? sites) =>
+        _service.ShowBoundariesAsync(sites is null ? null : ViewPayloadBuilder.Build(sites));
 
     public Task ClearAsync(string message)
     {

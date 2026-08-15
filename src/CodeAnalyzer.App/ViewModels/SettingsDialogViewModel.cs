@@ -1,7 +1,24 @@
+using System.Collections.ObjectModel;
 using CodeAnalyzer.Core.Crawling;
+using CodeAnalyzer.Core.Domain;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 
 namespace CodeAnalyzer.App.ViewModels;
+
+/// <summary>
+/// One user I/O mark as the settings dialog lists it. The mark itself rides along so
+/// removal and rebuild never have to reconstruct one from display text.
+/// </summary>
+public sealed record IoMarkRow(IoMark Mark)
+{
+    public string Name => Mark.Name;
+
+    public string DirectionLabel => IoDirectionLabels.For(Mark.Direction);
+
+    /// <summary>Where the mark applies — a path, or the whole workspace.</summary>
+    public string ScopeLabel => Mark.Scope ?? "whole workspace";
+}
 
 /// <summary>
 /// Edit state for the workspace settings dialog. Holds text, not parsed values, so the
@@ -18,7 +35,34 @@ public sealed partial class SettingsDialogViewModel : ObservableObject
     {
         IgnoreText = string.Join(Environment.NewLine, current.ExtraIgnoredDirectories);
         MaxFileSizeMbText = (current.MaxFileSizeBytes / (1024.0 * 1024.0)).ToString("0.##");
+
+        _initialHonorGitIgnore = current.HonorGitIgnore;
+        HonorGitIgnore = current.HonorGitIgnore == true;
+
+        foreach (var mark in current.IoMarks)
+        {
+            IoMarks.Add(new IoMarkRow(mark));
+        }
     }
+
+    /// <summary>
+    /// The workspace's I/O boundary marks. Created from the detail pane's context menu;
+    /// the dialog only lists and removes them.
+    /// </summary>
+    public ObservableCollection<IoMarkRow> IoMarks { get; } = [];
+
+    [RelayCommand]
+    private void RemoveIoMark(IoMarkRow row) => IoMarks.Remove(row);
+
+    /// <summary>
+    /// Null means the user has never been asked (the ask-once prompt fires on open). The
+    /// dialog shows a plain two-state box; an untouched box preserves the null so the
+    /// prompt still fires, and any change is an explicit answer.
+    /// </summary>
+    private readonly bool? _initialHonorGitIgnore;
+
+    [ObservableProperty]
+    private bool _honorGitIgnore;
 
     /// <summary>One directory name per line. Entries with path separators are dropped.</summary>
     [ObservableProperty]
@@ -50,6 +94,10 @@ public sealed partial class SettingsDialogViewModel : ObservableObject
         {
             ExtraIgnoredDirectories = WorkspaceSettings.ParseDirectoryNames(IgnoreText),
             MaxFileSizeBytes = bytes,
+            HonorGitIgnore = HonorGitIgnore == (_initialHonorGitIgnore == true)
+                ? _initialHonorGitIgnore
+                : HonorGitIgnore,
+            IoMarks = IoMarks.Select(row => row.Mark).ToList(),
         }
         : null;
 }

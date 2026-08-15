@@ -47,6 +47,10 @@ public sealed class DialogService : IDialogService
         return window.ShowDialog() == true ? window.Result : null;
     }
 
+    public bool Confirm(string title, string message) =>
+        MessageBox.Show(message, title, MessageBoxButton.YesNo, MessageBoxImage.Question)
+            == MessageBoxResult.Yes;
+
     public void ShowError(string title, string message) =>
         MessageBox.Show(message, title, MessageBoxButton.OK, MessageBoxImage.Error);
 }

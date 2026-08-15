@@ -52,7 +52,7 @@
                     label: "data(name)",
                     "text-valign": "center",
                     "text-halign": "center",
-                    "font-family": "Cascadia Mono, Consolas, monospace",
+                    "font-family": util.cssVar("--font-mono"),
                     "font-size": 11,
                     color: util.cssVar("--node-text"),
                     "text-max-width": 170,

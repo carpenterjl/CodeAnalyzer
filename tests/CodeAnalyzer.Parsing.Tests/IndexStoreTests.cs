@@ -347,4 +347,41 @@ public class IndexStoreTests : IDisposable
         store.SaveSelectedDirectories(["src", "drivers"]);
         Assert.Equal(new[] { "src", "drivers" }, store.LoadSelectedDirectories());
     }
+
+    [Fact]
+    public async Task ATypedefAnonymousStructWritesDespiteItsForwardContainerReference()
+    {
+        // tree-sitter reports `typedef struct { … } Name;` only at the trailing name, so
+        // the members precede their container in the symbol list and reference a LARGER
+        // row id. With per-statement foreign-key checking this failed the whole write
+        // batch — the shape of every STM32 vendor header and every Cython-generated .c,
+        // and the writer fault behind the reported "frozen at 3802/4842" workspace. The
+        // FK check is deferred to commit, where the container row exists.
+        WriteFile("src/regs.h", """
+            typedef struct {
+                volatile unsigned int CR1;
+                volatile unsigned int CR2;
+            } USART_TypeDef;
+            """);
+
+        var store = await IndexAsync();
+
+        using var command = store.Connection.CreateCommand();
+        command.CommandText = """
+            SELECT member.name, container.name
+            FROM symbol member
+            JOIN symbol container ON container.id = member.container_id
+            WHERE member.name IN ('CR1', 'CR2')
+            ORDER BY member.name
+            """;
+
+        using var reader = command.ExecuteReader();
+        var rows = new List<(string Member, string Container)>();
+        while (reader.Read())
+        {
+            rows.Add((reader.GetString(0), reader.GetString(1)));
+        }
+
+        Assert.Equal([("CR1", "USART_TypeDef"), ("CR2", "USART_TypeDef")], rows);
+    }
 }

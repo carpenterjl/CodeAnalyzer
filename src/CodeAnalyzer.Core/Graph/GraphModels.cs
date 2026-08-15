@@ -87,6 +87,13 @@ public sealed record GraphFragment
     public IReadOnlyList<GraphNode> Nodes { get; init; } = [];
     public IReadOnlyList<GraphEdge> Edges { get; init; } = [];
 
+    /// <summary>
+    /// I/O boundary stubs for the drawn nodes. Attached by the shell after the fragment is
+    /// built, because matching needs the catalog and the user's marks, which the graph
+    /// query deliberately knows nothing about.
+    /// </summary>
+    public IReadOnlyList<IoStub> IoStubs { get; init; } = [];
+
     /// <summary>True when the node cap truncated the result, so the UI can say so.</summary>
     public bool WasTruncated { get; init; }
 }

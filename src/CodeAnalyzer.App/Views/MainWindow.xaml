@@ -24,6 +24,7 @@
         <KeyBinding Modifiers="Control" Key="D3" Command="{Binding Graph.SelectViewCommand}" CommandParameter="Paths" />
         <KeyBinding Modifiers="Control" Key="D4" Command="{Binding Graph.SelectViewCommand}" CommandParameter="Treemap" />
         <KeyBinding Modifiers="Control" Key="D5" Command="{Binding Graph.SelectViewCommand}" CommandParameter="Wheel" />
+        <KeyBinding Modifiers="Control" Key="D6" Command="{Binding Graph.SelectViewCommand}" CommandParameter="Boundaries" />
         <KeyBinding Modifiers="Control" Key="E" Command="{Binding ExportPngCommand}" />
         <KeyBinding Modifiers="Control+Shift" Key="E" Command="{Binding ExportJsonCommand}" />
         <KeyBinding Modifiers="Control" Key="T" Command="{Binding ToggleThemeCommand}" />
@@ -37,10 +38,11 @@
         <HierarchicalDataTemplate DataType="{x:Type vm:DirectoryNodeViewModel}"
                                   ItemsSource="{Binding Children}">
             <StackPanel Orientation="Horizontal" Margin="0,1">
+                <!-- The control template already sets the gap to its label; the tri-state
+                     middle value is what a partly selected directory reads as. -->
                 <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}"
                           IsThreeState="True"
-                          VerticalAlignment="Center"
-                          Margin="0,0,6,0" />
+                          VerticalAlignment="Center" />
                 <TextBlock Text="{Binding Name}" VerticalAlignment="Center">
                     <TextBlock.Style>
                         <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
@@ -66,27 +68,63 @@
             name — the one thing the row exists to show — down to an ellipsis.
         -->
         <DataTemplate x:Key="SearchResultTemplate" DataType="{x:Type vm:SearchResultItem}">
-            <StackPanel Margin="4,3">
-                <!-- Container-prefixed and parameter-suffixed, so Device.Send, Radio.Send
-                     and Radio.Send(byte[], int) all read apart. -->
-                <TextBlock Text="{Binding DisplayName, Mode=OneWay}" FontWeight="SemiBold"
-                           TextTrimming="CharacterEllipsis" />
-                <TextBlock Text="{Binding Descriptor}" Style="{StaticResource Caption}"
-                           TextTrimming="CharacterEllipsis" />
-                <TextBlock Style="{StaticResource Caption}" TextTrimming="CharacterEllipsis"
-                           Foreground="{DynamicResource App.Foreground.Faint}">
-                    <Run Text="{Binding RelativePath, Mode=OneWay}" />
-                    <Run Text=":" />
-                    <Run Text="{Binding Line, Mode=OneWay}" />
-                </TextBlock>
-            </StackPanel>
+            <Grid Margin="6,5">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <!-- The row's one mark: the symbol's kind family, in the colour the graph
+                     draws that family with. -->
+                <Ellipse Grid.Column="0" Style="{StaticResource KindDot}"
+                         VerticalAlignment="Top" Margin="0,5,8,0" />
+
+                <StackPanel Grid.Column="1">
+                    <!-- Container-prefixed and parameter-suffixed, so Device.Send, Radio.Send
+                         and Radio.Send(byte[], int) all read apart. -->
+                    <TextBlock Text="{Binding DisplayName, Mode=OneWay}"
+                               Style="{StaticResource MonoMd}" FontWeight="SemiBold"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding Descriptor}" Style="{StaticResource Caption}"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Style="{StaticResource MonoFaint}" TextTrimming="CharacterEllipsis">
+                        <Run Text="{Binding RelativePath, Mode=OneWay}" />
+                        <Run Text=":" />
+                        <Run Text="{Binding Line, Mode=OneWay}" />
+                    </TextBlock>
+                </StackPanel>
+            </Grid>
         </DataTemplate>
+
+        <!--
+            Right-click menu for any row carrying a Name: the user's way to state that
+            calls to that name are an I/O boundary. The menu reaches the window's view
+            model through the placement target's Tag — a ContextMenu sits outside the
+            visual tree, so an AncestorType binding cannot.
+        -->
+        <ContextMenu x:Key="IoMarkMenu">
+            <MenuItem Header="Mark as input boundary"
+                      Command="{Binding PlacementTarget.Tag.MarkIoInputCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding Name}" />
+            <MenuItem Header="Mark as output boundary"
+                      Command="{Binding PlacementTarget.Tag.MarkIoOutputCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding Name}" />
+            <MenuItem Header="Suppress catalog I/O match"
+                      Command="{Binding PlacementTarget.Tag.SuppressIoMatchCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding Name}" />
+            <Separator />
+            <MenuItem Header="Clear I/O mark"
+                      Command="{Binding PlacementTarget.Tag.ClearIoMarkCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding Name}" />
+        </ContextMenu>
 
         <!-- Caller/callee row. Ambiguous links are labelled, never presented as certain. -->
         <DataTemplate x:Key="RelatedSymbolTemplate" DataType="{x:Type vm:RelatedSymbolItem}">
             <Button Style="{StaticResource RowButton}"
                     Command="{Binding DataContext.FocusSymbolCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                     CommandParameter="{Binding SymbolId}"
+                    Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}"
+                    ContextMenu="{StaticResource IoMarkMenu}"
                     ToolTip="Open this symbol">
                 <Grid Margin="0,3">
                     <Grid.ColumnDefinitions>
@@ -100,6 +138,7 @@
                             <Run Text=":" />
                             <Run Text="{Binding Line, Mode=OneWay}" />
                         </TextBlock>
+                        <!-- Amber means "read this, it is uncertain". -->
                         <TextBlock Text="{Binding ConfidenceLabel}"
                                    Style="{StaticResource Caption}"
                                    Foreground="{DynamicResource App.Warning}"
@@ -107,7 +146,7 @@
                                    Visibility="{Binding IsAmbiguous, Converter={StaticResource BoolToVisibility}}" />
                     </StackPanel>
                     <TextBlock Grid.Column="1" Text="{Binding KindLabel}"
-                               Style="{StaticResource Caption}" VerticalAlignment="Top" Margin="6,0,0,0" />
+                               Style="{StaticResource KindLabel}" VerticalAlignment="Top" Margin="8,0,0,0" />
                 </Grid>
             </Button>
         </DataTemplate>
@@ -154,7 +193,8 @@
         </Grid.RowDefinitions>
 
         <!-- ============ Toolbar ============ -->
-        <Border Grid.Row="0" Background="{DynamicResource App.Panel.Background}"
+        <!-- The utility bar sits one tonal step above the canvas: raised, not shadowed. -->
+        <Border Grid.Row="0" Background="{DynamicResource App.Panel.Background.Raised}"
                 BorderBrush="{DynamicResource App.Panel.Border}" BorderThickness="0,0,0,1"
                 Padding="10,7">
             <StackPanel>
@@ -166,15 +206,20 @@
                     </Grid.ColumnDefinitions>
 
                     <StackPanel Grid.Column="0" Orientation="Horizontal">
-                        <Button Content="Open workspace…" Command="{Binding OpenWorkspaceCommand}"
+                        <Button Style="{StaticResource ToolbarButton}"
+                                Content="Open workspace…" Command="{Binding OpenWorkspaceCommand}"
                                 ToolTip="Open a workspace folder (Ctrl+O)" />
-                        <Button Content="Re-index" Command="{Binding ReindexCommand}" Margin="6,0,0,0"
+                        <!-- The one action the toolbar is really for, so the one cyan fill. -->
+                        <Button Style="{StaticResource PrimaryToolbarButton}"
+                                Content="Re-index" Command="{Binding ReindexCommand}" Margin="6,0,0,0"
                                 ToolTip="Re-index the selected directories (F5)" />
-                        <Button Content="{Binding LiveUpdateLabel}"
+                        <Button Style="{StaticResource ToolbarButton}"
+                                Content="{Binding LiveUpdateLabel}"
                                 Command="{Binding ToggleLiveUpdatesCommand}"
                                 MinWidth="76" Margin="6,0,0,0"
                                 ToolTip="Re-index files as they change on disk (Ctrl+L). Turn this off during a build." />
-                        <Button Content="Settings…" Command="{Binding OpenSettingsCommand}" Margin="6,0,0,0"
+                        <Button Style="{StaticResource ToolbarButton}"
+                                Content="Settings…" Command="{Binding OpenSettingsCommand}" Margin="6,0,0,0"
                                 ToolTip="Ignore rules and file size cap for this workspace (Ctrl+,)" />
                     </StackPanel>
 
@@ -206,30 +251,40 @@
                                      IsChecked="{Binding Graph.ViewMode, Mode=OneWay,
                                                  Converter={StaticResource ViewModeToBool}, ConverterParameter=Wheel}"
                                      ToolTip="Dependencies between top-level directories" />
+                        <RadioButton Style="{StaticResource ViewTab}" Content="Boundaries"
+                                     Command="{Binding Graph.SelectViewCommand}" CommandParameter="Boundaries"
+                                     IsChecked="{Binding Graph.ViewMode, Mode=OneWay,
+                                                 Converter={StaticResource ViewModeToBool}, ConverterParameter=Boundaries}"
+                                     ToolTip="Where data leaves and enters the workspace" />
                     </StackPanel>
 
                     <StackPanel Grid.Column="2" Orientation="Horizontal">
                         <!-- Layout and export only mean anything to the neighbourhood graph. -->
-                        <Button Content="{Binding Graph.LayoutLabel}"
+                        <Button Style="{StaticResource ToolbarButton}"
+                                Content="{Binding Graph.LayoutLabel}"
                                 Command="{Binding Graph.ToggleLayoutCommand}"
                                 MinWidth="92" Margin="0,0,6,0"
                                 Visibility="{Binding Graph.IsGraphView, Converter={StaticResource BoolToVisibility}}"
                                 ToolTip="Switch between a force-directed cluster view and a left-to-right call hierarchy" />
 
-                        <Button Content="PNG" Command="{Binding ExportPngCommand}" Margin="0,0,6,0"
+                        <Button Style="{StaticResource ToolbarButton}"
+                                Content="PNG" Command="{Binding ExportPngCommand}" Margin="0,0,6,0"
                                 Visibility="{Binding Graph.IsGraphView, Converter={StaticResource BoolToVisibility}}"
                                 ToolTip="Export the graph as a PNG image (Ctrl+E)" />
-                        <Button Content="JSON" Command="{Binding ExportJsonCommand}" Margin="0,0,6,0"
+                        <Button Style="{StaticResource ToolbarButton}"
+                                Content="JSON" Command="{Binding ExportJsonCommand}" Margin="0,0,6,0"
                                 Visibility="{Binding Graph.IsGraphView, Converter={StaticResource BoolToVisibility}}"
                                 ToolTip="Export the graph's facts as JSON (Ctrl+Shift+E)" />
 
-                        <Button Content="{Binding Graph.WheelSourceLabel}"
+                        <Button Style="{StaticResource ToolbarButton}"
+                                Content="{Binding Graph.WheelSourceLabel}"
                                 Command="{Binding Graph.ToggleWheelSourceCommand}"
                                 MinWidth="150" Margin="0,0,6,0"
                                 Visibility="{Binding Graph.IsWheelView, Converter={StaticResource BoolToVisibility}}"
                                 ToolTip="Count include and import lines, or every resolved symbol reference" />
 
-                        <Button Content="Theme" Command="{Binding ToggleThemeCommand}"
+                        <Button Style="{StaticResource ToolbarButton}"
+                                Content="Theme" Command="{Binding ToggleThemeCommand}"
                                 ToolTip="Switch between the dark and light themes (Ctrl+T)" />
                     </StackPanel>
                 </Grid>
@@ -244,26 +299,31 @@
                             <TextBlock Text="{Binding Graph.PathStartName}" Style="{StaticResource Mono}"
                                        TextTrimming="CharacterEllipsis" MaxWidth="180" />
                         </Border>
-                        <Button Content="Use selection" Command="{Binding SetPathStartCommand}" Padding="8,2" />
+                        <Button Style="{StaticResource ToolbarButton}"
+                                Content="Use selection" Command="{Binding SetPathStartCommand}" />
 
                         <TextBlock Text="To" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="18,0,0,0" />
                         <Border Style="{StaticResource EndpointChip}">
                             <TextBlock Text="{Binding Graph.PathEndName}" Style="{StaticResource Mono}"
                                        TextTrimming="CharacterEllipsis" MaxWidth="180" />
                         </Border>
-                        <Button Content="Use selection" Command="{Binding SetPathEndCommand}" Padding="8,2" />
+                        <Button Style="{StaticResource ToolbarButton}"
+                                Content="Use selection" Command="{Binding SetPathEndCommand}" />
 
-                        <Button Content="Swap" Command="{Binding Graph.SwapPathEndpointsCommand}"
-                                Padding="8,2" Margin="14,0,0,0" />
-                        <Button Content="Clear" Command="{Binding Graph.ClearPathEndpointsCommand}"
-                                Padding="8,2" Margin="5,0,0,0" />
+                        <Button Style="{StaticResource ToolbarButton}"
+                                Content="Swap" Command="{Binding Graph.SwapPathEndpointsCommand}"
+                                Margin="14,0,0,0" />
+                        <Button Style="{StaticResource QuietButton}"
+                                Content="Clear" Command="{Binding Graph.ClearPathEndpointsCommand}"
+                                Margin="5,0,0,0" />
                     </StackPanel>
                 </Grid>
             </StackPanel>
         </Border>
 
         <!-- ============ Content ============ -->
-        <Grid Grid.Row="1" Margin="8">
+        <!-- Panes are 12px apart, over a 6px splitter gutter. -->
+        <Grid Grid.Row="1" Margin="12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="300" MinWidth="220" />
                 <ColumnDefinition Width="6" />
@@ -291,14 +351,15 @@
 
                         <TextBlock Grid.Row="0" Text="SEARCH SYMBOLS" Style="{StaticResource SectionHeader}" />
 
-                        <TextBox x:Name="SearchBox" Grid.Row="1" Margin="8,0,8,6"
+                        <TextBox x:Name="SearchBox" Grid.Row="1" Margin="12,0,12,8"
+                                 Style="{StaticResource SearchBox}"
                                  Text="{Binding Search.Query, UpdateSourceTrigger=PropertyChanged}"
                                  PreviewKeyDown="OnSearchBoxKeyDown"
                                  ToolTip="Fuzzy symbol search (Ctrl+F). Down moves into the results; Escape clears." />
 
                         <!-- Kind filters. Nothing selected means no filter, which is why
                              there is no "All" chip to get out of step with the rest. -->
-                        <Grid Grid.Row="2" Margin="8,0,8,4">
+                        <Grid Grid.Row="2" Margin="12,0,12,4">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
@@ -320,9 +381,9 @@
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
 
-                            <Button Grid.Column="1" Content="Clear"
+                            <Button Grid.Column="1" Style="{StaticResource QuietButton}" Content="Clear"
                                     Command="{Binding ClearSearchFiltersCommand}"
-                                    Padding="7,1" Margin="4,0,0,4" VerticalAlignment="Top"
+                                    Margin="4,0,0,4" VerticalAlignment="Top"
                                     Visibility="{Binding Search.HasKindFilter, Converter={StaticResource BoolToVisibility}}"
                                     ToolTip="Remove every kind filter" />
                         </Grid>
@@ -332,11 +393,11 @@
                                      ItemsSource="{Binding Search.Results}"
                                      SelectedItem="{Binding Search.SelectedResult}"
                                      ItemTemplate="{StaticResource SearchResultTemplate}"
-                                     Margin="4,0,4,4" />
+                                     Margin="8,0,8,8" />
                             <TextBlock Text="{Binding Search.EmptyMessage}"
                                        Style="{StaticResource Caption}"
                                        TextWrapping="Wrap"
-                                       Margin="12"
+                                       Margin="12,4,12,12"
                                        VerticalAlignment="Top"
                                        Visibility="{Binding Search.Results.Count, Converter={StaticResource ZeroToVisibility}}" />
                         </Grid>
@@ -356,25 +417,32 @@
                         <TextBlock Grid.Row="0" Text="WORKSPACE" Style="{StaticResource SectionHeader}" />
 
                         <Grid Grid.Row="1">
-                            <TreeView ItemsSource="{Binding WorkspaceTree.Roots}" Margin="4,0,4,4">
+                            <TreeView ItemsSource="{Binding WorkspaceTree.Roots}" Margin="8,0,8,4">
                                 <TreeView.ItemContainerStyle>
-                                    <Style TargetType="TreeViewItem">
+                                    <!-- BasedOn keeps the design system's chevron twisty and hover
+                                         fill; only the expansion binding is added here. -->
+                                    <Style TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
                                         <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
-                                        <Setter Property="Foreground" Value="{DynamicResource App.Foreground}" />
                                     </Style>
                                 </TreeView.ItemContainerStyle>
                             </TreeView>
                             <TextBlock Text="No workspace open."
                                        Style="{StaticResource Caption}"
-                                       Margin="12"
+                                       Margin="12,4,12,12"
                                        VerticalAlignment="Top"
                                        Visibility="{Binding WorkspaceTree.HasWorkspace, Converter={StaticResource InverseBoolToVisibility}}" />
                         </Grid>
 
-                        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="8,0,8,8">
-                            <Button Content="All" Command="{Binding WorkspaceTree.SelectAllCommand}" Padding="8,3" />
-                            <Button Content="None" Command="{Binding WorkspaceTree.SelectNoneCommand}" Padding="8,3" Margin="5,0,0,0" />
-                            <Button Content="Apply selection" Command="{Binding WorkspaceTree.ApplySelectionCommand}" Padding="8,3" Margin="5,0,0,0" />
+                        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="12,0,12,12">
+                            <Button Style="{StaticResource ToolbarButton}" Content="All"
+                                    Command="{Binding WorkspaceTree.SelectAllCommand}" />
+                            <Button Style="{StaticResource ToolbarButton}" Content="None"
+                                    Command="{Binding WorkspaceTree.SelectNoneCommand}" Margin="5,0,0,0" />
+                            <!-- Outlined, not filled: it commits a choice already made in the tree. -->
+                            <Button Style="{StaticResource GhostButton}" Content="Apply selection"
+                                    Command="{Binding WorkspaceTree.ApplySelectionCommand}"
+                                    Padding="9,3" MinHeight="26" FontSize="{DynamicResource App.FontSize.Small}"
+                                    Margin="5,0,0,0" />
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -406,33 +474,42 @@
 
                         <DockPanel Grid.Row="0" LastChildFill="False">
                             <TextBlock DockPanel.Dock="Left" Text="SOURCE" Style="{StaticResource SectionHeader}" />
-                            <TextBlock DockPanel.Dock="Right" Style="{StaticResource Caption}" Margin="8,8,8,4"
+                            <TextBlock DockPanel.Dock="Right" Style="{StaticResource MonoFaint}" Margin="12,10,12,6"
                                        Text="{Binding Preview.RelativePath}" TextTrimming="CharacterEllipsis" />
                         </DockPanel>
 
-                        <Grid Grid.Row="1">
-                            <avalon:TextEditor IsReadOnly="True"
-                                               ShowLineNumbers="True"
-                                               WordWrap="False"
-                                               Margin="8,0,8,8"
-                                               BorderThickness="0"
-                                               Background="Transparent"
-                                               Foreground="{DynamicResource App.Foreground}"
-                                               LineNumbersForeground="{DynamicResource App.Foreground.Faint}"
-                                               FontFamily="{DynamicResource App.MonoFontFamily}"
-                                               FontSize="12"
-                                               HorizontalScrollBarVisibility="Auto"
-                                               VerticalScrollBarVisibility="Auto"
-                                               view:CodePreviewBehavior.SourceText="{Binding Preview.Text}"
-                                               view:CodePreviewBehavior.FilePath="{Binding Preview.RelativePath}"
-                                               view:CodePreviewBehavior.HighlightLine="{Binding Preview.HighlightLine}"
-                                               Visibility="{Binding Preview.HasContent, Converter={StaticResource BoolToVisibility}}" />
-                            <TextBlock Text="{Binding Preview.EmptyMessage}"
-                                       Style="{StaticResource Caption}"
-                                       Margin="12,4,12,12"
-                                       VerticalAlignment="Top"
-                                       Visibility="{Binding Preview.HasContent, Converter={StaticResource InverseBoolToVisibility}}" />
-                        </Grid>
+                        <!-- The code surface is the lowest chrome in the ramp, so the syntax
+                             colours sit on the darkest ground in the window. -->
+                        <Border Grid.Row="1" Margin="12,0,12,12"
+                                Background="{DynamicResource App.Surface.Lowest}"
+                                BorderBrush="{DynamicResource App.Panel.Border}"
+                                BorderThickness="1"
+                                CornerRadius="{DynamicResource Shape.Radius.Default}"
+                                ClipToBounds="True">
+                            <Grid>
+                                <avalon:TextEditor IsReadOnly="True"
+                                                   ShowLineNumbers="True"
+                                                   WordWrap="False"
+                                                   Margin="4"
+                                                   BorderThickness="0"
+                                                   Background="Transparent"
+                                                   Foreground="{DynamicResource App.Foreground}"
+                                                   LineNumbersForeground="{DynamicResource Code.LineNumber}"
+                                                   FontFamily="{DynamicResource App.MonoFontFamily}"
+                                                   FontSize="{DynamicResource App.FontSize.Code}"
+                                                   HorizontalScrollBarVisibility="Auto"
+                                                   VerticalScrollBarVisibility="Auto"
+                                                   view:CodePreviewBehavior.SourceText="{Binding Preview.Text}"
+                                                   view:CodePreviewBehavior.FilePath="{Binding Preview.RelativePath}"
+                                                   view:CodePreviewBehavior.HighlightLine="{Binding Preview.HighlightLine}"
+                                                   Visibility="{Binding Preview.HasContent, Converter={StaticResource BoolToVisibility}}" />
+                                <TextBlock Text="{Binding Preview.EmptyMessage}"
+                                           Style="{StaticResource Caption}"
+                                           Margin="12,10,12,12"
+                                           VerticalAlignment="Top"
+                                           Visibility="{Binding Preview.HasContent, Converter={StaticResource InverseBoolToVisibility}}" />
+                            </Grid>
+                        </Border>
                     </Grid>
                 </Border>
             </Grid>
@@ -450,49 +527,78 @@
                     <TextBlock Grid.Row="0" Text="DETAILS" Style="{StaticResource SectionHeader}" />
 
                     <Grid Grid.Row="1">
-                        <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="8,0,8,8"
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="12,0,12,12"
                                       Visibility="{Binding Detail.HasSymbol, Converter={StaticResource BoolToVisibility}}">
                             <StackPanel>
-                                <TextBlock Text="{Binding Detail.Name}" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding Detail.Name}" Style="{StaticResource Heading}"
+                                           FontSize="17" TextWrapping="Wrap"
+                                           Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}">
+                                    <!--
+                                        The focused symbol takes the same mark menu as the rows,
+                                        with its own parameter path: this template's context is
+                                        the shell, not a row item.
+                                    -->
+                                    <TextBlock.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="Mark as input boundary"
+                                                      Command="{Binding PlacementTarget.Tag.MarkIoInputCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                      CommandParameter="{Binding Detail.Name}" />
+                                            <MenuItem Header="Mark as output boundary"
+                                                      Command="{Binding PlacementTarget.Tag.MarkIoOutputCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                      CommandParameter="{Binding Detail.Name}" />
+                                            <MenuItem Header="Suppress catalog I/O match"
+                                                      Command="{Binding PlacementTarget.Tag.SuppressIoMatchCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                      CommandParameter="{Binding Detail.Name}" />
+                                            <Separator />
+                                            <MenuItem Header="Clear I/O mark"
+                                                      Command="{Binding PlacementTarget.Tag.ClearIoMarkCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                      CommandParameter="{Binding Detail.Name}" />
+                                        </ContextMenu>
+                                    </TextBlock.ContextMenu>
+                                </TextBlock>
 
                                 <!--
                                     The descriptor states the modifiers, the type or the
                                     kind, and the overload position in one line, so the
                                     kind label alone is no longer enough here.
                                 -->
-                                <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+                                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                                     <TextBlock Text="{Binding Detail.Descriptor}" Style="{StaticResource Caption}"
                                                TextTrimming="CharacterEllipsis" />
                                     <TextBlock Text=" · " Style="{StaticResource Caption}" />
                                     <TextBlock Text="{Binding Detail.Language}" Style="{StaticResource Caption}" />
                                 </StackPanel>
 
-                                <TextBlock Style="{StaticResource Caption}" Margin="0,2,0,0" TextTrimming="CharacterEllipsis">
+                                <TextBlock Style="{StaticResource MonoFaint}" Margin="0,3,0,0" TextTrimming="CharacterEllipsis">
                                     <Run Text="{Binding Detail.RelativePath, Mode=OneWay}" />
                                     <Run Text=":" />
                                     <Run Text="{Binding Detail.Line, Mode=OneWay}" />
                                 </TextBlock>
 
-                                <TextBlock Text="{Binding Detail.Signature}" Style="{StaticResource Mono}"
-                                           TextWrapping="Wrap" Margin="0,8,0,0"
-                                           Visibility="{Binding Detail.Signature, Converter={StaticResource NullToCollapsed}}" />
+                                <!-- The signature is code, so it sits in a code box. -->
+                                <Border Style="{StaticResource CardBorder}" Margin="0,10,0,0"
+                                        Visibility="{Binding Detail.Signature, Converter={StaticResource NullToCollapsed}}">
+                                    <TextBlock Text="{Binding Detail.Signature}" Style="{StaticResource Mono}"
+                                               TextWrapping="Wrap" />
+
+                                </Border>
 
                                 <!-- Verbatim modifier keywords, e.g. "public sealed override" -->
-                                <TextBlock Margin="0,6,0,0" TextWrapping="Wrap"
+                                <TextBlock Margin="0,8,0,0" TextWrapping="Wrap" FontSize="{DynamicResource App.FontSize.Caption}"
                                            Visibility="{Binding Detail.Modifiers, Converter={StaticResource NullToCollapsed}}">
                                     <Run Text="modifiers:" Foreground="{DynamicResource App.Foreground.Muted}" />
-                                    <Run Text="{Binding Detail.Modifiers, Mode=OneWay}" FontFamily="Cascadia Mono, Consolas" />
+                                    <Run Text="{Binding Detail.Modifiers, Mode=OneWay}"
+                                         FontFamily="{DynamicResource App.MonoFontFamily}"
+                                         Foreground="{DynamicResource Syntax.Keyword}" />
                                 </TextBlock>
 
                                 <!-- Literal initializer, verbatim from source -->
-                                <Border Margin="0,8,0,0" Padding="7,4" CornerRadius="4"
-                                        Background="{DynamicResource App.Control.Background}"
-                                        BorderBrush="{DynamicResource App.Control.Border}" BorderThickness="1"
+                                <Border Style="{StaticResource CardBorder}" Margin="0,10,0,0"
                                         Visibility="{Binding Detail.Value, Converter={StaticResource NullToCollapsed}}">
                                     <StackPanel>
-                                        <TextBlock Text="VALUE" Style="{StaticResource Caption}" FontWeight="SemiBold" />
+                                        <TextBlock Text="VALUE" Style="{StaticResource SectionHeader}" Margin="0,0,0,3" />
                                         <TextBlock Text="{Binding Detail.Value}" Style="{StaticResource Mono}"
-                                                   TextWrapping="Wrap" Margin="0,2,0,0"
+                                                   TextWrapping="Wrap"
                                                    Foreground="{DynamicResource Kind.Constant}" />
                                     </StackPanel>
                                 </Border>
@@ -502,57 +608,112 @@
                                     populated when there is more than one, so the heading
                                     never appears over a symbol's own single self.
                                 -->
-                                <TextBlock Text="OVERLOADS" Style="{StaticResource SectionHeader}" Margin="0,14,0,4"
+                                <TextBlock Text="OVERLOADS" Style="{StaticResource SectionHeaderInline}"
                                            Visibility="{Binding Detail.Overloads.Count, Converter={StaticResource NonZeroToVisibility}}" />
                                 <ItemsControl ItemsSource="{Binding Detail.Overloads}"
                                               ItemTemplate="{StaticResource OverloadTemplate}" />
 
                                 <!-- Composition: struct fields, class methods, module ports -->
-                                <TextBlock Text="MEMBERS" Style="{StaticResource SectionHeader}" Margin="0,14,0,4"
+                                <TextBlock Text="MEMBERS" Style="{StaticResource SectionHeaderInline}"
                                            Visibility="{Binding Detail.Members.Count, Converter={StaticResource NonZeroToVisibility}}" />
                                 <ItemsControl ItemsSource="{Binding Detail.Members}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <Grid Margin="0,2">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="Auto" />
-                                                </Grid.ColumnDefinitions>
-                                                <StackPanel Grid.Column="0">
-                                                    <TextBlock Text="{Binding Name}" Style="{StaticResource Mono}" />
-                                                    <TextBlock Style="{StaticResource Caption}" TextTrimming="CharacterEllipsis">
-                                                        <Run Text="{Binding TypeText, Mode=OneWay}" />
-                                                    </TextBlock>
-                                                </StackPanel>
-                                                <TextBlock Grid.Column="1" Text="{Binding Value}"
-                                                           Style="{StaticResource Mono}" VerticalAlignment="Center"
-                                                           Foreground="{DynamicResource Kind.Constant}" />
-                                            </Grid>
+                                            <!-- A member card carries a 3px kind-coloured left edge —
+                                                 the only left-accent pattern in the system, and it
+                                                 encodes data rather than decoration. -->
+                                            <Border Margin="0,0,0,4" Padding="8,5"
+                                                    Background="{DynamicResource App.Panel.Background}"
+                                                    BorderBrush="{DynamicResource App.Panel.Border}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="{DynamicResource Shape.Radius.Default}">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <Rectangle Grid.Column="0" Width="3" Margin="-5,-3,8,-3"
+                                                               RadiusX="1" RadiusY="1">
+                                                        <Rectangle.Style>
+                                                            <Style TargetType="Rectangle">
+                                                                <Setter Property="Fill" Value="{DynamicResource App.Foreground.Faint}" />
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding KindLabel, Converter={StaticResource KindLabelToGroup}}" Value="function">
+                                                                        <Setter Property="Fill" Value="{DynamicResource Kind.Function}" />
+                                                                    </DataTrigger>
+                                                                    <DataTrigger Binding="{Binding KindLabel, Converter={StaticResource KindLabelToGroup}}" Value="type">
+                                                                        <Setter Property="Fill" Value="{DynamicResource Kind.Type}" />
+                                                                    </DataTrigger>
+                                                                    <DataTrigger Binding="{Binding KindLabel, Converter={StaticResource KindLabelToGroup}}" Value="interface">
+                                                                        <Setter Property="Fill" Value="{DynamicResource Kind.Interface}" />
+                                                                    </DataTrigger>
+                                                                    <DataTrigger Binding="{Binding KindLabel, Converter={StaticResource KindLabelToGroup}}" Value="constant">
+                                                                        <Setter Property="Fill" Value="{DynamicResource Kind.Constant}" />
+                                                                    </DataTrigger>
+                                                                    <DataTrigger Binding="{Binding KindLabel, Converter={StaticResource KindLabelToGroup}}" Value="macro">
+                                                                        <Setter Property="Fill" Value="{DynamicResource Kind.Macro}" />
+                                                                    </DataTrigger>
+                                                                    <DataTrigger Binding="{Binding KindLabel, Converter={StaticResource KindLabelToGroup}}" Value="module">
+                                                                        <Setter Property="Fill" Value="{DynamicResource Kind.Module}" />
+                                                                    </DataTrigger>
+                                                                    <DataTrigger Binding="{Binding KindLabel, Converter={StaticResource KindLabelToGroup}}" Value="variable">
+                                                                        <Setter Property="Fill" Value="{DynamicResource Kind.Variable}" />
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </Rectangle.Style>
+                                                    </Rectangle>
+                                                    <StackPanel Grid.Column="1">
+                                                        <TextBlock Text="{Binding Name}" Style="{StaticResource Mono}"
+                                                                   TextTrimming="CharacterEllipsis" />
+                                                        <TextBlock Style="{StaticResource Caption}" TextTrimming="CharacterEllipsis">
+                                                            <Run Text="{Binding TypeText, Mode=OneWay}" />
+                                                        </TextBlock>
+                                                    </StackPanel>
+                                                    <!-- Capped and trimmed: an initializer can run to
+                                                         several lines of source, and the name is what
+                                                         the row exists to show. -->
+                                                    <TextBlock Grid.Column="2" Text="{Binding Value}"
+                                                               Style="{StaticResource Mono}" VerticalAlignment="Center"
+                                                               Margin="8,0,0,0" MaxWidth="120"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               ToolTip="{Binding Value}"
+                                                               Foreground="{DynamicResource Kind.Constant}" />
+                                                </Grid>
+                                            </Border>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
 
-                                <TextBlock Text="CALLED BY" Style="{StaticResource SectionHeader}" Margin="0,14,0,4"
+                                <TextBlock Text="CALLED BY" Style="{StaticResource SectionHeaderInline}"
                                            Visibility="{Binding Detail.Callers.Count, Converter={StaticResource NonZeroToVisibility}}" />
                                 <ItemsControl ItemsSource="{Binding Detail.Callers}"
                                               ItemTemplate="{StaticResource RelatedSymbolTemplate}" />
 
-                                <TextBlock Text="DEPENDS ON" Style="{StaticResource SectionHeader}" Margin="0,14,0,4"
+                                <TextBlock Text="DEPENDS ON" Style="{StaticResource SectionHeaderInline}"
                                            Visibility="{Binding Detail.Callees.Count, Converter={StaticResource NonZeroToVisibility}}" />
                                 <ItemsControl ItemsSource="{Binding Detail.Callees}"
                                               ItemTemplate="{StaticResource RelatedSymbolTemplate}" />
 
                                 <!-- Names that matched no definition in the workspace. Listed
                                      rather than guessed at, so the graph stays factual. -->
-                                <TextBlock Text="UNRESOLVED" Style="{StaticResource SectionHeader}" Margin="0,14,0,4"
+                                <TextBlock Text="UNRESOLVED" Style="{StaticResource SectionHeaderInline}"
                                            Visibility="{Binding Detail.UnresolvedReferences.Count, Converter={StaticResource NonZeroToVisibility}}" />
                                 <ItemsControl ItemsSource="{Binding Detail.UnresolvedReferences}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <StackPanel Orientation="Horizontal" Margin="0,2">
-                                                <TextBlock Text="{Binding Name}" Style="{StaticResource Mono}"
-                                                           Foreground="{DynamicResource App.Foreground.Faint}" />
-                                                <TextBlock Text="{Binding KindLabel}" Style="{StaticResource Caption}" Margin="6,0,0,0" />
+                                            <!--
+                                                Unresolved names are the natural place to mark a
+                                                boundary: a call into a library the workspace does
+                                                not contain is exactly where data leaves it.
+                                            -->
+                                            <StackPanel Orientation="Horizontal" Margin="0,2"
+                                                        Background="Transparent"
+                                                        Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                        ContextMenu="{StaticResource IoMarkMenu}">
+                                                <TextBlock Text="{Binding Name}" Style="{StaticResource MonoFaint}" />
+                                                <TextBlock Text="{Binding KindLabel}" Style="{StaticResource Caption}" Margin="8,0,0,0" />
                                             </StackPanel>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
@@ -562,12 +723,100 @@
                                            Visibility="{Binding Detail.UnresolvedReferences.Count, Converter={StaticResource NonZeroToVisibility}}" />
                             </StackPanel>
                         </ScrollViewer>
+                        <!--
+                            I/O boundary stub mode: not a symbol, so it gets its own pane
+                            content — the direction and who asserted it, the gate that
+                            admitted the match, and every call site with what it passed.
+                        -->
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="12,0,12,12"
+                                      Visibility="{Binding Detail.HasIoStub, Converter={StaticResource BoolToVisibility}}">
+                            <StackPanel>
+                                <TextBlock Text="{Binding Detail.IoStubName}" Style="{StaticResource Heading}"
+                                           FontSize="17" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding Detail.IoStubDescriptor}" Style="{StaticResource Caption}"
+                                           Margin="0,4,0,0" TextWrapping="Wrap" />
+                                <!-- Amber, like ambiguous links: this is a name match, read the rule. -->
+                                <TextBlock Text="{Binding Detail.IoStubGateNote}"
+                                           Style="{StaticResource Caption}"
+                                           Foreground="{DynamicResource App.Warning}"
+                                           FontStyle="Italic" Margin="0,4,0,0" TextWrapping="Wrap"
+                                           Visibility="{Binding Detail.IoStubGateNote, Converter={StaticResource NullToCollapsed}}" />
+
+                                <TextBlock Text="CALL SITES" Style="{StaticResource SectionHeaderInline}" />
+                                <ItemsControl ItemsSource="{Binding Detail.IoSites}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:IoSiteItem}">
+                                            <Button Style="{StaticResource RowButton}"
+                                                    Command="{Binding DataContext.OpenIoSiteCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}"
+                                                    ToolTip="Open this call site">
+                                                <StackPanel Margin="0,3">
+                                                    <TextBlock Text="{Binding ArgumentText}" Style="{StaticResource Mono}"
+                                                               TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Style="{StaticResource Caption}" TextTrimming="CharacterEllipsis">
+                                                        <Run Text="{Binding CallerName, Mode=OneWay}" />
+                                                        <Run Text=" · " />
+                                                        <Run Text="{Binding RelativePath, Mode=OneWay}" />
+                                                        <Run Text=":" />
+                                                        <Run Text="{Binding Line, Mode=OneWay}" />
+                                                    </TextBlock>
+                                                </StackPanel>
+                                            </Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <!--
+                                    The framing chain for the site open in the preview:
+                                    each argument identifier, the type its definition
+                                    declares, and — when that type is a workspace struct —
+                                    the members, which are the packet layout. Uncertain
+                                    hops say so in amber; a literal argument has no row
+                                    because the verbatim text above already is the frame.
+                                -->
+                                <TextBlock Text="PACKET FRAMING" Style="{StaticResource SectionHeaderInline}"
+                                           Visibility="{Binding Detail.IoFrame.Count, Converter={StaticResource NonZeroToVisibility}}" />
+                                <ItemsControl ItemsSource="{Binding Detail.IoFrame}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:IoFrameArgumentItem}">
+                                            <StackPanel Margin="0,3">
+                                                <TextBlock Text="{Binding Token}" Style="{StaticResource Mono}" />
+                                                <TextBlock Text="{Binding ChainText}" Style="{StaticResource Caption}"
+                                                           TextWrapping="Wrap"
+                                                           Visibility="{Binding ChainText, Converter={StaticResource NullToCollapsed}}" />
+                                                <TextBlock Text="{Binding WarningText}" Style="{StaticResource Caption}"
+                                                           Foreground="{DynamicResource App.Warning}" FontStyle="Italic"
+                                                           TextWrapping="Wrap"
+                                                           Visibility="{Binding WarningText, Converter={StaticResource NullToCollapsed}}" />
+                                                <ItemsControl ItemsSource="{Binding Members}" Margin="12,2,0,0">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate DataType="{x:Type vm:IoFrameMemberItem}">
+                                                            <StackPanel Orientation="Horizontal" Margin="0,1">
+                                                                <TextBlock Text="{Binding Name}" Style="{StaticResource Mono}" />
+                                                                <TextBlock Text="{Binding TypeText}" Style="{StaticResource Caption}"
+                                                                           Margin="8,0,0,0" VerticalAlignment="Center" />
+                                                                <TextBlock Text="{Binding Value}" Style="{StaticResource Mono}"
+                                                                           Foreground="{DynamicResource Kind.Constant}"
+                                                                           Margin="8,0,0,0" MaxWidth="140"
+                                                                           TextTrimming="CharacterEllipsis"
+                                                                           ToolTip="{Binding Value}" />
+                                                            </StackPanel>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </ScrollViewer>
+
                         <TextBlock Text="{Binding Detail.EmptyMessage}"
                                    Style="{StaticResource Caption}"
                                    TextWrapping="Wrap"
                                    Margin="12,4,12,12"
                                    VerticalAlignment="Top"
-                                   Visibility="{Binding Detail.HasSymbol, Converter={StaticResource InverseBoolToVisibility}}" />
+                                   Visibility="{Binding Detail.ShowEmptyMessage, Converter={StaticResource BoolToVisibility}}" />
                     </Grid>
                 </Grid>
             </Border>
@@ -587,17 +836,18 @@
 
                 <DockPanel Grid.Row="0" LastChildFill="False">
                     <TextBlock DockPanel.Dock="Left" Text="FILES WITH ERRORS" Style="{StaticResource SectionHeader}" />
-                    <Button DockPanel.Dock="Right" Content="✕" Padding="6,0" Margin="8,6"
+                    <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}"
+                            Content="✕" Margin="12,6"
                             Command="{Binding ToggleErrorPaneCommand}"
                             ToolTip="Hide the error list" />
                 </DockPanel>
 
-                <ListBox Grid.Row="1" Margin="8,0,8,8"
+                <ListBox Grid.Row="1" Margin="8,0,8,12"
                          ItemsSource="{Binding FileErrors}"
                          SelectedItem="{Binding SelectedError}">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <Grid Margin="2,2">
+                            <Grid Margin="4,3">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="2*" />
                                     <ColumnDefinition Width="Auto" />
@@ -618,9 +868,10 @@
         </Border>
 
         <!-- ============ Status bar ============ -->
+        <!-- The status bar is the lowest chrome in the ramp. -->
         <Border Grid.Row="3" Background="{DynamicResource App.StatusBar.Background}"
                 BorderBrush="{DynamicResource App.Panel.Border}" BorderThickness="0,1,0,0"
-                Padding="10,5">
+                Padding="10,4" MinHeight="{StaticResource Metric.StatusBarHeight}">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -634,7 +885,9 @@
                            Style="{StaticResource Caption}" VerticalAlignment="Center"
                            TextTrimming="CharacterEllipsis" />
 
-                <Button Grid.Column="1" Content="{Binding ErrorSummary}" Margin="10,0,0,0" Padding="8,2"
+                <Button Grid.Column="1" Style="{StaticResource QuietButton}"
+                        Content="{Binding ErrorSummary}" Margin="10,0,0,0"
+                        Foreground="{DynamicResource App.Warning}"
                         Command="{Binding ToggleErrorPaneCommand}"
                         Visibility="{Binding HasFileErrors, Converter={StaticResource BoolToVisibility}}"
                         ToolTip="Show or hide the list of files whose last parse was imperfect" />
@@ -652,7 +905,8 @@
                              IsIndeterminate="{Binding Status.ProgressPercent, Converter={StaticResource NullToBool}}"
                              Visibility="{Binding Status.IsIndexing, Converter={StaticResource BoolToVisibility}}" />
 
-                <Button Grid.Column="4" Content="Cancel" Margin="10,0,0,0" Padding="8,2"
+                <Button Grid.Column="4" Style="{StaticResource QuietButton}"
+                        Content="Cancel" Margin="10,0,0,0"
                         Command="{Binding Status.CancelCommand}"
                         Visibility="{Binding Status.IsIndexing, Converter={StaticResource BoolToVisibility}}" />
             </Grid>

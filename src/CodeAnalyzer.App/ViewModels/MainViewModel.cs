@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using CodeAnalyzer.App.Services;
 using CodeAnalyzer.Core.Analysis;
+using CodeAnalyzer.Core.Crawling;
 using CodeAnalyzer.Core.Domain;
 using CodeAnalyzer.Core.Indexing;
 using CodeAnalyzer.Core.Search;
@@ -82,6 +83,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         Graph.ExpandRequested += (_, request) => _ = ExpandAsync(request);
         Graph.EdgeSelected += (_, selection) => _ = AnswerEdgeSelectionAsync(selection);
         Graph.EdgeActivated += (_, activation) => _ = OpenEdgeCallSiteAsync(activation);
+        Graph.IoStubSelected += (_, selection) => _ = ShowIoStubAsync(selection);
 
         Graph.RendererReady += (_, _) => _ = RepaintRendererAsync();
         Graph.ViewModeChanged += (_, _) =>
@@ -173,7 +175,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             SetPathStartCommand.NotifyCanExecuteChanged();
             SetPathEndCommand.NotifyCanExecuteChanged();
 
-            await WorkspaceTree.LoadWorkspaceAsync(folder, _session.Settings).ConfigureAwait(true);
+            // Asked once per workspace, before the tree loads and before any index run,
+            // so the very first crawl already follows the answer. The stored answer means
+            // reopening never asks again; a lost settings blob falls back to asking,
+            // which is the safe direction.
+            await AskAboutGitIgnoreIfNeededAsync().ConfigureAwait(true);
+
+            await WorkspaceTree.LoadWorkspaceAsync(folder, _session.Settings, _session.CreateGitIgnoreRules()).ConfigureAwait(true);
 
             var selection = _session.LoadSelectedDirectories();
             WorkspaceTree.RestoreSelection(selection);
@@ -203,6 +211,35 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             Status.Message = "Failed to open workspace.";
             return false;
         }
+    }
+
+    /// <summary>
+    /// The ask-once half of .gitignore honoring: null in the settings means the user has
+    /// never answered for this workspace. Only a repository that actually carries rules
+    /// prompts — with no .gitignore there is nothing to ask about, and the setting stays
+    /// null so a .gitignore added later still gets its question.
+    /// </summary>
+    private async Task AskAboutGitIgnoreIfNeededAsync()
+    {
+        if (_session is null || _session.Settings.HonorGitIgnore is not null)
+        {
+            return;
+        }
+
+        var rootPath = _session.RootPath;
+        var discovered = await Task.Run(() => GitIgnoreRules.TryDiscover(rootPath)).ConfigureAwait(true);
+        if (discovered is null || !discovered.HasAnyRules)
+        {
+            return;
+        }
+
+        var honor = _dialogService.Confirm(
+            "Use .gitignore?",
+            $"Found .gitignore rules in the repository at:\n{discovered.GitRootPath}\n\n"
+            + "Use them to exclude files from indexing?\n\n"
+            + "You can change this later in Settings.");
+
+        _session.SaveSettings(_session.Settings with { HonorGitIgnore = honor });
     }
 
     private bool CanReindex() => _session is not null && !Status.IsIndexing;
@@ -299,6 +336,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             parts.Add($"{outcome.FilesWithSyntaxErrors:N0} with syntax errors");
         }
 
+        if (outcome.FilesFailed > 0)
+        {
+            // A run with skipped files must say so — summarising as if they never
+            // happened is how a "finished" run quietly disagrees with the error pane.
+            parts.Add($"{outcome.FilesFailed:N0} skipped");
+        }
+
         if (result.FilesRemoved > 0)
         {
             parts.Add($"{result.FilesRemoved:N0} removed");
@@ -310,15 +354,23 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private void ApplyProgress(IndexProgress progress)
     {
         Status.FilesDiscovered = progress.FilesDiscovered;
-        Status.FilesProcessed = progress.FilesParsed + progress.FilesUnchanged;
+
+        // Failed files are processed files — the pipeline is done with them. Leaving
+        // them out kept N short of M forever on any run with a failure, which reads as
+        // a hang. This is exactly PercentComplete's numerator, so bar and text agree.
+        Status.FilesProcessed = progress.FilesParsed + progress.FilesUnchanged + progress.FilesFailed;
         Status.ErrorCount = progress.FilesFailed + progress.FilesWithSyntaxErrors;
         Status.ProgressPercent = progress.PercentComplete;
 
-        Status.Message = progress.Phase switch
+        // A parse that is merely slow must read as slow, not wedged: the heartbeat names
+        // the file and how long it has been at it, ticking upward.
+        Status.Message = progress switch
         {
-            IndexPhase.Crawling => "Scanning files…",
-            IndexPhase.Parsing => "Parsing…",
-            IndexPhase.Resolving => "Resolving references…",
+            { SlowFile: not null } =>
+                $"Parsing… still on {Path.GetFileName(progress.SlowFile)} ({progress.SlowFileSeconds}s)",
+            { Phase: IndexPhase.Crawling } => "Scanning files…",
+            { Phase: IndexPhase.Parsing } => "Parsing…",
+            { Phase: IndexPhase.Resolving } => "Resolving references…",
             _ => Status.Message,
         };
     }
@@ -791,7 +843,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             var session = _session;
             var fragment = await Task
-                .Run(() => session.Read(() => session.Graph.GetNeighbourhood(symbolId)))
+                .Run(() => session.Read(() => AttachIoStubs(session, session.Graph.GetNeighbourhood(symbolId))))
                 .ConfigureAwait(true);
 
             await Graph.ShowAsync(fragment).ConfigureAwait(true);
@@ -800,6 +852,28 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             _logger.LogError(ex, "Failed to build the graph for symbol {SymbolId}", symbolId);
         }
+    }
+
+    /// <summary>
+    /// Adds the I/O boundary stubs for a fragment's drawn nodes. Done here rather than in
+    /// the graph query because matching needs the catalog and the user's marks, which the
+    /// query services deliberately know nothing about. Must run under the session gate.
+    /// </summary>
+    private static Core.Graph.GraphFragment AttachIoStubs(WorkspaceSession session, Core.Graph.GraphFragment fragment)
+    {
+        if (fragment.Nodes.Count == 0)
+        {
+            return fragment;
+        }
+
+        var sites = session.IoBoundaries.GetSitesForCallers(
+            fragment.Nodes.Select(n => n.Id).ToList(),
+            Core.Graph.IoCatalog.BuiltIn.Entries,
+            session.Settings.IoMarks);
+
+        return sites.Count == 0
+            ? fragment
+            : fragment with { IoStubs = Core.Graph.IoBoundaryService.GroupIntoStubs(sites) };
     }
 
     /// <summary>
@@ -863,7 +937,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             var session = _session;
             var fragment = await Task
-                .Run(() => session.Read(() => session.Graph.GetNeighbourhood(request.SymbolId, request.Direction)))
+                .Run(() => session.Read(() => AttachIoStubs(
+                    session,
+                    session.Graph.GetNeighbourhood(request.SymbolId, request.Direction))))
                 .ConfigureAwait(true);
 
             await Graph.MergeAsync(fragment, request.SymbolId, request.Direction).ConfigureAwait(true);
@@ -956,8 +1032,38 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         GraphViewMode.Paths => TracePathsAsync(),
         GraphViewMode.Treemap => LoadTreemapAsync(),
         GraphViewMode.Wheel => LoadWheelAsync(),
+        GraphViewMode.Boundaries => LoadBoundariesAsync(),
         _ => Task.CompletedTask,
     };
+
+    /// <summary>
+    /// Loads every boundary site in the workspace for the boundaries view. Treemap-class
+    /// work by design: run when the view is opened, never kept warm.
+    /// </summary>
+    private async Task LoadBoundariesAsync()
+    {
+        if (_session is null)
+        {
+            await Graph.ShowBoundariesAsync(null).ConfigureAwait(true);
+            return;
+        }
+
+        try
+        {
+            var session = _session;
+            var sites = await Task
+                .Run(() => session.Read(() => session.IoBoundaries.GetAllSites(
+                    Core.Graph.IoCatalog.BuiltIn.Entries,
+                    session.Settings.IoMarks)))
+                .ConfigureAwait(true);
+
+            await Graph.ShowBoundariesAsync(sites).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load the boundaries view");
+        }
+    }
 
     private async Task LoadCompositionAsync()
     {
@@ -1107,6 +1213,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     private void ApplyDetail(Core.Graph.SymbolDetail detail)
     {
+        // A symbol and a stub never share the pane: one thing at a time, stated plainly.
+        Detail.ClearIoStub();
         Detail.SymbolId = detail.Id;
         Detail.Name = detail.Name;
         Detail.KindLabel = KindLabels.For(detail.Kind);
@@ -1199,13 +1307,22 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var edited = _dialogService.EditSettings(_session.Settings);
+        var previous = _session.Settings;
+        var edited = _dialogService.EditSettings(previous);
         if (edited is null)
         {
             return;
         }
 
         _session.SaveSettings(edited);
+
+        // I/O marks are matched at query time, so an edit that only touched them needs no
+        // re-index — and must not pay for one.
+        if (CrawlRulesEqual(previous, edited))
+        {
+            Status.Message = "Settings saved.";
+            return;
+        }
 
         // The running watcher was built with the old rules; stopping it here lets the
         // re-index below finish with a fresh one. The re-index is what makes the rules
@@ -1215,6 +1332,15 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         Status.Message = "Settings saved — re-indexing…";
         _ = ApplySettingsAsync(edited);
     }
+
+    /// <summary>
+    /// Whether two settings agree on everything the crawler reads. Record equality cannot
+    /// answer this: the list properties compare by reference.
+    /// </summary>
+    private static bool CrawlRulesEqual(WorkspaceSettings a, WorkspaceSettings b) =>
+        a.MaxFileSizeBytes == b.MaxFileSizeBytes
+        && a.HonorGitIgnore == b.HonorGitIgnore
+        && a.ExtraIgnoredDirectories.SequenceEqual(b.ExtraIgnoredDirectories, StringComparer.OrdinalIgnoreCase);
 
     private async Task ApplySettingsAsync(Core.Crawling.WorkspaceSettings settings)
     {
@@ -1227,10 +1353,247 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         // rules are baked in at load. Reloading collapses it, so the selection is carried
         // across by hand.
         var selection = WorkspaceTree.CollectSelectedDirectories();
-        await WorkspaceTree.LoadWorkspaceAsync(_session.RootPath, settings).ConfigureAwait(true);
+        await WorkspaceTree.LoadWorkspaceAsync(_session.RootPath, settings, _session.CreateGitIgnoreRules()).ConfigureAwait(true);
         WorkspaceTree.RestoreSelection(selection);
 
         await RunIndexAsync(selection).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Fills the detail pane for a clicked I/O stub: the direction and who asserted it,
+    /// the gate that admitted the match, and every call site with its verbatim arguments.
+    /// </summary>
+    private async Task ShowIoStubAsync(IoStubSelection selection)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var session = _session;
+            var sites = await Task
+                .Run(() => session.Read(() => session.IoBoundaries.GetSiteDetails(selection.RefIds)))
+                .ConfigureAwait(true);
+
+            Detail.Clear();
+            Detail.HasIoStub = true;
+            Detail.IoStubName = selection.Name;
+            Detail.IoStubDescriptor = $"{selection.DirectionLabel} boundary · {selection.Source}";
+            // Restated wherever the match is shown: a gated match is a name match plus a
+            // co-occurring fact, never a resolved call.
+            Detail.IoStubGateNote = selection.GateNote is null
+                ? null
+                : $"name match {selection.GateNote}";
+
+            foreach (var site in sites)
+            {
+                Detail.IoSites.Add(new IoSiteItem(
+                    site.RefId,
+                    site.RelativePath,
+                    site.Language,
+                    site.Line,
+                    site.ArgumentText,
+                    site.CallerName,
+                    site.CallerSymbolId));
+            }
+
+            if (Detail.IoSites.Count > 0)
+            {
+                await OpenIoSiteAsync(Detail.IoSites[0]).ConfigureAwait(true);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load I/O sites for {Name}", selection.Name);
+        }
+    }
+
+    /// <summary>
+    /// Opens the source preview at one boundary call site and loads that site's framing
+    /// chain — the frame section always describes the site the preview is showing.
+    /// </summary>
+    [RelayCommand]
+    private async Task OpenIoSiteAsync(IoSiteItem? site)
+    {
+        if (_session is null || site is null)
+        {
+            return;
+        }
+
+        var session = _session;
+        var source = await Task.Run(() => session.TryReadSource(site.RelativePath)).ConfigureAwait(true);
+        if (source is null)
+        {
+            Preview.Clear();
+            Preview.EmptyMessage = $"Could not read {site.RelativePath}.";
+        }
+        else
+        {
+            Preview.RelativePath = site.RelativePath;
+            Preview.Language = site.Language;
+            Preview.Text = source;
+            Preview.HighlightLine = site.Line;
+            Preview.HasContent = true;
+        }
+
+        if (Detail.HasIoStub)
+        {
+            await LoadFramingAsync(site.RefId).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>
+    /// Fills the frame section from one call site's argument chain. Composed here so the
+    /// pane's wording stays one place: the chain states each stored hop, the warning line
+    /// gathers every uncertainty the hops carried.
+    /// </summary>
+    private async Task LoadFramingAsync(long refId)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var session = _session;
+            var frame = await Task
+                .Run(() => session.Read(() => session.IoBoundaries.GetPacketFraming(refId)))
+                .ConfigureAwait(true);
+
+            Detail.IoFrame.Clear();
+            foreach (var argument in frame)
+            {
+                var chain = argument.DeclaredType is null
+                    ? null
+                    : argument.StructName is null
+                        ? $"type: {argument.DeclaredType}"
+                        : $"type: {argument.DeclaredType} → frame layout: {argument.StructName}";
+
+                var warnings = new List<string>(3);
+                if (argument.IsUnresolved)
+                {
+                    warnings.Add("not defined in this workspace");
+                }
+
+                if (argument.ResolutionNote is not null)
+                {
+                    warnings.Add(argument.ResolutionNote);
+                }
+
+                if (argument.StructNote is not null)
+                {
+                    warnings.Add(argument.StructNote);
+                }
+
+                Detail.IoFrame.Add(new IoFrameArgumentItem(
+                    argument.Token,
+                    chain,
+                    warnings.Count == 0 ? null : string.Join(" · ", warnings),
+                    argument.Members
+                        .Select(m => new IoFrameMemberItem(m.Name, m.TypeText, m.Value))
+                        .ToList()));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load packet framing for ref {RefId}", refId);
+        }
+    }
+
+    // ---- I/O boundary marks --------------------------------------------------
+
+    private bool CanMarkIo() => _session is not null;
+
+    [RelayCommand(CanExecute = nameof(CanMarkIo))]
+    private void MarkIoInput(string? name) => SetIoMark(name, IoDirection.Input);
+
+    [RelayCommand(CanExecute = nameof(CanMarkIo))]
+    private void MarkIoOutput(string? name) => SetIoMark(name, IoDirection.Output);
+
+    /// <summary>A None-direction mark: suppresses a catalog match without adding anything.</summary>
+    [RelayCommand(CanExecute = nameof(CanMarkIo))]
+    private void SuppressIoMatch(string? name) => SetIoMark(name, IoDirection.None);
+
+    [RelayCommand(CanExecute = nameof(CanMarkIo))]
+    private void ClearIoMark(string? name)
+    {
+        if (_session is null || string.IsNullOrEmpty(name))
+        {
+            return;
+        }
+
+        var remaining = _session.Settings.IoMarks.Where(m => m.Name != name).ToList();
+        if (remaining.Count == _session.Settings.IoMarks.Count)
+        {
+            Status.Message = $"No mark on {name}.";
+            return;
+        }
+
+        _session.SaveSettings(_session.Settings with { IoMarks = remaining });
+        Status.Message = $"Cleared the mark on {name}.";
+        _ = RefreshIoAfterMarkChangeAsync();
+    }
+
+    /// <summary>
+    /// One mark per name from this path: the context menu asserts a direction for every
+    /// call to the name workspace-wide, replacing any earlier mark rather than stacking.
+    /// Marks are read at query time, so no re-index follows — saving is the whole job.
+    /// </summary>
+    private void SetIoMark(string? name, IoDirection direction)
+    {
+        if (_session is null || string.IsNullOrEmpty(name))
+        {
+            return;
+        }
+
+        var marks = _session.Settings.IoMarks.Where(m => m.Name != name).ToList();
+        marks.Add(new IoMark { Name = name, Direction = direction });
+        _session.SaveSettings(_session.Settings with { IoMarks = marks });
+
+        Status.Message = direction == IoDirection.None
+            ? $"Catalog matches for {name} are suppressed."
+            : $"Marked {name} as an {IoDirectionLabels.For(direction)} boundary.";
+        _ = RefreshIoAfterMarkChangeAsync();
+    }
+
+    /// <summary>Everything that draws boundary facts follows a mark change at once.</summary>
+    private async Task RefreshIoAfterMarkChangeAsync()
+    {
+        await RefreshGraphStubsAsync().ConfigureAwait(true);
+
+        if (Graph.ViewMode == GraphViewMode.Boundaries)
+        {
+            await LoadBoundariesAsync().ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>
+    /// Redraws the current neighbourhood so a mark's stubs appear or disappear at once.
+    /// Expansions are lost — a mark change is a new picture, same as a re-focus.
+    /// </summary>
+    private async Task RefreshGraphStubsAsync()
+    {
+        if (_session is null || Graph.FocusedSymbolId is not { } focusId)
+        {
+            return;
+        }
+
+        try
+        {
+            var session = _session;
+            var fragment = await Task
+                .Run(() => session.Read(() => AttachIoStubs(session, session.Graph.GetNeighbourhood(focusId))))
+                .ConfigureAwait(true);
+
+            await Graph.ShowAsync(fragment).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to refresh I/O stubs after a mark change");
+        }
     }
 
     // ---- Export ------------------------------------------------------------

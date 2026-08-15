@@ -216,6 +216,16 @@ if (store is not null)
             $": {wheelWatch.Elapsed.TotalMilliseconds,7:F1} ms  ({wheel.Groups.Count} groups, {wheel.Links.Count} links)");
     }
 
+    // The whole-workspace boundary scan behind the boundaries view. On the synthetic
+    // corpus nothing matches, which is exactly the honest cost to know: every catalog
+    // entry runs its index seek and finds nothing.
+    var boundaries = new IoBoundaryService(store.Connection);
+    var ioWatch = Stopwatch.StartNew();
+    var ioSites = boundaries.GetAllSites(IoCatalog.BuiltIn.Entries, []);
+    ioWatch.Stop();
+    Console.WriteLine($"  io boundaries".PadRight(24) +
+        $": {ioWatch.Elapsed.TotalMilliseconds,7:F1} ms  ({ioSites.Count} sites)");
+
     // What a save costs once the watcher has coalesced it. Parsing one file is a fraction of
     // a millisecond at the throughput above; the part that scales with workspace size is the
     // resolve, so that is what is measured — against the full one printed earlier.

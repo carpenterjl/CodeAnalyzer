@@ -13,6 +13,11 @@ public class IgnoreRulesTests
     [InlineData("BIN")]          // matching is case-insensitive
     [InlineData("__pycache__")]
     [InlineData(".hidden")]      // any dot-prefixed directory
+    [InlineData("site-packages")]
+    [InlineData("TestResults")]
+    [InlineData("x64")]
+    [InlineData("Win32")]
+    [InlineData("ARM64")]
     public void IsIgnoredDirectoryName_ExcludesBuildAndVcsDirectories(string name) =>
         Assert.True(IgnoreRules.IsIgnoredDirectoryName(name));
 
@@ -21,8 +26,47 @@ public class IgnoreRulesTests
     [InlineData("drivers")]
     [InlineData("rtl")]
     [InlineData("include")]
+    [InlineData("Debug")]        // deliberately kept: a built-in cannot be un-ignored,
+    [InlineData("Release")]      // and source directories with these names exist
     public void IsIgnoredDirectoryName_KeepsSourceDirectories(string name) =>
         Assert.False(IgnoreRules.IsIgnoredDirectoryName(name));
+
+    [Fact]
+    public void IsEnvironmentRoot_RecognisesAVenvByItsOwnConfigFile()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "codeanalyzer-tests", Guid.NewGuid().ToString("N"));
+        try
+        {
+            // The reported workspace's venv was named "Environment" — no name rule can
+            // catch that. pyvenv.cfg is the venv's own declaration of what it is.
+            var venv = Path.Combine(root, "Environment");
+            Directory.CreateDirectory(venv);
+            File.WriteAllText(Path.Combine(venv, "pyvenv.cfg"), "home = C:\\Python312");
+
+            var conda = Path.Combine(root, "tools-env");
+            Directory.CreateDirectory(Path.Combine(conda, "conda-meta"));
+
+            // An unrelated .cfg is not a declaration.
+            var plain = Path.Combine(root, "src");
+            Directory.CreateDirectory(plain);
+            File.WriteAllText(Path.Combine(plain, "setup.cfg"), "[metadata]");
+
+            Assert.True(IgnoreRules.IsEnvironmentRoot(venv));
+            Assert.True(IgnoreRules.IsEnvironmentRoot(conda));
+            Assert.False(IgnoreRules.IsEnvironmentRoot(plain));
+            Assert.False(IgnoreRules.IsEnvironmentRoot(root));
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(root, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
 
     [Theory]
     [InlineData(".exe")]

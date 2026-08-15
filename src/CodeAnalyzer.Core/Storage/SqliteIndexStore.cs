@@ -186,6 +186,21 @@ public sealed class SqliteIndexStore : IParseResultSink, IIncrementalGate, IDisp
     {
         using var transaction = _connection.BeginTransaction();
 
+        // symbol.container_id can point FORWARD within one file: tree-sitter reports a
+        // `typedef struct { … } Name;` only when it reaches the trailing name, so the
+        // members precede their container in the symbol list and get smaller row ids.
+        // SQLite checks foreign keys per statement by default, which made every such
+        // file — STM32 vendor headers, Cython-generated C — fail the batch. Deferring
+        // moves the check to COMMIT, where the whole batch is present; a genuinely
+        // dangling id still fails, just at the end. The pragma is transaction-scoped
+        // and resets itself on commit or rollback.
+        using (var defer = _connection.CreateCommand())
+        {
+            defer.Transaction = transaction;
+            defer.CommandText = "PRAGMA defer_foreign_keys = ON";
+            defer.ExecuteNonQuery();
+        }
+
         using var deleteSymbols = CreateCommand(transaction, "DELETE FROM symbol WHERE file_id = $fileId");
         using var deleteReferences = CreateCommand(transaction, "DELETE FROM ref WHERE file_id = $fileId");
         using var deleteDependencies = CreateCommand(transaction, "DELETE FROM file_dep WHERE file_id = $fileId");

@@ -99,12 +99,50 @@ public sealed record GraphEdgePayload
     [JsonPropertyName("kindId")] public int KindId { get; init; }
 }
 
+/// <summary>
+/// One I/O boundary stub as the page draws it: a small tag node hanging off its caller.
+/// Direction and its source cross the wire as display strings because the page never
+/// decides them — they were decided by the catalog's documented contract or by the user.
+/// </summary>
+public sealed record IoStubPayload
+{
+    /// <summary>Page-local id ("io:12:HAL_UART_Transmit:2"). Never a symbol id.</summary>
+    [JsonPropertyName("id")] public required string Id { get; init; }
+
+    /// <summary>The symbol node the stub attaches to.</summary>
+    [JsonPropertyName("caller")] public required string Caller { get; init; }
+
+    [JsonPropertyName("name")] public required string Name { get; init; }
+
+    /// <summary>"in", "out" or "inout" — drives the arrow and the glyph.</summary>
+    [JsonPropertyName("direction")] public required string Direction { get; init; }
+
+    [JsonPropertyName("directionLabel")] public required string DirectionLabel { get; init; }
+
+    /// <summary>Where the direction came from: "catalog: STM32 HAL" or "your mark".</summary>
+    [JsonPropertyName("source")] public required string Source { get; init; }
+
+    /// <summary>The co-occurrence rule that admitted a generic member name; null when ungated.</summary>
+    [JsonPropertyName("gateNote")] public string? GateNote { get; init; }
+
+    /// <summary>The first site's verbatim argument list — what crosses the boundary.</summary>
+    [JsonPropertyName("argText")] public string? ArgText { get; init; }
+
+    [JsonPropertyName("siteCount")] public int SiteCount { get; init; }
+
+    /// <summary>Reference ids behind the stub, echoed back on click as strings (64-bit rule).</summary>
+    [JsonPropertyName("refIds")] public required IReadOnlyList<string> RefIds { get; init; }
+}
+
 /// <summary>A whole fragment, ready to be serialised to the graph page.</summary>
 public sealed record GraphPayload
 {
     [JsonPropertyName("focusId")] public string? FocusId { get; init; }
     [JsonPropertyName("nodes")] public IReadOnlyList<GraphNodePayload> Nodes { get; init; } = [];
     [JsonPropertyName("edges")] public IReadOnlyList<GraphEdgePayload> Edges { get; init; } = [];
+
+    /// <summary>I/O boundary stubs, drawn as tag nodes and excluded from badge arithmetic.</summary>
+    [JsonPropertyName("ioStubs")] public IReadOnlyList<IoStubPayload> IoStubs { get; init; } = [];
 
     /// <summary>True when the node cap cut the result, so the page can say so out loud.</summary>
     [JsonPropertyName("truncated")] public bool Truncated { get; init; }
@@ -176,12 +214,37 @@ public static class GraphPayloadBuilder
             });
         }
 
+        var stubs = new List<IoStubPayload>(fragment.IoStubs.Count);
+        foreach (var stub in fragment.IoStubs)
+        {
+            var direction = IoDirectionLabels.TokenFor(stub.Direction);
+            stubs.Add(new IoStubPayload
+            {
+                // Page-local and stable across merges, so a re-sent stub dedupes by id
+                // exactly like a node does.
+                Id = $"io:{stub.CallerSymbolId}:{stub.Name}:{direction}",
+                Caller = stub.CallerSymbolId.ToString(),
+                Name = stub.Name,
+                Direction = direction,
+                DirectionLabel = IoDirectionLabels.For(stub.Direction),
+                Source = stub.Origin == IoMatchOrigin.UserMark
+                    ? "your mark"
+                    : $"catalog: {stub.Family}",
+                GateNote = stub.GateNote,
+                ArgText = stub.ArgumentText,
+                SiteCount = stub.RefIds.Count,
+                RefIds = stub.RefIds.Select(id => id.ToString()).ToList(),
+            });
+        }
+
         return new GraphPayload
         {
             FocusId = fragment.FocusId?.ToString(),
             Nodes = nodes,
             Edges = edges,
+            IoStubs = stubs,
             Truncated = fragment.WasTruncated,
         };
     }
+
 }

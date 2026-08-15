@@ -184,6 +184,56 @@ public sealed record WheelPayload
     [JsonPropertyName("omittedGroups")] public int OmittedGroups { get; init; }
 }
 
+// ---- I/O boundaries --------------------------------------------------------
+
+public sealed record BoundarySitePayload
+{
+    [JsonPropertyName("name")] public required string Name { get; init; }
+
+    /// <summary>"in", "out" or "inout".</summary>
+    [JsonPropertyName("direction")] public required string Direction { get; init; }
+
+    [JsonPropertyName("directionLabel")] public required string DirectionLabel { get; init; }
+
+    /// <summary>"catalog: STM32 HAL" or "your mark" — where the direction came from.</summary>
+    [JsonPropertyName("source")] public required string Source { get; init; }
+
+    [JsonPropertyName("gateNote")] public string? GateNote { get; init; }
+
+    /// <summary>The calling symbol's name; null for a file-scope call.</summary>
+    [JsonPropertyName("caller")] public string? Caller { get; init; }
+
+    /// <summary>The caller's symbol id as a string, so a row click can focus the graph.</summary>
+    [JsonPropertyName("callerId")] public string? CallerId { get; init; }
+
+    [JsonPropertyName("path")] public required string Path { get; init; }
+    [JsonPropertyName("line")] public int Line { get; init; }
+    [JsonPropertyName("argText")] public string? ArgText { get; init; }
+}
+
+public sealed record BoundaryGroupPayload
+{
+    /// <summary>Top-level directory, empty for files at the workspace root.</summary>
+    [JsonPropertyName("id")] public required string Id { get; init; }
+
+    [JsonPropertyName("label")] public required string Label { get; init; }
+    [JsonPropertyName("sites")] public IReadOnlyList<BoundarySitePayload> Sites { get; init; } = [];
+}
+
+/// <summary>
+/// The boundaries view: outputs on one side, inputs on the other, both grouped by
+/// top-level directory — software TX naturally faces firmware RX across the page. An
+/// inout site appears in both columns, because it genuinely does both.
+/// </summary>
+public sealed record BoundariesPayload
+{
+    [JsonPropertyName("outputs")] public IReadOnlyList<BoundaryGroupPayload> Outputs { get; init; } = [];
+    [JsonPropertyName("inputs")] public IReadOnlyList<BoundaryGroupPayload> Inputs { get; init; } = [];
+
+    /// <summary>Distinct call sites in the whole view, so the page can state a count.</summary>
+    [JsonPropertyName("totalSites")] public int TotalSites { get; init; }
+}
+
 // ---- Builders --------------------------------------------------------------
 
 /// <summary>
@@ -347,6 +397,50 @@ public static class ViewPayloadBuilder
         TreemapTileType.File => "file",
         _ => "symbol",
     };
+
+    public static BoundariesPayload Build(IReadOnlyList<IoBoundarySite> sites)
+    {
+        return new BoundariesPayload
+        {
+            Outputs = BuildColumn(sites.Where(s =>
+                s.Direction is IoDirection.Output or IoDirection.InOut)),
+            Inputs = BuildColumn(sites.Where(s =>
+                s.Direction is IoDirection.Input or IoDirection.InOut)),
+            TotalSites = sites.Select(s => s.RefId).Distinct().Count(),
+        };
+
+        static List<BoundaryGroupPayload> BuildColumn(IEnumerable<IoBoundarySite> column) =>
+            column
+                .GroupBy(TopDirectory)
+                .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(group => new BoundaryGroupPayload
+                {
+                    Id = group.Key,
+                    Label = group.Key.Length == 0 ? RootGroupLabel : group.Key,
+                    Sites = group.Select(site => new BoundarySitePayload
+                    {
+                        Name = site.Name,
+                        Direction = IoDirectionLabels.TokenFor(site.Direction),
+                        DirectionLabel = IoDirectionLabels.For(site.Direction),
+                        Source = site.Origin == IoMatchOrigin.UserMark
+                            ? "your mark"
+                            : $"catalog: {site.Family}",
+                        GateNote = site.GateNote,
+                        Caller = site.CallerName,
+                        CallerId = site.CallerSymbolId?.ToString(),
+                        Path = site.RelativePath,
+                        Line = site.Line,
+                        ArgText = site.ArgumentText,
+                    }).ToList(),
+                })
+                .ToList();
+
+        static string TopDirectory(IoBoundarySite site)
+        {
+            var slash = site.RelativePath.IndexOf('/');
+            return slash < 0 ? string.Empty : site.RelativePath[..slash];
+        }
+    }
 
     public static WheelPayload Build(DependencyWheel wheel) => new()
     {

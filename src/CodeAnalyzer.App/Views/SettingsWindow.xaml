@@ -7,24 +7,28 @@
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:SettingsDialogViewModel}"
         Title="Workspace settings"
-        Width="480" Height="460"
-        MinWidth="380" MinHeight="360"
+        Width="480" Height="560"
+        MinWidth="380" MinHeight="420"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource App.Background}"
         TextOptions.TextFormattingMode="Display"
         UseLayoutRounding="True"
         ShowInTaskbar="False">
 
-    <Grid Margin="14">
+    <Grid Margin="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" MaxHeight="140" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" Text="IGNORED DIRECTORIES" Style="{StaticResource SectionHeader}" Margin="0,0,0,2" />
+        <TextBlock Grid.Row="0" Text="IGNORED DIRECTORIES" Style="{StaticResource SectionHeader}" Margin="0,0,0,6" />
 
         <Grid Grid.Row="1">
             <Grid.RowDefinitions>
@@ -32,36 +36,97 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <TextBlock Grid.Row="0" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="8,0,8,6"
+            <TextBlock Grid.Row="0" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,0,0,8"
                        Text="Directory names skipped on top of the built-in rules (.git, bin, obj, node_modules, …). One name per line — names, not paths. Applies on the next re-index." />
 
-            <TextBox Grid.Row="1" Margin="8,0,8,4"
+            <!-- Directory names are data, so they are set in the mono face. -->
+            <TextBox Grid.Row="1"
                      Text="{Binding IgnoreText, UpdateSourceTrigger=PropertyChanged}"
                      AcceptsReturn="True"
                      VerticalScrollBarVisibility="Auto"
                      FontFamily="{DynamicResource App.MonoFontFamily}"
+                     FontSize="{DynamicResource App.FontSize.Code}"
                      VerticalContentAlignment="Top" />
         </Grid>
 
-        <TextBlock Grid.Row="2" Text="FILE SIZE CAP" Style="{StaticResource SectionHeader}" Margin="0,12,0,2" />
+        <TextBlock Grid.Row="2" Text="FILE SIZE CAP" Style="{StaticResource SectionHeader}" Margin="0,16,0,6" />
 
-        <StackPanel Grid.Row="3" Margin="8,0,8,0">
-            <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,0,0,6"
+        <StackPanel Grid.Row="3">
+            <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,0,0,8"
                        Text="Files larger than this are skipped — anything this big is almost always generated or vendored." />
             <StackPanel Orientation="Horizontal">
-                <TextBox Width="90" Text="{Binding MaxFileSizeMbText, UpdateSourceTrigger=PropertyChanged}" />
-                <TextBlock Text="MB" VerticalAlignment="Center" Margin="6,0,0,0"
-                           Foreground="{DynamicResource App.Foreground}" />
+                <TextBox Width="90" Text="{Binding MaxFileSizeMbText, UpdateSourceTrigger=PropertyChanged}"
+                         FontFamily="{DynamicResource App.MonoFontFamily}"
+                         FontSize="{DynamicResource App.FontSize.Code}" />
+                <TextBlock Text="MB" VerticalAlignment="Center" Margin="8,0,0,0"
+                           Foreground="{DynamicResource App.Foreground.Muted}" />
             </StackPanel>
             <TextBlock Text="{Binding SizeCapError}"
                        Foreground="{DynamicResource App.Warning}"
-                       Style="{StaticResource Caption}" Margin="0,4,0,0"
+                       Style="{StaticResource Caption}" FontStyle="Italic" Margin="0,6,0,0"
                        Visibility="{Binding SizeCapError, Converter={StaticResource NullToCollapsed}}" />
         </StackPanel>
 
-        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
-            <Button Content="Save and re-index" Click="OnAccept" IsDefault="True" Padding="10,4" />
-            <Button Content="Cancel" IsCancel="True" Padding="10,4" Margin="6,0,0,0" />
+        <TextBlock Grid.Row="4" Text="GITIGNORE" Style="{StaticResource SectionHeader}" Margin="0,16,0,6" />
+
+        <StackPanel Grid.Row="5">
+            <CheckBox IsChecked="{Binding HonorGitIgnore}"
+                      Content="Use the repository's .gitignore to exclude files" />
+            <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,6,0,0"
+                       Text="Applies when a .git repository is found at or above the workspace folder. Applies on the next re-index." />
+        </StackPanel>
+
+        <TextBlock Grid.Row="6" Text="I/O BOUNDARY MARKS" Style="{StaticResource SectionHeader}" Margin="0,16,0,6" />
+
+        <Grid Grid.Row="7">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,0,0,4"
+                       Text="Functions you marked as input/output boundaries — right-click a symbol in the detail pane to add one. Marks override the built-in catalog and apply immediately, no re-index needed."
+                       Visibility="{Binding IoMarks.Count, Converter={StaticResource NonZeroToVisibility}}" />
+            <TextBlock Grid.Row="0" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,0,0,4"
+                       FontStyle="Italic"
+                       Text="No marks yet. Right-click a symbol in the detail pane to mark it as an input or output boundary."
+                       Visibility="{Binding IoMarks.Count, Converter={StaticResource ZeroToVisibility}}" />
+
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{Binding IoMarks}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:IoMarkRow}">
+                            <Grid Margin="0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                           FontFamily="{DynamicResource App.MonoFontFamily}"
+                                           FontSize="{DynamicResource App.FontSize.Code}"
+                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="1" Text="{Binding DirectionLabel}"
+                                           Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="8,0,0,0" />
+                                <TextBlock Grid.Column="2" Text="{Binding ScopeLabel}"
+                                           Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="8,0,0,0"
+                                           Foreground="{DynamicResource App.Foreground.Muted}" />
+                                <Button Grid.Column="3" Content="✕" Margin="8,0,0,0" Padding="6,0"
+                                        ToolTip="Remove this mark"
+                                        Command="{Binding DataContext.RemoveIoMarkCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        CommandParameter="{Binding}" />
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Grid>
+
+        <StackPanel Grid.Row="8" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Style="{StaticResource PrimaryButton}"
+                    Content="Save and re-index" Click="OnAccept" IsDefault="True" />
+            <Button Content="Cancel" IsCancel="True" Margin="8,0,0,0" />
         </StackPanel>
     </Grid>
 </Window>

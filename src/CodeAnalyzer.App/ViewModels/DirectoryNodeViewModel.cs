@@ -16,13 +16,15 @@ public sealed partial class DirectoryNodeViewModel : ObservableObject
     private bool _suppressPropagation;
 
     private readonly WorkspaceSettings _settings;
+    private readonly GitIgnoreRules? _gitIgnore;
 
     public DirectoryNodeViewModel(
         string name,
         string fullPath,
         string relativePath,
         DirectoryNodeViewModel? parent,
-        WorkspaceSettings? settings = null)
+        WorkspaceSettings? settings = null,
+        GitIgnoreRules? gitIgnore = null)
     {
         Name = name;
         FullPath = fullPath;
@@ -30,8 +32,10 @@ public sealed partial class DirectoryNodeViewModel : ObservableObject
         Parent = parent;
 
         // The tree greys out exactly what the crawler will skip, so both must judge by
-        // the same rules — including this workspace's extras.
+        // the same rules — including this workspace's extras and, when the workspace
+        // honors it, the repository's own .gitignore.
         _settings = settings ?? parent?._settings ?? WorkspaceSettings.Default;
+        _gitIgnore = gitIgnore ?? parent?._gitIgnore;
     }
 
     public string Name { get; }
@@ -139,7 +143,8 @@ public sealed partial class DirectoryNodeViewModel : ObservableObject
             {
                 var name = Path.GetFileName(directory);
                 var relative = string.IsNullOrEmpty(RelativePath) ? name : $"{RelativePath}/{name}";
-                var ignored = _settings.IsIgnoredDirectoryName(name);
+                var ignored = _settings.IsIgnoredDirectory(directory, name)
+                    || _gitIgnore?.IsDirectoryIgnored(directory) == true;
 
                 var child = new DirectoryNodeViewModel(name, directory, relative, this)
                 {

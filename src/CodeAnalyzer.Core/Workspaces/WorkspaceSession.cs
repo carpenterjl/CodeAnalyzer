@@ -49,6 +49,7 @@ public sealed class WorkspaceSession : IDisposable
         Composition = new CompositionQueryService(store.Connection);
         Paths = new PathQueryService(store.Connection);
         Structure = new StructureQueryService(store.Connection);
+        IoBoundaries = new IoBoundaryService(store.Connection);
     }
 
     public string RootPath { get; }
@@ -65,6 +66,9 @@ public sealed class WorkspaceSession : IDisposable
 
     /// <summary>Workspace shape: the treemap level reader and the dependency wheel.</summary>
     public StructureQueryService Structure { get; }
+
+    /// <summary>Where data leaves and enters the workspace: catalog and user-marked call sites.</summary>
+    public IoBoundaryService IoBoundaries { get; }
 
     /// <summary>
     /// Runs a query against the index under the connection lock.
@@ -110,8 +114,21 @@ public sealed class WorkspaceSession : IDisposable
     /// </summary>
     public IReadOnlyList<Storage.FileErrorRecord> ReadFileErrors() => _store.ReadFileErrors();
 
+    /// <summary>
+    /// The repository's ignore rules when this workspace opted into honoring them, else
+    /// null. Re-discovered per call rather than cached: GitIgnoreRules caches rule files
+    /// internally, so a long-lived instance would go stale when the user edits a
+    /// .gitignore, and each crawl or watcher batch deserves the current rules.
+    /// </summary>
+    public GitIgnoreRules? CreateGitIgnoreRules() =>
+        Settings.HonorGitIgnore == true ? GitIgnoreRules.TryDiscover(RootPath) : null;
+
     /// <summary>Creates a watcher over this workspace, filtered the same way the crawler is.</summary>
-    public WorkspaceWatcher CreateWatcher() => new(RootPath, _analyzerFactory.IsSupportedExtension, Settings);
+    public WorkspaceWatcher CreateWatcher() =>
+        new(RootPath, _analyzerFactory.IsSupportedExtension, Settings)
+        {
+            GitIgnoreProvider = CreateGitIgnoreRules,
+        };
 
     /// <summary>
     /// Indexes the selected directories, resolves references, and refreshes search.
@@ -131,7 +148,7 @@ public sealed class WorkspaceSession : IDisposable
         _store.BeginRun();
         _store.SaveSelectedDirectories(selectedDirectories);
 
-        var crawler = new FileCrawler(_analyzerFactory.IsSupportedExtension, Settings);
+        var crawler = new FileCrawler(_analyzerFactory.IsSupportedExtension, Settings, CreateGitIgnoreRules());
         var orchestrator = new IndexOrchestrator(crawler, _analyzerFactory);
 
         var outcome = await orchestrator.IndexAsync(
@@ -157,6 +174,10 @@ public sealed class WorkspaceSession : IDisposable
                     FilesDiscovered = outcome.FilesDiscovered,
                     FilesParsed = outcome.FilesParsed,
                     FilesUnchanged = outcome.FilesUnchanged,
+                    // Omitting these made the counts visibly drop the moment resolve
+                    // started — the failed files vanished from N until Complete.
+                    FilesFailed = outcome.FilesFailed,
+                    FilesWithSyntaxErrors = outcome.FilesWithSyntaxErrors,
                     SymbolsFound = outcome.SymbolsFound,
                 });
 
@@ -226,7 +247,7 @@ public sealed class WorkspaceSession : IDisposable
         _store.BeginRun();
 
         var crawler = new TargetedCrawler(
-            new FileCrawler(_analyzerFactory.IsSupportedExtension, Settings),
+            new FileCrawler(_analyzerFactory.IsSupportedExtension, Settings, CreateGitIgnoreRules()),
             batch.ChangedFiles);
 
         var selection = new WorkspaceSelection(RootPath, batch.ChangedDirectories);

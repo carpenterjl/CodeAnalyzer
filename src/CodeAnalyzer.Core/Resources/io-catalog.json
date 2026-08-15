@@ -1,0 +1,99 @@
+{
+  "comment": [
+    "Built-in I/O boundary catalog. Each entry marks calls to a known transmit/receive API.",
+    "match: exactly one of 'name' (exact) or 'prefix' (covers _IT/_DMA style variants).",
+    "direction is the API's documented contract: in = data arrives, out = data leaves, inout = both.",
+    "requiresTypeRef / requiresDependency: any one listed fact must co-occur in the calling file.",
+    "Member-call languages (C#, Python, C++ field calls) store only the member name, so their",
+    "entries MUST be gated - an ungated 'Write' would flood every workspace with false stubs.",
+    "Generic bare C names (read, write, printf) are deliberately absent for the same reason."
+  ],
+  "entries": [
+    { "family": "STM32 HAL", "languages": ["C", "C++"], "prefix": "HAL_UART_Transmit", "direction": "out" },
+    { "family": "STM32 HAL", "languages": ["C", "C++"], "prefix": "HAL_UART_Receive", "direction": "in" },
+    { "family": "STM32 HAL", "languages": ["C", "C++"], "prefix": "HAL_USART_Transmit", "direction": "out" },
+    { "family": "STM32 HAL", "languages": ["C", "C++"], "prefix": "HAL_USART_Receive", "direction": "in" },
+    { "family": "STM32 HAL", "languages": ["C", "C++"], "prefix": "HAL_SPI_TransmitReceive", "direction": "inout" },
+    { "family": "STM32 HAL", "languages": ["C", "C++"], "prefix": "HAL_SPI_Transmit", "direction": "out" },
+    { "family": "STM32 HAL", "languages": ["C", "C++"], "prefix": "HAL_SPI_Receive", "direction": "in" },
+    { "family": "STM32 HAL", "languages": ["C", "C++"], "prefix": "HAL_I2C_Master_Transmit", "direction": "out" },
+    { "family": "STM32 HAL", "languages": ["C", "C++"], "prefix": "HAL_I2C_Master_Receive", "direction": "in" },
+    { "family": "STM32 HAL", "languages": ["C", "C++"], "prefix": "HAL_I2C_Slave_Transmit", "direction": "out" },
+    { "family": "STM32 HAL", "languages": ["C", "C++"], "prefix": "HAL_I2C_Slave_Receive", "direction": "in" },
+    { "family": "STM32 HAL", "languages": ["C", "C++"], "prefix": "HAL_I2C_Mem_Write", "direction": "out" },
+    { "family": "STM32 HAL", "languages": ["C", "C++"], "prefix": "HAL_I2C_Mem_Read", "direction": "in" },
+    { "family": "STM32 HAL", "languages": ["C", "C++"], "name": "HAL_CAN_AddTxMessage", "direction": "out" },
+    { "family": "STM32 HAL", "languages": ["C", "C++"], "name": "HAL_CAN_GetRxMessage", "direction": "in" },
+
+    { "family": "USB CDC", "languages": ["C", "C++"], "name": "CDC_Transmit_FS", "direction": "out" },
+    { "family": "USB CDC", "languages": ["C", "C++"], "name": "CDC_Receive_FS", "direction": "in" },
+    { "family": "USB CDC", "languages": ["C", "C++"], "name": "CDC_Transmit_HS", "direction": "out" },
+    { "family": "USB CDC", "languages": ["C", "C++"], "name": "CDC_Receive_HS", "direction": "in" },
+
+    { "family": "Arduino", "languages": ["C", "C++"], "name": "print", "direction": "out", "requiresDependency": ["Arduino.h"] },
+    { "family": "Arduino", "languages": ["C", "C++"], "name": "println", "direction": "out", "requiresDependency": ["Arduino.h"] },
+    { "family": "Arduino", "languages": ["C", "C++"], "name": "write", "direction": "out", "requiresDependency": ["Arduino.h"] },
+    { "family": "Arduino", "languages": ["C", "C++"], "name": "read", "direction": "in", "requiresDependency": ["Arduino.h"] },
+    { "family": "Arduino", "languages": ["C", "C++"], "name": "readBytes", "direction": "in", "requiresDependency": ["Arduino.h"] },
+    { "family": "Arduino", "languages": ["C", "C++"], "name": "readBytesUntil", "direction": "in", "requiresDependency": ["Arduino.h"] },
+    { "family": "Arduino", "languages": ["C", "C++"], "name": "readString", "direction": "in", "requiresDependency": ["Arduino.h"] },
+    { "family": "Arduino", "languages": ["C", "C++"], "name": "readStringUntil", "direction": "in", "requiresDependency": ["Arduino.h"] },
+
+    { "family": "BSD/Winsock sockets", "languages": ["C", "C++"], "name": "send", "direction": "out", "requiresDependency": ["sys/socket.h", "winsock2.h"] },
+    { "family": "BSD/Winsock sockets", "languages": ["C", "C++"], "name": "sendto", "direction": "out", "requiresDependency": ["sys/socket.h", "winsock2.h"] },
+    { "family": "BSD/Winsock sockets", "languages": ["C", "C++"], "name": "recv", "direction": "in", "requiresDependency": ["sys/socket.h", "winsock2.h"] },
+    { "family": "BSD/Winsock sockets", "languages": ["C", "C++"], "name": "recvfrom", "direction": "in", "requiresDependency": ["sys/socket.h", "winsock2.h"] },
+
+    { "family": "C stdio", "languages": ["C", "C++"], "name": "fwrite", "direction": "out", "requiresDependency": ["stdio.h", "cstdio"] },
+    { "family": "C stdio", "languages": ["C", "C++"], "name": "fread", "direction": "in", "requiresDependency": ["stdio.h", "cstdio"] },
+
+    { "family": "Win32 file I/O", "languages": ["C", "C++"], "name": "WriteFile", "direction": "out", "requiresDependency": ["windows.h", "fileapi.h"] },
+    { "family": "Win32 file I/O", "languages": ["C", "C++"], "name": "ReadFile", "direction": "in", "requiresDependency": ["windows.h", "fileapi.h"] },
+
+    { "family": ".NET SerialPort", "languages": ["C#"], "name": "Write", "direction": "out", "requiresTypeRef": ["SerialPort"] },
+    { "family": ".NET SerialPort", "languages": ["C#"], "name": "WriteLine", "direction": "out", "requiresTypeRef": ["SerialPort"] },
+    { "family": ".NET SerialPort", "languages": ["C#"], "name": "Read", "direction": "in", "requiresTypeRef": ["SerialPort"] },
+    { "family": ".NET SerialPort", "languages": ["C#"], "name": "ReadLine", "direction": "in", "requiresTypeRef": ["SerialPort"] },
+    { "family": ".NET SerialPort", "languages": ["C#"], "name": "ReadExisting", "direction": "in", "requiresTypeRef": ["SerialPort"] },
+    { "family": ".NET SerialPort", "languages": ["C#"], "name": "ReadByte", "direction": "in", "requiresTypeRef": ["SerialPort"] },
+    { "family": ".NET SerialPort", "languages": ["C#"], "name": "ReadChar", "direction": "in", "requiresTypeRef": ["SerialPort"] },
+
+    { "family": ".NET sockets", "languages": ["C#"], "name": "Send", "direction": "out", "requiresTypeRef": ["Socket", "UdpClient"] },
+    { "family": ".NET sockets", "languages": ["C#"], "name": "SendTo", "direction": "out", "requiresTypeRef": ["Socket"] },
+    { "family": ".NET sockets", "languages": ["C#"], "name": "SendAsync", "direction": "out", "requiresTypeRef": ["Socket", "UdpClient"] },
+    { "family": ".NET sockets", "languages": ["C#"], "name": "Receive", "direction": "in", "requiresTypeRef": ["Socket", "UdpClient"] },
+    { "family": ".NET sockets", "languages": ["C#"], "name": "ReceiveFrom", "direction": "in", "requiresTypeRef": ["Socket"] },
+    { "family": ".NET sockets", "languages": ["C#"], "name": "ReceiveAsync", "direction": "in", "requiresTypeRef": ["Socket", "UdpClient"] },
+
+    { "family": ".NET streams", "languages": ["C#"], "name": "Write", "direction": "out", "requiresTypeRef": ["NetworkStream"] },
+    { "family": ".NET streams", "languages": ["C#"], "name": "WriteAsync", "direction": "out", "requiresTypeRef": ["NetworkStream", "FileStream"] },
+    { "family": ".NET streams", "languages": ["C#"], "name": "Read", "direction": "in", "requiresTypeRef": ["NetworkStream"] },
+    { "family": ".NET streams", "languages": ["C#"], "name": "ReadAsync", "direction": "in", "requiresTypeRef": ["NetworkStream", "FileStream"] },
+
+    { "family": ".NET file I/O", "languages": ["C#"], "name": "Write", "direction": "out", "requiresTypeRef": ["FileStream", "StreamWriter", "BinaryWriter"] },
+    { "family": ".NET file I/O", "languages": ["C#"], "name": "WriteLine", "direction": "out", "requiresTypeRef": ["StreamWriter"] },
+    { "family": ".NET file I/O", "languages": ["C#"], "name": "Read", "direction": "in", "requiresTypeRef": ["FileStream", "StreamReader", "BinaryReader"] },
+    { "family": ".NET file I/O", "languages": ["C#"], "name": "ReadLine", "direction": "in", "requiresTypeRef": ["StreamReader"] },
+    { "family": ".NET file I/O", "languages": ["C#"], "name": "ReadToEnd", "direction": "in", "requiresTypeRef": ["StreamReader"] },
+    { "family": ".NET file I/O", "languages": ["C#"], "name": "WriteAllText", "direction": "out", "requiresTypeRef": ["File"] },
+    { "family": ".NET file I/O", "languages": ["C#"], "name": "WriteAllBytes", "direction": "out", "requiresTypeRef": ["File"] },
+    { "family": ".NET file I/O", "languages": ["C#"], "name": "WriteAllLines", "direction": "out", "requiresTypeRef": ["File"] },
+    { "family": ".NET file I/O", "languages": ["C#"], "name": "ReadAllText", "direction": "in", "requiresTypeRef": ["File"] },
+    { "family": ".NET file I/O", "languages": ["C#"], "name": "ReadAllBytes", "direction": "in", "requiresTypeRef": ["File"] },
+    { "family": ".NET file I/O", "languages": ["C#"], "name": "ReadAllLines", "direction": "in", "requiresTypeRef": ["File"] },
+
+    { "family": "HID", "languages": ["C#"], "name": "Write", "direction": "out", "requiresTypeRef": ["HidDevice", "HidStream"] },
+    { "family": "HID", "languages": ["C#"], "name": "Read", "direction": "in", "requiresTypeRef": ["HidDevice", "HidStream"] },
+
+    { "family": "pyserial", "languages": ["Python"], "name": "write", "direction": "out", "requiresDependency": ["serial"] },
+    { "family": "pyserial", "languages": ["Python"], "name": "read", "direction": "in", "requiresDependency": ["serial"] },
+    { "family": "pyserial", "languages": ["Python"], "name": "readline", "direction": "in", "requiresDependency": ["serial"] },
+    { "family": "pyserial", "languages": ["Python"], "name": "read_until", "direction": "in", "requiresDependency": ["serial"] },
+
+    { "family": "Python sockets", "languages": ["Python"], "name": "send", "direction": "out", "requiresDependency": ["socket"] },
+    { "family": "Python sockets", "languages": ["Python"], "name": "sendall", "direction": "out", "requiresDependency": ["socket"] },
+    { "family": "Python sockets", "languages": ["Python"], "name": "sendto", "direction": "out", "requiresDependency": ["socket"] },
+    { "family": "Python sockets", "languages": ["Python"], "name": "recv", "direction": "in", "requiresDependency": ["socket"] },
+    { "family": "Python sockets", "languages": ["Python"], "name": "recvfrom", "direction": "in", "requiresDependency": ["socket"] }
+  ]
+}

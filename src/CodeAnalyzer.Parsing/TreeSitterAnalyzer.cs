@@ -19,6 +19,20 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
 
     private bool _disposed;
 
+    /// <summary>
+    /// Default bound on tree-sitter's concurrently in-progress query matches, which is
+    /// what grows without limit on pathologically nested machine-generated files. Far
+    /// above anything hand-written source produces; hitting it is reported on the file,
+    /// never silent.
+    /// </summary>
+    public const int DefaultMaxMatchesInProgress = 100_000;
+
+    /// <summary>
+    /// Overridable so a test can trip the cap without a hundred-thousand-node fixture.
+    /// The factory never sets it.
+    /// </summary>
+    public int MaxMatchesInProgress { get; init; } = DefaultMaxMatchesInProgress;
+
     public TreeSitterAnalyzer(LanguageDefinition definition)
     {
         _definition = definition;
@@ -46,10 +60,16 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
                 return Failed(relativePath, "Parser returned no tree.");
             }
 
-            var symbols = ExtractSymbols(tree, cancellationToken);
+            var symbols = ExtractSymbols(tree, cancellationToken, out var symbolMatchesDropped);
             AssignContainers(symbols);
 
-            var references = ExtractReferences(tree, symbols, cancellationToken);
+            var references = ExtractReferences(tree, symbols, cancellationToken, out var referenceMatchesDropped);
+
+            // The cap only trips on deeply nested pattern state — the shape of a
+            // pathological machine-generated file — never on sequential declarations
+            // (pinned by MatchLimit_BoundsInProgressMatchesAndReportsExceeding). When it
+            // does, everything extracted is kept and the incompleteness is stated.
+            var matchesDropped = symbolMatchesDropped || referenceMatchesDropped;
 
             return new ParseResult
             {
@@ -60,7 +80,10 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
                 References = references,
                 // tree-sitter recovers from syntax errors, so a partial tree still yields
                 // usable symbols. The status records that the file was imperfect.
-                Status = tree.RootNode.HasError ? FileStatus.ParseError : FileStatus.Ok,
+                Status = tree.RootNode.HasError || matchesDropped ? FileStatus.ParseError : FileStatus.Ok,
+                ErrorMessage = matchesDropped
+                    ? $"tree-sitter dropped query matches (limit {MaxMatchesInProgress:N0}) — the symbol and reference lists for this file may be incomplete"
+                    : null,
             };
         }
         catch (OperationCanceledException)
@@ -85,7 +108,7 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
     /// <summary>A symbol plus the span of its name, which reference filtering needs.</summary>
     private sealed record ExtractedSymbol(SymbolRecord Record, int NameStartOffset, int NameEndOffset);
 
-    private List<ExtractedSymbol> ExtractSymbols(Tree tree, CancellationToken cancellationToken)
+    private List<ExtractedSymbol> ExtractSymbols(Tree tree, CancellationToken cancellationToken, out bool matchLimitExceeded)
     {
         var results = new List<ExtractedSymbol>();
 
@@ -104,7 +127,7 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
         // modifier its match happened to carry.
         var modifiersByName = new Dictionary<int, SortedDictionary<int, string>>();
 
-        using var cursor = _symbolQuery.Execute(tree.RootNode);
+        using var cursor = _symbolQuery.Execute(tree.RootNode, new QueryOptions { MatchLimit = (uint)MaxMatchesInProgress });
 
         // Matches (not captures) keep a pattern's name/value/type captures grouped together.
         foreach (var match in cursor.Matches)
@@ -210,6 +233,8 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
                 results[existingIndex] = extracted;
             }
         }
+
+        matchLimitExceeded = cursor.IsMatchLimitExceeded;
 
         // Stamp the accumulated modifiers onto whichever record won each position.
         for (var i = 0; i < results.Count; i++)
@@ -336,8 +361,11 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
     private List<ReferenceRecord> ExtractReferences(
         Tree tree,
         List<ExtractedSymbol> symbols,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        out bool matchLimitExceeded)
     {
+        matchLimitExceeded = false;
+
         if (_referenceQuery is null)
         {
             return [];
@@ -369,7 +397,7 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
         // most specific kind rather than producing duplicate edges.
         var byOffset = new Dictionary<int, (ReferenceRecord Record, int Specificity)>();
 
-        using var cursor = _referenceQuery.Execute(tree.RootNode);
+        using var cursor = _referenceQuery.Execute(tree.RootNode, new QueryOptions { MatchLimit = (uint)MaxMatchesInProgress });
 
         foreach (var match in cursor.Matches)
         {
@@ -450,6 +478,8 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
                 },
                 specificity);
         }
+
+        matchLimitExceeded = cursor.IsMatchLimitExceeded;
 
         return byOffset.Values.Select(v => v.Record).ToList();
     }
