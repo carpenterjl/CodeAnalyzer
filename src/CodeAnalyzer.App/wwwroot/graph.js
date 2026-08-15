@@ -16,15 +16,6 @@
 
     var GROUPS = ["function", "type", "constant", "macro", "module", "variable"];
 
-    var SHAPES = {
-        function: "round-rectangle",
-        type: "hexagon",
-        constant: "diamond",
-        macro: "tag",
-        module: "rectangle",
-        variable: "ellipse"
-    };
-
     /* Beyond this, animating a relayout costs more than it communicates. */
     var ANIMATION_NODE_LIMIT = 120;
 
@@ -71,59 +62,79 @@
     // ---- Styling -----------------------------------------------------------
 
     function buildStyle() {
+        var accent = cssVar("--accent");
+
         var style = [
             {
+                /*
+                  The node is a picture of itself: the sectioned tile (header band, name,
+                  signature/value, origin) is baked into an SVG background image by
+                  buildTile, so the canvas draws no label of its own. Baking keeps zoom,
+                  pan and PNG export on the one layer cytoscape already renders — no DOM
+                  overlay to keep in sync.
+                */
                 selector: "node",
                 style: {
-                    label: "data(label)",
-                    "text-wrap": "wrap",
-                    "text-valign": "center",
-                    "text-halign": "center",
-                    "font-family": cssVar("--font-mono"),
-                    "font-size": 11,
-                    color: cssVar("--node-text"),
-                    "text-max-width": 190,
+                    label: "",
                     shape: "round-rectangle",
-                    // Cytoscape 3.30 warns that "label" sizing is deprecated but still
-                    // implements it, and it is the only way to size a box to measured text.
-                    // Revisit when bumping cytoscape.
-                    width: "label",
-                    height: "label",
-                    padding: 9,
-                    "background-opacity": 0.18,
-                    "border-width": 1.5,
-                    "transition-property": "border-width, border-color",
+                    "corner-radius": 6,
+                    width: "data(tileW)",
+                    height: "data(tileH)",
+                    "background-image": "data(tile)",
+                    "background-width": "100%",
+                    "background-height": "100%",
+                    "background-opacity": 0,
+                    "border-width": 0,
+                    "transition-property": "outline-width, outline-color",
                     "transition-duration": 120
                 }
             },
             {
-                /* The symbol the fragment was built around. */
+                /* The symbol the fragment was built around: the design system's cyan
+                   focus ring, offset outside the tile's own kind-coloured border. */
                 selector: "node[?isFocus]",
                 style: {
-                    "border-width": 3,
-                    "border-color": cssVar("--accent"),
-                    "background-opacity": 0.3,
-                    "font-weight": "bold"
+                    "outline-width": 3,
+                    "outline-color": accent,
+                    "outline-offset": 3
                 }
             },
             {
                 selector: "node:selected",
                 style: {
-                    "border-width": 3,
-                    "border-color": cssVar("--accent")
+                    "outline-width": 2,
+                    "outline-color": accent,
+                    "outline-offset": 3
                 }
             },
             {
+                /*
+                  Every edge is a bowed bezier rather than a straight line: with the big
+                  rectangular tiles a straight run reads as a collision, and a curve can
+                  slide past a tile it would otherwise cross. The bow distance is per-edge
+                  data assigned by assignEdgeBows, which fans parallel links apart instead
+                  of stacking them.
+                */
                 selector: "edge",
                 style: {
                     width: 1.6,
-                    "curve-style": "bezier",
-                    "control-point-step-size": 32,
+                    "curve-style": "unbundled-bezier",
+                    "control-point-distances": "data(bow)",
+                    "control-point-weights": 0.5,
                     "target-arrow-shape": "triangle",
-                    "arrow-scale": 0.85,
+                    "arrow-scale": 1,
                     "line-color": cssVar("--edge"),
                     "target-arrow-color": cssVar("--edge"),
                     opacity: 0.85
+                }
+            },
+            {
+                /* Recursion: a loop has no pair to bow against, so it keeps the classic
+                   loop rendering instead of a data-driven distance. */
+                selector: "edge:loop",
+                style: {
+                    "curve-style": "bezier",
+                    "control-point-step-size": 60
                 }
             },
             {
@@ -165,50 +176,9 @@
             }
         ];
 
-        GROUPS.forEach(function (group) {
-            var colour = cssVar("--kind-" + group);
-            style.push({
-                selector: 'node[group = "' + group + '"]',
-                style: {
-                    shape: SHAPES[group],
-                    "background-color": colour,
-                    "border-color": colour
-                }
-            });
-        });
-
-        // After the group rules so it wins the cascade: interfaces are group "type", but
-        // being an interface is a fact worth its own look — the same hexagon family with
-        // its own colour and a concave cut.
-        var interfaceColour = cssVar("--kind-interface");
-        style.push({
-            selector: 'node[kind = "interface"]',
-            style: {
-                shape: "concave-hexagon",
-                "background-color": interfaceColour,
-                "border-color": interfaceColour
-            }
-        });
-
-        // Visibility rides on the border, as chosen by the user: solid for public (and
-        // for declarations that state nothing — the source said nothing, so the node
-        // stays plain), dashed for internal, dotted for private/protected.
-        style.push({
-            selector: 'node[visibility = "internal"], node[visibility = "protected internal"]',
-            style: { "border-style": "dashed" }
-        });
-        style.push({
-            selector: 'node[visibility = "private"], node[visibility = "protected"], ' +
-                'node[visibility = "private protected"]',
-            style: { "border-style": "dotted" }
-        });
-
-        // An override is drawn in italics. The flag is a token match on the stored
-        // modifier list, not a guess about dispatch.
-        style.push({
-            selector: "node[?isOverride]",
-            style: { "font-style": "italic" }
-        });
+        // Kind colour, visibility border style (dashed internal, dotted private) and
+        // the override italic are all baked into the tile image by buildTile — the
+        // stylesheet no longer encodes them, because the tile is the encoding.
 
         // Inherits edges carry the UML-familiar hollow triangle. line-style stays free
         // for the confidence encoding, so the two never collide.
@@ -222,21 +192,11 @@
             }
         });
 
-        // I/O boundary stubs: small tag nodes hanging off their caller. Not symbols —
-        // they draw where data leaves or enters the workspace, and their direction came
-        // from the catalog's documented contract or the user's own mark, never from
-        // the syntax.
+        // I/O boundary stub links. The stub node itself is an ordinary tile (buildTile
+        // gives it the io-coloured band), so only its edge needs styling here: it draws
+        // where data leaves or enters the workspace, and its direction came from the
+        // catalog's documented contract or the user's own mark, never from the syntax.
         var ioColour = cssVar("--kind-io");
-        style.push({
-            selector: "node[?isIoStub]",
-            style: {
-                shape: "round-tag",
-                "background-color": ioColour,
-                "border-color": ioColour,
-                "background-opacity": 0.24,
-                "font-size": 10
-            }
-        });
         style.push({
             selector: 'edge[kind = "io"]',
             style: {
@@ -286,83 +246,340 @@
 
     function applyTheme() {
         // views.js owns the data-theme attribute; this only has to restate the palette,
-        // because cytoscape resolves colours once when the stylesheet is built.
+        // because cytoscape resolves colours once when the stylesheet is built — and the
+        // tiles are pictures, so they are rebaked from the new palette as well.
         cy.style().fromJson(buildStyle()).update();
+        retileAll();
+    }
+
+    // ---- Tile rendering ----------------------------------------------------
+
+    /*
+      Every node is a sectioned tile, per the design system's graph-tile spec: kind rides
+      in a coloured header band, and the body is split into labelled sections — name,
+      signature (or value, or the wire text for a stub), origin. The parameter list is
+      reduced to a count in the band, so a name is never broken by an ellipsis: names
+      wrap instead, and the tile grows to fit. The popover still carries every untruncated
+      fact for anyone who wants the long form.
+
+      The tile is drawn as an SVG data URI and set as the node's background image. The
+      SVG's intrinsic size is 2× the node box, so the rasterised texture stays crisp when
+      the user zooms in.
+    */
+    var DIRECTION_GLYPHS = { out: "▶", in: "◀", inout: "⇄" };
+
+    var measureText = document.createElement("canvas").getContext("2d");
+
+    var TILE = {
+        padX: 12,       /* body text inset */
+        bandH: 22,      /* kind header band */
+        bandPadX: 10,
+        nameLineH: 18,  /* 13px mono name lines */
+        namePadTop: 7,
+        namePadBottom: 8,
+        rowH: 24,       /* signature / value / wire rows */
+        originH: 22,    /* darker footer with file:line */
+        minInner: 132,
+        maxInner: 264,  /* names longer than this wrap; rows get an ellipsis */
+        maxNameLines: 3,
+        radius: 6
+    };
+
+    function xmlEscape(text) {
+        return String(text)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;");
+    }
+
+    /*
+      The band's label-caps run at 9.5px/700 with .09em tracking; measureText knows
+      nothing about tracking, so it is added back per glyph.
+    */
+    var CAPS_TRACKING = 0.855;
+
+    function capsWidth(text, font) {
+        measureText.font = font;
+        return measureText.measureText(text).width + text.length * CAPS_TRACKING;
+    }
+
+    /* The body faces are monospace, so one glyph measured once prices every string. */
+    function monoCharWidth(size, family) {
+        measureText.font = size + "px " + family;
+        return measureText.measureText("MMMMMMMMMM").width / 10;
+    }
+
+    function clip(text, maxChars) {
+        return text.length > maxChars ? text.slice(0, Math.max(1, maxChars - 1)) + "…" : text;
+    }
+
+    /* file paths read from the right, so a long origin keeps its tail, not its head. */
+    function clipLeading(text, maxChars) {
+        return text.length > maxChars ? "…" + text.slice(text.length - maxChars + 1) : text;
+    }
+
+    /* Top-level comma count; nested generics, arrays and function pointers don't split. */
+    function paramCount(params) {
+        var inner = params.replace(/^\s*\(/, "").replace(/\)\s*$/, "").trim();
+        if (!inner || inner === "void") {
+            return 0;
+        }
+
+        var depth = 0;
+        var count = 1;
+        for (var i = 0; i < inner.length; i++) {
+            var ch = inner[i];
+            if (ch === "(" || ch === "[" || ch === "<" || ch === "{") {
+                depth++;
+            } else if (ch === ")" || ch === "]" || ch === ">" || ch === "}") {
+                depth--;
+            } else if (ch === "," && depth === 0) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /*
+      Resolved from the live CSS custom properties once per rebuild pass, never hard-coded,
+      so the tiles follow a theme switch exactly the way the rest of the page does.
+    */
+    function tileColours() {
+        var kinds = {};
+        GROUPS.forEach(function (group) {
+            kinds[group] = cssVar("--kind-" + group);
+        });
+        kinds.interface = cssVar("--kind-interface");
+        kinds.io = cssVar("--kind-io");
+
+        return {
+            kinds: kinds,
+            bg: cssVar("--panel"),
+            /* The canvas colour doubles as the band's text: dark navy on the pastel
+               bands in dark, near-white on the saturated bands in light. */
+            bandFg: cssVar("--bg"),
+            divider: cssVar("--control-high"),
+            originBg: cssVar("--bg"),
+            fg: cssVar("--fg"),
+            fgMuted: cssVar("--fg-muted"),
+            fgFaint: cssVar("--fg-faint"),
+            valueFg: cssVar("--kind-constant"),
+            /* SVG attributes are double-quoted, so the stacks trade their quotes in. */
+            mono: cssVar("--font-mono").replace(/"/g, "'"),
+            ui: cssVar("--font-ui").replace(/"/g, "'")
+        };
+    }
+
+    function capsText(x, y, fill, text, opts) {
+        return '<text x="' + x + '" y="' + y + '"' +
+            (opts && opts.anchor ? ' text-anchor="' + opts.anchor + '"' : "") +
+            ' font-family="' + (opts && opts.family) + '" font-size="9.5" font-weight="700"' +
+            ' letter-spacing="0.85" fill="' + fill + '"' +
+            (opts && opts.opacity ? ' fill-opacity="' + opts.opacity + '"' : "") +
+            ">" + xmlEscape(text) + "</text>";
+    }
+
+    function monoText(x, y, size, fill, text, family, italic) {
+        return '<text x="' + x + '" y="' + y + '" font-family="' + family + '"' +
+            ' font-size="' + size + '"' + (italic ? ' font-style="italic"' : "") +
+            ' fill="' + fill + '">' + xmlEscape(text) + "</text>";
+    }
+
+    function buildTile(data, c) {
+        var kindColour = data.isIoStub ? c.kinds.io
+            : data.kind === "interface" ? c.kinds.interface
+                : (c.kinds[data.group] || c.fgFaint);
+
+        // The container prefix is what tells two same-named members apart without a
+        // click — Device.Send vs Radio.Send. Both halves are indexed facts.
+        var name = data.isIoStub
+            ? data.name
+            : (data.container ? data.container + "." + data.name : data.name);
+
+        var bandLeft;
+        var bandRight;
+        if (data.isIoStub) {
+            bandLeft = (DIRECTION_GLYPHS[data.direction] || "") + " " +
+                data.directionLabel + " · i/o boundary";
+            bandRight = data.source || "";
+        } else {
+            bandLeft = (data.visibility ? data.visibility + " " : "") + data.kind;
+            var params = showNodeDetails && data.params ? paramCount(data.params) : null;
+            bandRight = data.isFocus ? "focus"
+                : params !== null ? params + (params === 1 ? " param" : " params")
+                    : "";
+        }
+        bandLeft = bandLeft.toUpperCase();
+        bandRight = bandRight.toUpperCase();
+
+        // Body rows, in reading order. A constant's value is one of the facts worth
+        // seeing without clicking, so it stays even with details off; the signature and
+        // the stub's wire text are exactly what the DETAIL toggle exists to fold away.
+        var rows = [];
+        if (showNodeDetails && !data.isIoStub && data.params) {
+            rows.push({ cap: "SIGNATURE", text: data.params, fill: c.fgMuted });
+        }
+        if (showNodeDetails && data.isIoStub && data.argText) {
+            rows.push({ cap: "ON THE WIRE", text: data.argText, fill: c.fgMuted });
+        }
+        if (data.value) {
+            rows.push({ cap: "VALUE", text: data.value, fill: c.valueFg });
+        }
+
+        var origin = showNodeDetails && !data.isIoStub && data.path
+            ? data.path + ":" + data.line
+            : "";
+
+        // ---- Sizing. The name dictates the width (it never truncates); everything
+        // else asks for room but settles for an ellipsis at maxInner.
+        var capsFont = "700 9.5px " + c.ui;
+        var w13 = monoCharWidth(13, c.mono);
+        var w11 = monoCharWidth(11, c.mono);
+        var w10 = monoCharWidth(10, c.mono);
+
+        var need = TILE.minInner;
+        need = Math.max(need, capsWidth(bandLeft, capsFont) +
+            (bandRight ? capsWidth(bandRight, capsFont) + 14 : 0));
+        need = Math.max(need, Math.min(name.length * w13, TILE.maxInner));
+        rows.forEach(function (row) {
+            need = Math.max(need, Math.min(
+                capsWidth(row.cap, capsFont) + 8 + row.text.length * w11, TILE.maxInner));
+        });
+        if (origin) {
+            need = Math.max(need, Math.min(origin.length * w10, TILE.maxInner));
+        }
+
+        var inner = Math.ceil(Math.min(need, TILE.maxInner));
+        var w = inner + TILE.padX * 2;
+
+        // Identifiers carry no spaces, so the wrap is a plain character fill — the same
+        // break-anywhere the design's HTML tiles use.
+        var perLine = Math.max(4, Math.floor(inner / w13));
+        var nameLines = [];
+        for (var i = 0; i < name.length && nameLines.length < TILE.maxNameLines; i += perLine) {
+            nameLines.push(name.slice(i, i + perLine));
+        }
+        if (name.length > perLine * TILE.maxNameLines) {
+            nameLines[TILE.maxNameLines - 1] =
+                clip(nameLines[TILE.maxNameLines - 1], perLine);
+        }
+
+        var nameBlockH = TILE.namePadTop + nameLines.length * TILE.nameLineH + TILE.namePadBottom;
+        var h = TILE.bandH + nameBlockH + rows.length * TILE.rowH + (origin ? TILE.originH : 0);
+
+        // ---- Drawing.
+        var r = TILE.radius;
+        var parts = [];
+        parts.push('<svg xmlns="http://www.w3.org/2000/svg" width="' + w * 2 +
+            '" height="' + h * 2 + '" viewBox="0 0 ' + w + " " + h + '">');
+
+        parts.push('<rect x="0.5" y="0.5" width="' + (w - 1) + '" height="' + (h - 1) +
+            '" rx="' + r + '" fill="' + c.bg + '"/>');
+
+        // Header band, rounded along the top only.
+        parts.push('<path d="M0.5 ' + TILE.bandH + " V" + (r + 0.5) +
+            " a" + r + " " + r + " 0 0 1 " + r + " -" + r +
+            " H" + (w - r - 0.5) +
+            " a" + r + " " + r + " 0 0 1 " + r + " " + r +
+            " V" + TILE.bandH + ' Z" fill="' + kindColour + '"/>');
+        parts.push(capsText(TILE.bandPadX, 14.5, c.bandFg, bandLeft, { family: c.ui }));
+        if (bandRight) {
+            parts.push(capsText(w - TILE.bandPadX, 14.5, c.bandFg, bandRight,
+                { family: c.ui, anchor: "end", opacity: 0.72 }));
+        }
+
+        // The name never truncates; the override italic is a token match on the stored
+        // modifier list, not a guess about dispatch.
+        var y = TILE.bandH + TILE.namePadTop + 13;
+        nameLines.forEach(function (line) {
+            parts.push(monoText(TILE.padX, y, 13, c.fg, line, c.mono, data.isOverride));
+            y += TILE.nameLineH;
+        });
+
+        var top = TILE.bandH + nameBlockH;
+        rows.forEach(function (row) {
+            parts.push('<line x1="1" y1="' + (top + 0.5) + '" x2="' + (w - 1) +
+                '" y2="' + (top + 0.5) + '" stroke="' + c.divider + '"/>');
+            var capW = Math.ceil(capsWidth(row.cap, capsFont));
+            parts.push(capsText(TILE.padX, top + 15.5, c.fgFaint, row.cap, { family: c.ui }));
+            var maxChars = Math.floor((inner - capW - 8) / w11);
+            parts.push(monoText(TILE.padX + capW + 8, top + 15.5, 11, row.fill,
+                clip(row.text, maxChars), c.mono));
+            top += TILE.rowH;
+        });
+
+        if (origin) {
+            // Footer on the lowest surface, rounded along the bottom only.
+            parts.push('<path d="M0.5 ' + top + " H" + (w - 0.5) +
+                " V" + (h - r - 0.5) +
+                " a" + r + " " + r + " 0 0 1 -" + r + " " + r +
+                " H" + (r + 0.5) +
+                " a" + r + " " + r + " 0 0 1 -" + r + " -" + r +
+                " V" + top + ' Z" fill="' + c.originBg + '"/>');
+            parts.push('<line x1="1" y1="' + (top + 0.5) + '" x2="' + (w - 1) +
+                '" y2="' + (top + 0.5) + '" stroke="' + c.divider + '"/>');
+            parts.push(monoText(TILE.padX, top + 14.5, 10, c.fgFaint,
+                clipLeading(origin, Math.floor(inner / w10)), c.mono));
+        }
+
+        // Border last, over the band and footer fills, so the edge stays clean.
+        // Visibility rides on its style, as chosen by the user: solid for public (and
+        // for declarations that state nothing), dashed for internal, dotted for
+        // private/protected.
+        var dash = data.visibility === "internal" || data.visibility === "protected internal"
+            ? ' stroke-dasharray="5 3"'
+            : data.visibility && data.visibility.indexOf("p") === 0 && data.visibility !== "public"
+                ? ' stroke-dasharray="2 3"'
+                : "";
+        parts.push('<rect x="0.5" y="0.5" width="' + (w - 1) + '" height="' + (h - 1) +
+            '" rx="' + r + '" fill="none" stroke="' + kindColour + '" stroke-width="1"' +
+            dash + "/>");
+
+        parts.push("</svg>");
+
+        return {
+            uri: "data:image/svg+xml;utf8," + encodeURIComponent(parts.join("")),
+            w: w,
+            h: h
+        };
+    }
+
+    function bakeTile(data, colours) {
+        var tile = buildTile(data, colours);
+        data.tile = tile.uri;
+        data.tileW = tile.w;
+        data.tileH = tile.h;
+    }
+
+    /*
+      Tiles are baked into element data at construction, so changing what a tile says —
+      the DETAIL toggle, a theme switch — means rebaking every one of them. Everything
+      buildTile reads is already on the node, so this needs no round trip to the host.
+    */
+    function retileAll() {
+        var colours = tileColours();
+        cy.batch(function () {
+            cy.nodes().forEach(function (node) {
+                var data = node.data();
+                var tile = buildTile(data, colours);
+                node.data("tile", tile.uri);
+                node.data("tileW", tile.w);
+                node.data("tileH", tile.h);
+            });
+        });
     }
 
     // ---- Element mapping ---------------------------------------------------
 
-    /*
-      Longest parameter list drawn on a node. Cytoscape renders one canvas label at one
-      font size, so every character here is a character the name has to share the box
-      with; the popover carries the untruncated text for anyone who wants it.
-    */
-    var MAX_LABEL_PARAMETERS = 34;
-
-    function truncate(text, limit) {
-        // The ellipsis is what stops a cut slice reading as the whole thing.
-        return text.length > limit ? text.slice(0, limit - 1) + "…" : text;
-    }
-
-    /*
-      Up to three lines, in the order someone reads them: who this is, what it holds, and
-      what it is. `data.showDetails` gates the two lines added in M12 — a node carrying a
-      parameter list and a descriptor is roughly three times the height of a bare name,
-      which is worth it while reading one neighbourhood and not while scanning a crowded
-      canvas.
-    */
-    function nodeLabel(node, showDetails) {
-        // The container prefix is what tells two same-named members apart without a
-        // click — Device.Send vs Radio.Send. Both halves are indexed facts.
-        var lines = [node.container ? node.container + "." + node.name : node.name];
-
-        // Two overloads of one method differ only here, so this is the line that makes
-        // them two nodes rather than the same node drawn twice.
-        if (showDetails && node.params) {
-            lines[0] += truncate(node.params, MAX_LABEL_PARAMETERS);
-        }
-
-        // A constant's value is one of the facts worth seeing without clicking, so it
-        // rides along on its own line. Long literals are cut rather than wrapped away.
-        if (node.value) {
-            lines.push("= " + truncate(node.value, 40));
-        }
-
-        if (showDetails && node.descriptor) {
-            lines.push(node.descriptor);
-        }
-
-        return lines.join("\n");
-    }
-
-    var DIRECTION_GLYPHS = { out: "▶", in: "◀", inout: "⇄" };
-
-    /*
-      A stub's label: the glyph says which way the data goes, the argument text says what
-      crosses, and the last line says who asserted the direction — a fact about the
-      catalog or the user, never about the syntax.
-    */
-    function stubLabel(data) {
-        var lines = [(DIRECTION_GLYPHS[data.direction] || "") + " " + data.name];
-
-        if (data.argText) {
-            lines.push(truncate(data.argText, MAX_LABEL_PARAMETERS));
-        }
-
-        lines.push(data.directionLabel + " · " + data.source);
-        return lines.join("\n");
-    }
-
     function toElements(graph) {
         var result = [];
+        var colours = tileColours();
 
         (graph.nodes || []).forEach(function (node) {
-            result.push({
-                group: "nodes",
-                data: {
+            var data = {
                     id: node.id,
                     name: node.name,
-                    label: nodeLabel(node, showNodeDetails),
                     kind: node.kind,
                     group: node.group,
                     path: node.path,
@@ -380,8 +597,9 @@
                     totalCallees: node.totalCallees || 0,
                     hiddenCallers: 0,
                     hiddenCallees: 0
-                }
-            });
+                };
+            bakeTile(data, colours);
+            result.push({ group: "nodes", data: data });
         });
 
         (graph.edges || []).forEach(function (edge) {
@@ -397,18 +615,17 @@
                     confidenceLabel: edge.confidenceLabel,
                     line: edge.line,
                     candidates: edge.candidates,
-                    callSites: edge.callSites || 1
+                    callSites: edge.callSites || 1,
+                    // Refined by assignEdgeBows once every edge of the picture is known.
+                    bow: 20
                 }
             });
         });
 
         (graph.ioStubs || []).forEach(function (stub) {
-            result.push({
-                group: "nodes",
-                data: {
+            var data = {
                     id: stub.id,
                     name: stub.name,
-                    label: stubLabel(stub),
                     isIoStub: true,
                     direction: stub.direction,
                     directionLabel: stub.directionLabel,
@@ -427,8 +644,9 @@
                     totalCallees: 0,
                     hiddenCallers: 0,
                     hiddenCallees: 0
-                }
-            });
+                };
+            bakeTile(data, colours);
+            result.push({ group: "nodes", data: data });
 
             // Output points at the stub, input comes from it; an inout link carries an
             // arrow at both ends via the bidirectional flag.
@@ -446,12 +664,42 @@
                     line: 0,
                     candidates: 1,
                     callSites: stub.siteCount || 1,
-                    bidirectional: stub.direction === "inout"
+                    bidirectional: stub.direction === "inout",
+                    bow: 20
                 }
             });
         });
 
         return result;
+    }
+
+    /*
+      Bow distances for the bezier edges. A lone edge gets a gentle constant bow — the
+      curve is what lets it slide past tiles a straight line would cross — and parallel
+      edges between the same pair fan out evenly instead of stacking. The sign is fixed
+      against the pair's canonical order, so two opposite-direction links between the
+      same two tiles bow apart rather than onto each other.
+    */
+    function assignEdgeBows() {
+        var byPair = {};
+        cy.edges().forEach(function (edge) {
+            var s = edge.data("source");
+            var t = edge.data("target");
+            var key = s < t ? s + "\u0000" + t : t + "\u0000" + s;
+            (byPair[key] = byPair[key] || []).push(edge);
+        });
+
+        Object.keys(byPair).forEach(function (key) {
+            var list = byPair[key];
+            var first = key.split("\u0000")[0];
+            list.forEach(function (edge, index) {
+                var bow = list.length === 1 ? 20 : (index - (list.length - 1) / 2) * 44;
+                if (edge.data("source") !== first) {
+                    bow = -bow;
+                }
+                edge.data("bow", bow);
+            });
+        });
     }
 
     /*
@@ -481,9 +729,11 @@
             return {
                 name: "dagre",
                 rankDir: "LR",
-                nodeSep: 26,
-                rankSep: 96,
-                edgeSep: 12,
+                // Spacing is scaled to the sectioned tiles: a tile is roughly three
+                // times the old shape's footprint, and the bowed edges need lane room.
+                nodeSep: 44,
+                rankSep: 150,
+                edgeSep: 20,
                 padding: 40,
                 animate: animate,
                 animationDuration: 260,
@@ -505,9 +755,11 @@
             fit: true,
             padding: 40,
             nodeDimensionsIncludeLabels: true,
-            idealEdgeLength: 95,
-            nodeRepulsion: 6500,
-            gravity: 0.28,
+            // Scaled to the sectioned tiles, which are wider and taller than the old
+            // text-sized shapes; anything tighter and the bowed edges thread the gaps.
+            idealEdgeLength: 180,
+            nodeRepulsion: 9500,
+            gravity: 0.25,
             numIter: 2000
         };
     }
@@ -731,27 +983,14 @@
         showNodeDetails = Boolean(show);
         elements.legendDetails.setAttribute("aria-pressed", String(showNodeDetails));
         elements.legendDetails.textContent = showNodeDetails ? "on" : "off";
-        relabelAll();
+        retileAll();
+        applyStubVisibility();
 
-        // Stubs come and go with the toggle, which changes what the layout has to place.
-        if (cy.nodes("[?isIoStub]").length > 0) {
-            applyStubVisibility();
+        // The toggle folds whole tile sections away — and takes the stubs with it — so
+        // the sizes the layout placed no longer hold and the picture is re-spaced.
+        if (cy.nodes().length > 0) {
             runLayout(currentLayout, true);
         }
-    }
-
-    /*
-      Labels are baked into element data at construction, so changing what a label says
-      means rewriting every one of them. Everything nodeLabel reads is already on the
-      node, so this needs no round trip to the host.
-    */
-    function relabelAll() {
-        cy.batch(function () {
-            cy.nodes().forEach(function (node) {
-                var data = node.data();
-                node.data("label", data.isIoStub ? stubLabel(data) : nodeLabel(data, showNodeDetails));
-            });
-        });
     }
 
     function toggleNodeDetails() {
@@ -1110,6 +1349,7 @@
 
         setOverlay(null);
         cy.add(added);
+        assignEdgeBows();
         updateHiddenCounts();
         applyStubVisibility();
         elements.truncation.hidden = !graph.truncated;
@@ -1154,6 +1394,9 @@
         var addedNodes = false;
         if (fresh.length > 0) {
             cy.add(fresh);
+            // Over every edge, not just the fresh ones: a new parallel link changes
+            // which way its older sibling has to bow.
+            assignEdgeBows();
             addedNodes = fresh.some(function (element) {
                 return element.group === "nodes";
             });
