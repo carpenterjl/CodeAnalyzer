@@ -157,7 +157,26 @@ public sealed record SymbolDetail
 
     /// <summary>References from this symbol that matched no definition, e.g. libc calls.</summary>
     public IReadOnlyList<UnresolvedReference> UnresolvedReferences { get; init; } = [];
+
+    /// <summary>
+    /// What this type's declaration says it derives from, one entry per name in the base
+    /// list as written — resolved to a workspace type where an inherit edge exists, verbatim
+    /// where the base lives outside the workspace. Both belong on the fact sheet: the base
+    /// list is a stored fact either way, and hiding the unresolved half would misreport
+    /// <c>class Foo : IDisposable</c> as a type that derives from nothing.
+    /// </summary>
+    public IReadOnlyList<BaseTypeFact> BaseTypes { get; init; } = [];
+
+    /// <summary>Workspace types whose inherit reference resolved to this one.</summary>
+    public IReadOnlyList<RelatedSymbol> DerivedTypes { get; init; } = [];
 }
+
+/// <summary>One name in a type's base list; located when it resolved, verbatim when not.</summary>
+public sealed record BaseTypeFact(
+    string Name,
+    long? TargetId,
+    string? TargetPath,
+    int? TargetLine);
 
 public sealed record SymbolMember(
     long Id,

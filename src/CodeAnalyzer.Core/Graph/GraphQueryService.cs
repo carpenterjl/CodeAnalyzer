@@ -333,14 +333,66 @@ public sealed class GraphQueryService(SqliteConnection connection)
             };
         }
 
+        var callers = LoadRelated(symbolId, callers: true);
+
         return detail with
         {
             Overloads = LoadOverloads(symbolId),
             Members = LoadMembers(symbolId),
-            Callers = LoadRelated(symbolId, callers: true),
+            Callers = callers,
             Callees = LoadRelated(symbolId, callers: false),
             UnresolvedReferences = LoadUnresolved(symbolId),
+            BaseTypes = LoadBaseTypes(symbolId),
+            // Already loaded — a derived type is a caller whose reference is an inherit.
+            // Filtered rather than re-queried so the sheet and the caller list agree.
+            DerivedTypes = callers.Where(c => c.ReferenceKind == ReferenceKind.Inherit).ToList(),
         };
+    }
+
+    /// <summary>
+    /// The base list as written on this type's declaration: every inherit reference it
+    /// makes, located when it resolved, name-only when the base is not in the workspace.
+    /// The unresolved half is the reason this is not just the callee list filtered —
+    /// <c>IDisposable</c> has no edge and still belongs on the fact sheet.
+    /// </summary>
+    private List<BaseTypeFact> LoadBaseTypes(long symbolId)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT r.name, s.id, f.rel_path, s.start_line
+            FROM ref r
+            LEFT JOIN edge e ON e.ref_id = r.id
+            LEFT JOIN symbol s ON s.id = e.target_symbol_id
+            LEFT JOIN file f ON f.id = s.file_id
+            WHERE r.from_symbol_id = $symbolId AND r.kind = $inherit
+            GROUP BY r.id
+            ORDER BY r.line, r.col
+            """;
+        command.Parameters.AddWithValue("$symbolId", symbolId);
+        command.Parameters.AddWithValue("$inherit", (int)ReferenceKind.Inherit);
+
+        var results = new List<BaseTypeFact>();
+        var seen = new HashSet<string>();
+
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var name = reader.GetString(0);
+
+            // A partial type states its base list once per part; the fact is one fact.
+            if (!seen.Add(name))
+            {
+                continue;
+            }
+
+            results.Add(new BaseTypeFact(
+                name,
+                reader.IsDBNull(1) ? null : reader.GetInt64(1),
+                reader.IsDBNull(2) ? null : reader.GetString(2),
+                reader.IsDBNull(3) ? null : reader.GetInt32(3)));
+        }
+
+        return results;
     }
 
     /// <summary>

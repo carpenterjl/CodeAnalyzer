@@ -52,8 +52,8 @@ internal sealed class CodeAnalyzerTools(McpSessionHolder holder)
         });
 
     [McpServerTool(Name = "get_symbol")]
-    [Description("One symbol's fact sheet: signature, modifiers, value, members, overloads, "
-        + "caller/callee counts, unresolved references.")]
+    [Description("One symbol's fact sheet: signature, modifiers, value, base and derived "
+        + "types, members, overloads, caller/callee counts, unresolved references.")]
     public string GetSymbol(
         [Description("Symbol name, path/to/file.c:name, Container.Name, or #id from a previous result")]
         string symbol,

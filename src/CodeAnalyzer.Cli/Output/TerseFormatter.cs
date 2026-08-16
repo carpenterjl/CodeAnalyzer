@@ -265,6 +265,23 @@ internal static class TerseFormatter
         AppendFact(builder, "type", detail.TypeText);
         AppendFact(builder, "value", Clip(Flatten(detail.Value)));
 
+        // The base list as written, resolved half located, unresolved half named — hiding
+        // the latter would misreport `class Foo : IDisposable` as deriving from nothing.
+        if (detail.BaseTypes.Count > 0)
+        {
+            builder.AppendLine("derives from: " + string.Join(" · ", detail.BaseTypes.Select(b =>
+                b.TargetId is { } id
+                    ? $"#{id} {b.Name} {b.TargetPath}:{b.TargetLine}"
+                    : $"{b.Name} (not in workspace)")));
+        }
+
+        if (detail.DerivedTypes.Count > 0)
+        {
+            builder.AppendLine($"derived by ({detail.DerivedTypes.Count}): " + string.Join(" · ",
+                detail.DerivedTypes.Take(12).Select(d => $"#{d.Id} {d.Name}"))
+                + (detail.DerivedTypes.Count > 12 ? " · …" : string.Empty));
+        }
+
         if (detail.Members.Count > 0)
         {
             builder.AppendLine($"members ({detail.Members.Count}):");

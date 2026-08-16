@@ -133,6 +133,15 @@ internal static class JsonFormatter
                     line = o.Line,
                     isCurrent = o.IsCurrent,
                 }),
+                derivesFrom = detail.BaseTypes.Select(b => new
+                {
+                    name = b.Name,
+                    id = b.TargetId,
+                    path = b.TargetPath,
+                    line = b.TargetLine,
+                    inWorkspace = b.TargetId is not null,
+                }),
+                derivedBy = detail.DerivedTypes.Select(Related),
                 callers = detail.Callers.Select(Related),
                 callees = detail.Callees.Select(Related),
                 unresolved = detail.UnresolvedReferences.Select(u => new
