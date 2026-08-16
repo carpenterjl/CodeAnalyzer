@@ -223,6 +223,14 @@ internal sealed class CodeAnalyzerTools(McpSessionHolder holder)
         {
             return $"the index is locked or unreadable — is the GUI mid-index? ({e.Message})";
         }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            // Anything else still has to come back as a sentence. Letting it escape makes
+            // the protocol answer "An error occurred invoking 'reindex'", which is the least
+            // actionable string this tool can produce and hid a real bug in the full-reparse
+            // path for a whole round.
+            return $"reindex failed: {e.GetType().Name}: {e.Message}";
+        }
         finally
         {
             // Whatever happened, the next read should reopen: a completed run has a new
