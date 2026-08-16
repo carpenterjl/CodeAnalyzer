@@ -51,7 +51,9 @@ internal static class IndexCommand
             // narrowed stays narrowed here; a fresh workspace defaults to everything.
             var selected = session.LoadSelectedDirectories();
 
-            var progress = new ConsoleIndexProgress();
+            // --quiet drops the progress chatter, never the summary: the summary is the
+            // answer, and a run that reported nothing at all could not be checked.
+            var progress = new ConsoleIndexProgress(silent: args.Switch("quiet"));
             var result = await session.IndexAsync(selected, progress, cancellationToken)
                 .ConfigureAwait(false);
             progress.FinishLine();
@@ -69,6 +71,13 @@ internal static class IndexCommand
                 + $"{result.FilesRemoved} removed · {outcome.SymbolsFound:N0} symbols, "
                 + $"{result.EdgesCreated:N0} links in {result.Elapsed.TotalSeconds:0.0}s");
 
+            // Not suppressed by --quiet: the summary is the answer, and if the index just
+            // changed shape that is part of the answer, not chatter about how it got there.
+            if (result.Cost is not null && IndexCostProbe.Describe(result.Cost) is { } note)
+            {
+                Console.WriteLine(note);
+            }
+
             return ExitCodes.Ok;
         }
         catch (SqliteException e)
@@ -84,7 +93,7 @@ internal static class IndexCommand
 /// Progress on stderr: a rewritten status line on a console, phase-change lines when
 /// redirected — a log file full of carriage returns helps nobody.
 /// </summary>
-internal sealed class ConsoleIndexProgress : IProgress<IndexProgress>
+internal sealed class ConsoleIndexProgress(bool silent = false) : IProgress<IndexProgress>
 {
     private readonly bool _interactive = !Console.IsErrorRedirected;
     private IndexPhase _lastPhase = IndexPhase.Idle;
@@ -93,6 +102,11 @@ internal sealed class ConsoleIndexProgress : IProgress<IndexProgress>
 
     public void Report(IndexProgress value)
     {
+        if (silent)
+        {
+            return;
+        }
+
         var phaseChanged = value.Phase != _lastPhase;
         _lastPhase = value.Phase;
 

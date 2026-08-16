@@ -35,7 +35,13 @@ internal static class McpCommand
 
         var builder = Host.CreateApplicationBuilder();
         builder.Logging.ClearProviders();
-        builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
+
+        // Stdout is the wire either way; --quiet silences the stderr log as well, for a
+        // client that shows a server's stderr to the user as if it were output.
+        if (!args.Switch("quiet"))
+        {
+            builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
+        }
 
         builder.Services.AddSingleton(holder);
         builder.Services

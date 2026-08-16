@@ -9,7 +9,17 @@ using CodeAnalyzer.Core.Watching;
 
 namespace CodeAnalyzer.Core.Workspaces;
 
-public sealed record IndexRunResult(IndexOutcome Outcome, int EdgesCreated, int FilesRemoved, TimeSpan Elapsed);
+/// <summary>
+/// What an index run did. <paramref name="Cost"/> compares the index's shape against the
+/// previous run's so a run that quietly became far more expensive can say so; it is a
+/// measurement, never a failure, and callers are free to ignore it.
+/// </summary>
+public sealed record IndexRunResult(
+    IndexOutcome Outcome,
+    int EdgesCreated,
+    int FilesRemoved,
+    TimeSpan Elapsed,
+    IndexCostReport? Cost = null);
 
 /// <summary>
 /// What a live update did. <paramref name="FullResolve"/> says whether the fast path was
@@ -208,7 +218,17 @@ public sealed class WorkspaceSession : IDisposable
                     SymbolsFound = outcome.SymbolsFound,
                 });
 
-                return new IndexRunResult(outcome, edges, removed, DateTimeOffset.UtcNow - startedAt);
+                // Measured after the resolve, because links are what the comparison is
+                // about, and recorded whatever the verdict: this run's shape is the
+                // baseline from here on.
+                var cost = _store.Gate.Read(() =>
+                {
+                    var measured = IndexCostProbe.Measure(_store.Connection);
+                    IndexCostProbe.Record(_store.Connection, measured.Current);
+                    return measured;
+                });
+
+                return new IndexRunResult(outcome, edges, removed, DateTimeOffset.UtcNow - startedAt, cost);
             },
             cancellationToken).ConfigureAwait(false);
     }

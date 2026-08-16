@@ -92,6 +92,13 @@ internal static class Program
                 writer.WriteLine($"  {command.Usage.PadRight(width)}  {command.Summary}");
             }
         }
+
+        writer.WriteLine();
+        writer.WriteLine("accepted by every command:");
+        writer.WriteLine("  --quiet   print nothing but the answer (drops the index provenance header)");
+        writer.WriteLine();
+        writer.WriteLine("The provenance header goes to stdout at a terminal and to stderr when stdout is");
+        writer.WriteLine("redirected or --json was asked for, so a pipe only ever receives the answer.");
     }
 }
 

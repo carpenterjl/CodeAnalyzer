@@ -11,6 +11,15 @@ namespace CodeAnalyzer.Cli.Commands;
 /// </summary>
 internal sealed class ArgReader
 {
+    /// <summary>
+    /// Switches every command accepts, whatever else it declares. <c>--quiet</c> is here
+    /// rather than in ten separate lists for the reason the rest of this repo keeps one
+    /// vocabulary in one place: an option restated at every call site is an option that
+    /// will eventually be missing from the eleventh. Every command honours it — it means
+    /// "print nothing that is not the answer", and each command knows what that excludes.
+    /// </summary>
+    public static readonly string[] GlobalSwitches = ["quiet"];
+
     private readonly List<string> _positionals = [];
     private readonly Dictionary<string, string> _values = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _switches = new(StringComparer.OrdinalIgnoreCase);
@@ -53,7 +62,8 @@ internal sealed class ArgReader
 
                 reader._values[name] = args[++i];
             }
-            else if (switchOptions.Contains(name, StringComparer.OrdinalIgnoreCase))
+            else if (switchOptions.Contains(name, StringComparer.OrdinalIgnoreCase)
+                     || GlobalSwitches.Contains(name, StringComparer.OrdinalIgnoreCase))
             {
                 reader._switches.Add(name);
             }

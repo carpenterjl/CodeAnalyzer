@@ -14,8 +14,9 @@ namespace CodeAnalyzer.Cli.Tests;
 /// <para>
 /// The layout bakes in the shapes the tests assert on: <c>init</c> defined in two files
 /// (ambiguity), <c>uart_write</c> called from two distinct functions (fan-in ranking),
-/// a second <c>uart.c</c> base name (path disambiguation), and one command byte written
-/// <c>0xA5</c> in both C and C# with nothing linking them (value matching).
+/// a second <c>uart.c</c> base name (path disambiguation), one command byte written
+/// <c>0xA5</c> in both C and C# with nothing linking them (value matching), and a C# class
+/// declaring a constructor (a type competing with a member it declares).
 /// </para>
 /// </summary>
 public sealed class CliWorkspaceFixture : IDisposable
@@ -67,6 +68,9 @@ public sealed class CliWorkspaceFixture : IDisposable
             #define UART_BAUD 115200
             """);
 
+        // PacketWriter carries no literal of its own on purpose: it is here for its
+        // constructor, which necessarily shares the type's name and is what made asking
+        // for a type by name an ambiguity.
         Write("app/Protocol.cs", """
             namespace App;
 
@@ -74,6 +78,13 @@ public sealed class CliWorkspaceFixture : IDisposable
             {
                 public const byte CmdRead = 0xA5;
                 public const int Baud = 115200;
+            }
+
+            public sealed class PacketWriter
+            {
+                public PacketWriter(string port) { Port = port; }
+
+                public string Port { get; }
             }
             """);
 

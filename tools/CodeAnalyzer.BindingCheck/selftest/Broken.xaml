@@ -1,0 +1,38 @@
+<!--
+  Not part of the app. This file exists to be wrong.
+
+  A checker that has only ever printed "all resolved" is indistinguishable from a checker
+  that cannot find anything, and this one was thrown away and rewritten three times partly
+  because nobody could tell those apart at a glance. Running the checker with the selftest
+  switch points it at this file, and it passes only if it finds exactly the four planted
+  errors and none of the four correct lines beside them.
+
+  Each pair is one right and one wrong spelling of the same thing, so a change that breaks
+  resolution generally fails the positive half rather than quietly passing.
+-->
+<Window x:Class="CodeAnalyzer.App.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid>
+        <!-- a plain property path on a view model -->
+        <TextBox Text="{Binding Search.Query}" />
+        <TextBox Text="{Binding Search.Qeury}" />
+
+        <!-- a path that walks two hops through a collection -->
+        <Button Command="{Binding Detail.Overloads.Count}" />
+        <Button Command="{Binding Detail.Ovrloads.Count}" />
+
+        <!-- a generated command: [RelayCommand] Search() becomes SearchCommand -->
+        <Button Command="{Binding FocusSymbolCommand}" />
+        <Button Command="{Binding FocusSymblCommand}" />
+
+        <!--
+          An event handler, checked against x:Class above. OnSearchBoxKeyDown is a method
+          on MainWindow; OnAccept is a real handler too, but on SettingsWindow, so putting
+          it here would correctly be reported and the pair would stop being one right and
+          one wrong. Caught by this very selftest on its first run.
+        -->
+        <TextBox PreviewKeyDown="OnSearchBoxKeyDown" />
+        <TextBox PreviewKeyDown="OnNoSuchHandler" />
+    </Grid>
+</Window>

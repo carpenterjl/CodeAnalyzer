@@ -5,7 +5,7 @@ subdirectories you care about, and it indexes every symbol it can find — funct
 types, struct and class members, constants, macros, Verilog modules and ports — then lets you
 search them and walk the graph of what calls what.
 
-It works on C, C++, C#, Python, JavaScript, Verilog/SystemVerilog and HTML, in one uniform
+It works on C, C++, C#, Python, JavaScript, Verilog/SystemVerilog, HTML and XAML, in one uniform
 pipeline.
 
 **Everything it shows is a fact taken from the source.** Where the syntax is not enough to be
@@ -115,8 +115,18 @@ codeanalyzer index "C:\some\repo"
 | `mcp` | the MCP stdio server for AI agent clients |
 
 A `<symbol>` argument is a name, `Container.Name`, `path/to/file.c:name`, or a `#id` from
-a previous result. Every command takes `--root <path>` (default: current directory) and
-`--json`. Reads never index implicitly — `index` is the only writer.
+a previous result. A name shared only by a type and the members that type declares — a class
+and its own constructor — resolves to the type rather than being reported as an ambiguity;
+two same-named types anywhere still are one. Every command takes `--root <path>` (default:
+current directory), `--json`, and `--quiet`. Reads never index implicitly — `index` is the
+only writer.
+
+Every command prints a one-line provenance header naming the index, its size, when it was
+built and how far it has drifted since. It goes to **stdout at a terminal** and to **stderr
+when stdout is redirected or `--json` was asked for**, so a pipe only ever receives the
+answer while a human never sees a successful query painted as an error by a shell that
+colours stderr red. `--quiet` drops it entirely — and on `index`, drops the progress lines
+while keeping the summary.
 
 For AI agents, the MCP server exposes the same queries as tools
 (`search_symbols`, `get_symbol`, `get_context`, `get_callers`, `get_callees`,
@@ -142,6 +152,34 @@ powershell -ExecutionPolicy Bypass -File tools\publish-mcp-server.ps1
 Re-run that when you want the server to see your latest changes — building the solution
 deliberately does not refresh it — then reconnect the server in your client.
 
+## Checking WPF bindings
+
+WPF reports a broken binding path as a runtime trace line and carries on, so a typo in a
+`{Binding}` or a `Click` handler is invisible until somebody clicks the thing:
+
+```bash
+dotnet run --project tools/CodeAnalyzer.BindingCheck -c Release
+```
+
+It reflects over the **compiled** app assembly, which is the only way to see the bindable
+surface: `[ObservableProperty] private string _query` becomes `Query` and
+`[RelayCommand] Search()` becomes `SearchCommand`, both at build time, so a checker reading
+the source would report every one of them missing.
+
+The two halves have different strengths and the output says so. **Handlers are checked
+soundly** — `x:Class` names exactly one type, and it either has the method or it does not.
+**Bindings are checked against every view model and item type at once** and pass if any
+carries the path: that catches the error worth catching, a name that exists nowhere, without
+false-positiving on row templates whose real data context the file never names. It will not
+catch a path that is valid on some other type than the one actually in play. Anything it
+cannot read — a binding with an explicit `Source`, an indexer — is counted and reported as
+unchecked, never as passed.
+
+`--selftest` runs it against `tools/CodeAnalyzer.BindingCheck/selftest/Broken.xaml`, which
+pairs four correct paths with four misspellings of the same paths, and passes only if
+exactly the four wrong ones come back. A checker that has only ever printed "all resolved"
+is indistinguishable from one that cannot find anything.
+
 ## Layout
 
 ```
@@ -154,6 +192,8 @@ src/CodeAnalyzer.Cli/       The codeanalyzer exe: subcommands + MCP stdio server
                             same cache, read-only.
 tests/                      Core.Tests, Parsing.Tests and Cli.Tests
 tools/CodeAnalyzer.Bench/   Throughput harness
+tools/CodeAnalyzer.BindingCheck/  Resolves every XAML {Binding} and event handler against
+                            the compiled app, with a deliberately-wrong selftest fixture
 samples/c-demo/             7-file C workspace for manual end-to-end testing
 ```
 
@@ -163,6 +203,14 @@ samples/c-demo/             7-file C workspace for manual end-to-end testing
 rather than hand-written parsers, so adding a language is a pack plus a registry entry. A
 malformed file still yields a usable partial tree; a syntax error costs the declarations it
 sits inside, not the file.
+
+A run also compares the index's **links per file** against the previous run's and says so
+when it multiplies, naming the files that account for it. The measure is deliberately not
+elapsed time: this machine routinely runs every stage 2–4× slow under unrelated load, so a
+clock-based alarm would fire on a busy afternoon and be trained away long before it ever
+caught anything. Density says the same thing loaded or quiet, and moves for one reason —
+something got indexed whose names a caller list cannot mean anything about. A workspace that
+honestly doubles in size moves both numbers and stays silent.
 
 **Indexing** is a channel pipeline — one crawler, one parse worker per core, one database
 writer batching into transactions. Re-indexing is incremental: size and timestamp screen
@@ -222,6 +270,18 @@ worse than one that admits the gap.
   without that rule took it from 11,236 links to 306,922 and a re-index from 0.6 s to
   138 s, essentially all of it three vendored bundles. The rule is the naming convention
   only — no line-length heuristic, which would eventually refuse a real file.
+- **XAML is read with the HTML grammar**, because the bundle has no XAML or XML one. The two
+  agree on elements, attributes and quoted values, which is everything the pack reads: an
+  element's `x:Name`, `Name` or `x:Key` is a declaration and its tag is the type, exactly as
+  an `id` is in HTML. Three things follow from the borrowing and are stated wherever they
+  show. A property element (`<Grid.RowDefinitions>`) is valid XAML and invalid HTML, so the
+  parser reports it — names around and inside it are still indexed, and the error list says
+  what actually happened instead of blaming the file. A `<Style>` is HTML's CSS `<style>`, so
+  its `Setter`s arrive as one opaque blob; the Style's own `x:Key` survives, which is the part
+  anything refers to. And a markup extension such as `{Binding SearchQuery}` is a single
+  attribute value to this grammar, so bindings are stored verbatim and are **not** references
+  — `x:Class` is recorded but resolves to nothing today, because it is fully qualified and
+  sits on an element that is not itself a symbol.
 - **The drift count covers indexed files only.** It compares what the index already holds
   against disk, so it reports edits and deletions but never notices a file created since the
   last run; finding those means a full crawl, which is too much to spend before answering a

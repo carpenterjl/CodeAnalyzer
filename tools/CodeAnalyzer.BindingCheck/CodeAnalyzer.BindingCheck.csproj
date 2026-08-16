@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- net8.0-windows + UseWPF because this loads the WPF app's own assembly to reflect
+         over it. A plain net8.0 host cannot resolve its PresentationFramework types. -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>CodeAnalyzer.BindingCheck</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CodeAnalyzer.App\CodeAnalyzer.App.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- selftest/Broken.xaml is deliberately wrong input, not markup to compile. UseWPF
+         would otherwise pick it up as a Page and fail the build on its bad bindings. -->
+    <Page Remove="selftest\**\*.xaml" />
+    <None Include="selftest\**\*.xaml" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

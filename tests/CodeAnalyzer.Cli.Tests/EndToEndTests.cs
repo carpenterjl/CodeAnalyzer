@@ -50,6 +50,53 @@ public class EndToEndTests(CliWorkspaceFixture fixture)
         Assert.Equal(fixture.Root, document.RootElement.GetProperty("index").GetProperty("root").GetString());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task APipedRunKeepsTheHeaderOffStdout(bool quiet)
+    {
+        // A spawned process always has stdout redirected, which is exactly the case the
+        // stderr rule exists for: whatever else changes, the pipe gets only the answer.
+        var psi = new ProcessStartInfo
+        {
+            FileName = "dotnet",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        psi.ArgumentList.Add("exec");
+        psi.ArgumentList.Add(CliDllPath);
+        psi.ArgumentList.Add("search");
+        psi.ArgumentList.Add("uart_init");
+        psi.ArgumentList.Add("--root");
+        psi.ArgumentList.Add(fixture.Root);
+        if (quiet)
+        {
+            psi.ArgumentList.Add("--quiet");
+        }
+
+        using var process = Process.Start(psi)!;
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+        var stdout = await stdoutTask.WaitAsync(TimeSpan.FromSeconds(60));
+        var stderr = await stderrTask.WaitAsync(TimeSpan.FromSeconds(60));
+        await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(60));
+
+        Assert.Equal(0, process.ExitCode);
+        Assert.Contains("uart_init", stdout);
+        Assert.DoesNotContain("# index:", stdout);
+
+        // Quiet removes it altogether; without it, it is still there to be read.
+        if (quiet)
+        {
+            Assert.DoesNotContain("# index:", stderr);
+        }
+        else
+        {
+            Assert.Contains("# index:", stderr);
+        }
+    }
+
     [Fact]
     public async Task TheMcpHandshakeAnswersOnAPureStdout()
     {

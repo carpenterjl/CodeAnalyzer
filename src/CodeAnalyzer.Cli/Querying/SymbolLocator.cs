@@ -4,14 +4,20 @@ using CodeAnalyzer.Core.Search;
 
 namespace CodeAnalyzer.Cli.Querying;
 
-/// <summary>One definition a locate attempt found, with enough context to pick it from a list.</summary>
+/// <summary>
+/// One definition a locate attempt found, with enough context to pick it from a list.
+/// <paramref name="ContainerId"/> is the declaring symbol, and it is what lets a type absorb
+/// its own constructors instead of competing with them — see
+/// <see cref="SymbolLocator.TypeContainingEveryOtherCandidate"/>.
+/// </summary>
 internal sealed record LocatedSymbol(
     long Id,
     string Name,
     SymbolKind Kind,
     string? ParameterText,
     string RelativePath,
-    int Line);
+    int Line,
+    long? ContainerId = null);
 
 /// <summary>
 /// The three-way answer to "which symbol did you mean". Ambiguity is a first-class result,
@@ -82,15 +88,97 @@ internal static class SymbolLocator
 
         if (candidates.Count > 1)
         {
+            if (TypeContainingEveryOtherCandidate(candidates) is { } owner)
+            {
+                return new LocateResult.Resolved(owner);
+            }
+
             var more = candidates.Count > MaxCandidates;
             return new LocateResult.Ambiguous(candidates.Take(MaxCandidates).ToList(), more);
         }
 
         var where = pathFilter is null ? string.Empty : $" in {pathFilter}";
+
+        // Suggest on the member name alone when the argument was "Container.Member".
+        // The fuzzy scorer matches against bare symbol names, so handing it the dotted
+        // form scores nothing and a wrong guess comes back with no help at all — which is
+        // the worst answer available, since the near miss is usually a sibling member.
+        var suggestFor = name;
+        var lastDot = name.LastIndexOf('.');
+        if (lastDot > 0 && lastDot < name.Length - 1)
+        {
+            suggestFor = name[(lastDot + 1)..];
+        }
+
         return new LocateResult.NotFound(
             $"no definition named '{name}'{where} in the index",
-            Suggest(session, name, cancellationToken));
+            Suggest(session, suggestFor, cancellationToken));
     }
+
+    /// <summary>
+    /// The one ambiguity worth settling rather than reporting: a type competing with the
+    /// members it declares. A C# or C++ constructor necessarily shares its type's name, so
+    /// every type with a declared constructor was answering "2 definitions — pass an id"
+    /// and costing a round trip to learn something the source never left in doubt.
+    /// <para>
+    /// The test is containment, not constructor-ness. The index stores no constructor kind —
+    /// the packs record one as a method — so deciding by "its name equals its container's"
+    /// would be reading meaning into a name. Containment is a stored fact, and it is the
+    /// stronger claim anyway: whatever those members are, the type's own fact sheet already
+    /// lists them, so resolving to the type hides nothing.
+    /// </para>
+    /// <para>
+    /// Deliberately narrow, so it can never swallow a real ambiguity. Exactly one candidate
+    /// may be a type; every other candidate must be declared by <em>that</em> type; and a
+    /// capped candidate list is refused outright, because an unseen row could be a second
+    /// type somewhere else in the workspace. Two same-named classes in different files stay
+    /// ambiguous, which is correct — nothing about the source says which one was meant.
+    /// </para>
+    /// </summary>
+    public static LocatedSymbol? TypeContainingEveryOtherCandidate(IReadOnlyList<LocatedSymbol> candidates)
+    {
+        // A capped list is not a list. There may be another type past the cut.
+        if (candidates.Count < 2 || candidates.Count > MaxCandidates)
+        {
+            return null;
+        }
+
+        LocatedSymbol? type = null;
+        foreach (var candidate in candidates)
+        {
+            if (!IsType(candidate.Kind))
+            {
+                continue;
+            }
+
+            if (type is not null)
+            {
+                return null;
+            }
+
+            type = candidate;
+        }
+
+        if (type is null)
+        {
+            return null;
+        }
+
+        foreach (var candidate in candidates)
+        {
+            if (candidate.Id != type.Id && candidate.ContainerId != type.Id)
+            {
+                return null;
+            }
+        }
+
+        return type;
+    }
+
+    // The families the graph already colours by, so this cannot drift from the picture or
+    // from the search filters. An interface is its own group there, and both are types here.
+    private static bool IsType(SymbolKind kind) =>
+        SymbolKindGroups.For(kind) is "type" or "interface";
 
     private static LocateResult LocateById(ReadOnlyIndexSession session, string symbolText)
     {
@@ -101,7 +189,7 @@ internal static class SymbolLocator
 
         using var command = session.Connection.CreateCommand();
         command.CommandText = """
-            SELECT s.id, s.name, s.kind, s.param_text, f.rel_path, s.start_line
+            SELECT s.id, s.name, s.kind, s.param_text, f.rel_path, s.start_line, s.container_id
             FROM symbol s
             JOIN file f ON f.id = s.file_id
             WHERE s.id = $id
@@ -131,7 +219,7 @@ internal static class SymbolLocator
         // avoids LIKE and its escaping rules: "src/drivers/uart.c" is matched by
         // "drivers/uart.c" too.
         command.CommandText = """
-            SELECT s.id, s.name, s.kind, s.param_text, f.rel_path, s.start_line
+            SELECT s.id, s.name, s.kind, s.param_text, f.rel_path, s.start_line, s.container_id
             FROM symbol s
             JOIN file f ON f.id = s.file_id
             WHERE s.name = $name
@@ -185,5 +273,6 @@ internal static class SymbolLocator
         (SymbolKind)reader.GetInt32(2),
         reader.IsDBNull(3) ? null : reader.GetString(3),
         reader.GetString(4),
-        reader.GetInt32(5));
+        reader.GetInt32(5),
+        reader.IsDBNull(6) ? null : reader.GetInt64(6));
 }

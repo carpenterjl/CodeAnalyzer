@@ -377,7 +377,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             parts.Add($"{result.FilesRemoved:N0} removed");
         }
 
-        return $"{string.Join(", ", parts)} in {elapsed.TotalSeconds:F1}s.";
+        var summary = $"{string.Join(", ", parts)} in {elapsed.TotalSeconds:F1}s.";
+
+        // A run that quietly changed the index's shape says so here, because the summary
+        // numbers are the only place it was ever visible and reading them that way asks
+        // the user to remember what they were last time.
+        var cost = result.Cost is null ? null : IndexCostProbe.DescribeShort(result.Cost);
+        return cost is null ? summary : $"{summary} {cost}";
     }
 
     private void ApplyProgress(IndexProgress progress)
@@ -2071,8 +2077,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             foreach (var error in errors)
             {
                 // The distinction matters: a syntax error still contributed partial
-                // symbols; a hard failure contributed nothing.
+                // symbols; a hard failure contributed nothing. And a language read with a
+                // borrowed grammar gets its own sentence, because "syntax errors" over a
+                // file whose syntax is perfectly correct is a claim, not a description.
                 var description = error.Message
+                    ?? GrammarNotes.For(error.Language)
                     ?? $"Syntax errors — {error.SymbolCount:N0} symbol{(error.SymbolCount == 1 ? "" : "s")} still indexed";
 
                 FileErrors.Add(new FileErrorItem(error.RelativePath, error.Language, description));

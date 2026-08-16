@@ -15,6 +15,7 @@ public static class LanguageRegistry
     public const string Verilog = LanguageNames.Verilog;
     public const string Html = LanguageNames.Html;
     public const string JavaScript = LanguageNames.JavaScript;
+    public const string Xaml = LanguageNames.Xaml;
 
     private static readonly LanguageDefinition[] Definitions =
     [
@@ -70,6 +71,22 @@ public static class LanguageRegistry
             // one left out.
             Extensions = [".js", ".mjs", ".cjs"],
             QueryPackName = "javascript",
+        },
+        new()
+        {
+            // XAML on the HTML grammar. There is no XAML or XML grammar in the bundle, and
+            // the two languages agree on the part that matters here — elements, attributes,
+            // quoted values, self-closing tags — which was verified against this repo's own
+            // nine .xaml files before the pack was written. Where they disagree is the
+            // property element (<Grid.RowDefinitions>), which the grammar reports as an
+            // error; names inside such an element are still extracted, and the error is
+            // reworded for the reader by GrammarNotes rather than presented as the file's
+            // fault. See the pack header for the full list of what this does and does not
+            // see.
+            Name = Xaml,
+            GrammarId = "HTML",
+            Extensions = [".xaml"],
+            QueryPackName = "xaml",
         },
     ];
 
