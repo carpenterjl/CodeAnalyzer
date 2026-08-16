@@ -399,6 +399,7 @@ public sealed class ReferenceResolver(SqliteConnection connection)
         Timed("pending_ref", () => Execute(transaction, $"""
             CREATE TEMP TABLE pending_ref AS
             SELECT r.id, r.file_id, r.name, r.kind, r.from_symbol_id, r.arg_count,
+                   r.receiver_text,
                    {ForeignReceiverSql("r")} AS foreign_receiver,
                    rf.language, rf.top_dir
             FROM {scope.Source}
@@ -410,6 +411,7 @@ public sealed class ReferenceResolver(SqliteConnection connection)
 
         Execute(transaction, "CREATE INDEX temp.ix_pending_ref ON pending_ref(name)");
 
+        BuildReceiverType(transaction);
         BuildIncludeReach(transaction);
 
         Timed("candidate", () => Execute(transaction, $"""
@@ -421,6 +423,8 @@ public sealed class ReferenceResolver(SqliteConnection connection)
                 s.file_id AS dst_file_id,
                 (s.container_id IS p.from_symbol_id) AS to_own_member,
                 {ArityMatchSql("p")} AS arity_match,
+                CASE WHEN rt.type_name IS NOT NULL AND sc.name = rt.type_name
+                     THEN 1 ELSE 0 END AS receiver_match,
                 CASE
                     WHEN ir.file_id IS NOT NULL THEN {TierIncludeReachable}
                     WHEN s.language = p.language AND sf.top_dir = p.top_dir THEN {TierSameLanguageSameTopDirectory}
@@ -431,6 +435,8 @@ public sealed class ReferenceResolver(SqliteConnection connection)
             CROSS JOIN symbol s ON s.name = p.name AND s.is_definition = 1
             JOIN file sf ON sf.id = s.file_id
             LEFT JOIN include_reach ir ON ir.file_id = p.file_id AND ir.reach_id = s.file_id
+            LEFT JOIN receiver_type rt ON rt.ref_id = p.id
+            LEFT JOIN symbol sc ON sc.id = s.container_id
             WHERE (s.file_id <> p.file_id OR p.foreign_receiver)
               AND ({PendingKindCompatibilitySql})
             """));
@@ -439,11 +445,27 @@ public sealed class ReferenceResolver(SqliteConnection connection)
 
         cancellationToken.ThrowIfCancellationRequested();
 
+        // The receiver's declared type outranks every other signal, and is applied first.
+        // Tier and arity are both proximity guesses — this file's directory, this parameter
+        // count — while `orchestrator` declared `IndexOrchestrator orchestrator` says which
+        // type the member is looked up on, which is the actual language rule. A preference
+        // and not a filter, like arity: MAX means a reference whose receiver type matches
+        // nothing keeps the whole candidate set it had before.
+        Timed("best_receiver", () => Execute(transaction, """
+            CREATE TEMP TABLE best_receiver AS
+            SELECT ref_id, MAX(receiver_match) AS receiver_match FROM candidate GROUP BY ref_id
+            """));
+
+        Execute(transaction, "CREATE INDEX temp.ix_best_receiver ON best_receiver(ref_id)");
+
         // Best tier per reference, plus how many candidates tie at that tier. The count
         // is what distinguishes a unique match from an ambiguous one.
         Timed("best_tier", () => Execute(transaction, """
             CREATE TEMP TABLE best_tier AS
-            SELECT ref_id, MIN(tier) AS tier FROM candidate GROUP BY ref_id
+            SELECT c.ref_id, MIN(c.tier) AS tier
+            FROM candidate c
+            JOIN best_receiver v ON v.ref_id = c.ref_id AND v.receiver_match = c.receiver_match
+            GROUP BY c.ref_id
             """));
 
         // Arity is applied within the winning tier, never across tiers. Scope outranks
@@ -453,6 +475,7 @@ public sealed class ReferenceResolver(SqliteConnection connection)
             CREATE TEMP TABLE best_arity AS
             SELECT c.ref_id, MAX(c.arity_match) AS arity_match
             FROM candidate c
+            JOIN best_receiver v ON v.ref_id = c.ref_id AND v.receiver_match = c.receiver_match
             JOIN best_tier b ON b.ref_id = c.ref_id AND b.tier = c.tier
             GROUP BY c.ref_id
             """));
@@ -463,6 +486,7 @@ public sealed class ReferenceResolver(SqliteConnection connection)
             CREATE TEMP TABLE resolved AS
             SELECT c.ref_id, c.tier, COUNT(*) AS candidates
             FROM candidate c
+            JOIN best_receiver v ON v.ref_id = c.ref_id AND v.receiver_match = c.receiver_match
             JOIN best_tier b ON b.ref_id = c.ref_id AND b.tier = c.tier
             JOIN best_arity a ON a.ref_id = c.ref_id AND a.arity_match = c.arity_match
             GROUP BY c.ref_id, c.tier
@@ -483,10 +507,70 @@ public sealed class ReferenceResolver(SqliteConnection connection)
                    c.src_file_id, c.dst_file_id, c.to_own_member
             FROM candidate c
             JOIN resolved r ON r.ref_id = c.ref_id AND r.tier = c.tier
+            JOIN best_receiver v ON v.ref_id = c.ref_id AND v.receiver_match = c.receiver_match
             JOIN best_arity a ON a.ref_id = c.ref_id AND a.arity_match = c.arity_match
             WHERE r.candidates <= $maxCandidates
             """);
     }
+
+    /// <summary>
+    /// The declared type of each pending reference's receiver, where the workspace states
+    /// it plainly enough to be worth believing.
+    /// <para>
+    /// Two facts already in the index, joined for the first time: a reference stores the
+    /// receiver it was written against (v13), and a field or property stores its verbatim
+    /// declared type. Putting them together turns <c>orchestrator.IndexAsync(…)</c> from a
+    /// name with several matches into a lookup on a named type — which is what the language
+    /// actually does, and the reason the receiver was recorded at all.
+    /// </para>
+    /// <para>
+    /// Deliberately narrow, because a wrong type is worse than no type. The declaration must
+    /// be in the same file as the reference — the overwhelmingly common case, a field used
+    /// by a method of its own class — and the file must name the receiver exactly once, or
+    /// the type is not established and the reference is left to the tiers. No generic
+    /// stripping and no namespace trimming either: <c>List&lt;Widget&gt;</c> matches no
+    /// container name, so it contributes nothing, which is the correct outcome rather than
+    /// a guess at <c>Widget</c>.
+    /// </para>
+    /// <para>
+    /// One inference beyond the verbatim type, because without it this repo's own motivating
+    /// case does nothing: <c>var orchestrator = new IndexOrchestrator(…)</c> declares the
+    /// type as the word <c>var</c>. Where the declared type is an inferred-type keyword and
+    /// the value is a constructor call, the constructed type is read out of it. That is the
+    /// whole of the inference — it refuses a value that is not <c>new Something(</c>, and a
+    /// generic or namespace-qualified name survives verbatim and simply matches nothing.
+    /// The stored <c>type_text</c> is untouched; <c>var</c> is what the source says and the
+    /// detail pane should keep saying it.
+    /// </para>
+    /// </summary>
+    private void BuildReceiverType(SqliteTransaction transaction) => Timed("receiver_type", () =>
+    {
+        // substr(value, 5, instr(value, '(') - 5) is the text between "new " and the first
+        // open paren. The LIKE guard is what makes the arithmetic safe: no match means no
+        // row, rather than a negative length.
+        const string DeclaredType = """
+            CASE WHEN d.type_text IN ('var', 'auto') AND d.value LIKE 'new %(%'
+                 THEN rtrim(substr(d.value, 5, instr(d.value, '(') - 5))
+                 ELSE d.type_text END
+            """;
+
+        Execute(transaction, $"""
+            CREATE TEMP TABLE receiver_type AS
+            SELECT p.id AS ref_id, MIN({DeclaredType}) AS type_name
+            FROM pending_ref p
+            JOIN symbol d ON d.file_id = p.file_id
+                         AND d.name = p.receiver_text
+                         AND d.is_definition = 1
+                         AND d.kind IN ({(int)SymbolKind.Field}, {(int)SymbolKind.Property},
+                                        {(int)SymbolKind.Variable}, {(int)SymbolKind.Constant})
+            WHERE p.receiver_text IS NOT NULL
+              AND {DeclaredType} <> ''
+            GROUP BY p.id
+            HAVING COUNT(DISTINCT {DeclaredType}) = 1
+            """);
+
+        Execute(transaction, "CREATE INDEX temp.ix_receiver_type ON receiver_type(ref_id)");
+    });
 
     /// <summary>
     /// Which files each file can see through its own includes and imports, followed
@@ -552,7 +636,7 @@ public sealed class ReferenceResolver(SqliteConnection connection)
                  {
                      "local_candidate", "local_best_arity", "local_count", "hot_name",
                      "hot_base", "suffix_match", "pending_ref", "include_reach", "candidate",
-                     "best_tier", "best_arity", "resolved",
+                     "receiver_type", "best_receiver", "best_tier", "best_arity", "resolved",
                      "dirty_file", "dirty_name", "work_ref", "work_name",
                  })
         {

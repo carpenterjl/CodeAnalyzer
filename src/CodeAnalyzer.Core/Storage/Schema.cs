@@ -43,6 +43,17 @@ public static class Schema
     /// it has to be an index seek. Both are NULL wherever the parser cannot be certain.
     /// </para>
     /// <para>
+    /// Versions 19 and 20 (M20.3) change no DDL. The resolver now reads a reference's
+    /// receiver against the declared type of the field or property that names it, and
+    /// prefers a candidate whose container is that type over one that is merely nearby.
+    /// Edges an earlier build recorded as one of several name matches would stay that way,
+    /// since the incremental gate re-resolves only the dirty files' references — same reason
+    /// as version 17, and the same one level of the pipeline. Two numbers for one milestone
+    /// exactly as versions 15 and 16: 19 was built and dogfooded before the rule learned to
+    /// read <c>var x = new T()</c>, and on this workspace every real call goes through such
+    /// a local, so a database 19 wrote has the ambiguity 20 resolves.
+    /// </para>
+    /// <para>
     /// Version 18 (M20.2) changes no DDL. A XAML <c>x:Key</c> is now its own symbol kind
     /// rather than a markup element, so rows an earlier build stored for an unchanged
     /// <c>.xaml</c> file record a resource key under the kind an element name uses — and a
@@ -99,7 +110,7 @@ public static class Schema
     /// files are newly discovered rather than stale.
     /// </para>
     /// </summary>
-    public const int Version = 18;
+    public const int Version = 20;
 
     public const string MetaSchemaVersion = "schema_version";
     public const string MetaRootPath = "root_path";

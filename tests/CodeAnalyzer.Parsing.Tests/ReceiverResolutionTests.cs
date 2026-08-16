@@ -77,18 +77,22 @@ public class ReceiverResolutionTests : IDisposable
     /// The same-file tier used to see one local name match and stamp it Unique; with the
     /// receiver stored, every definition of the name competes and the edge is honest
     /// about being a name match.
+    /// <para>
+    /// The receiver here is a parameter, which no pack indexes, so its type is not
+    /// established and this stays a test of the tier rule alone. Where the type
+    /// <em>is</em> established the answer is better than honest — see
+    /// <see cref="ATypedReceiverPicksItsOwnClassesMethodExactly"/>.
+    /// </para>
     /// </summary>
     [Fact]
-    public async Task ACallThroughAReceiverIsNotClaimedExactByTheSameFileTier()
+    public async Task ACallThroughAnUntypedReceiverIsNotClaimedExactByTheSameFileTier()
     {
         WriteFile("src/Session.cs", """
             public class Session
             {
-                private Orchestrator orchestrator = new Orchestrator();
-
                 public void Index(int a) { }
 
-                public void Apply()
+                public void Apply(Orchestrator orchestrator)
                 {
                     orchestrator.Index(1);
                 }
@@ -115,6 +119,158 @@ public class ReceiverResolutionTests : IDisposable
         var orchestratorDetail = new GraphQueryService(store.Connection).GetDetail(orchestratorIndex);
         var candidate = Assert.Single(orchestratorDetail!.Callers, c => c.Name == "Apply");
         Assert.Equal(EdgeConfidence.Ambiguous, candidate.Confidence);
+    }
+
+    /// <summary>
+    /// The other half of the same story. Storing the receiver stopped the false edge from
+    /// being called exact; reading its declared type finds the true one. Both facts were
+    /// already in the index — the receiver on the reference, the type on the field — and
+    /// joining them is what the language itself does when it resolves a member access.
+    /// </summary>
+    [Fact]
+    public async Task ATypedReceiverPicksItsOwnClassesMethodExactly()
+    {
+        WriteFile("src/Session.cs", """
+            public class Session
+            {
+                private Orchestrator orchestrator = new Orchestrator();
+
+                public void Index(int a) { }
+
+                public void Apply()
+                {
+                    orchestrator.Index(1);
+                }
+            }
+            """);
+        WriteFile("src/Orchestrator.cs", """
+            public class Orchestrator
+            {
+                public void Index(int a) { }
+            }
+            """);
+
+        var store = await IndexAsync();
+        var graph = new GraphQueryService(store.Connection);
+
+        // The receiver's type names Orchestrator, so Orchestrator.Index is the answer —
+        // not one of two, which is all the tiers could say.
+        var orchestratorIndex = SymbolId(store, "Index", "src/Orchestrator.cs");
+        var real = Assert.Single(graph.GetDetail(orchestratorIndex)!.Callers, c => c.Name == "Apply");
+        Assert.Equal(EdgeConfidence.Unique, real.Confidence);
+
+        // And the same-named method on the calling class is no longer a candidate at all.
+        var sessionIndex = SymbolId(store, "Index", "src/Session.cs");
+        Assert.DoesNotContain(graph.GetDetail(sessionIndex)!.Callers, c => c.Name == "Apply");
+    }
+
+    /// <summary>
+    /// This workspace's own shape, and the one the v4 report predicted would be fixed by
+    /// reading the receiver's type — it very nearly was not. Every real call here goes
+    /// through <c>var orchestrator = new IndexOrchestrator(…)</c>, whose declared type is
+    /// the word <c>var</c>; the type is in the constructor call beside it.
+    /// </summary>
+    [Fact]
+    public async Task AVarReceiverTakesItsTypeFromTheConstructorCall()
+    {
+        WriteFile("src/Session.cs", """
+            public class Session
+            {
+                public void Index(int a) { }
+
+                public void Apply()
+                {
+                    var orchestrator = new Orchestrator();
+                    orchestrator.Index(1);
+                }
+            }
+            """);
+        WriteFile("src/Orchestrator.cs", """
+            public class Orchestrator
+            {
+                public void Index(int a) { }
+            }
+            """);
+
+        var store = await IndexAsync();
+
+        var orchestratorIndex = SymbolId(store, "Index", "src/Orchestrator.cs");
+        var detail = new GraphQueryService(store.Connection).GetDetail(orchestratorIndex);
+        var real = Assert.Single(detail!.Callers, c => c.Name == "Apply");
+        Assert.Equal(EdgeConfidence.Unique, real.Confidence);
+    }
+
+    /// <summary>
+    /// The inference reads a constructor call and nothing else. A <c>var</c> initialised
+    /// from a method call establishes no type, and must leave the reference where the
+    /// tiers put it rather than inventing one.
+    /// </summary>
+    [Fact]
+    public async Task AVarInitialisedFromACallEstablishesNoType()
+    {
+        WriteFile("src/Session.cs", """
+            public class Session
+            {
+                public void Index(int a) { }
+
+                public void Apply()
+                {
+                    var orchestrator = Build();
+                    orchestrator.Index(1);
+                }
+
+                public Orchestrator Build() { return new Orchestrator(); }
+            }
+            """);
+        WriteFile("src/Orchestrator.cs", """
+            public class Orchestrator
+            {
+                public void Index(int a) { }
+            }
+            """);
+
+        var store = await IndexAsync();
+        var graph = new GraphQueryService(store.Connection);
+
+        // Both same-named methods stay candidates, and both say so.
+        var orchestratorIndex = SymbolId(store, "Index", "src/Orchestrator.cs");
+        var candidate = Assert.Single(graph.GetDetail(orchestratorIndex)!.Callers, c => c.Name == "Apply");
+        Assert.Equal(EdgeConfidence.Ambiguous, candidate.Confidence);
+    }
+
+    /// <summary>
+    /// The preference must stay a preference. A receiver whose type matches no container —
+    /// an external type, a generic, a var — leaves the candidate set exactly as the tiers
+    /// found it rather than emptying it.
+    /// </summary>
+    [Fact]
+    public async Task AReceiverWhoseTypeMatchesNothingChangesNothing()
+    {
+        WriteFile("src/Client.cs", """
+            public class Client
+            {
+                private System.Net.Http.HttpClient transport = new System.Net.Http.HttpClient();
+
+                public void Send()
+                {
+                    transport.Dispatch(1);
+                }
+            }
+            """);
+        WriteFile("src/Relay.cs", """
+            public class Relay
+            {
+                public void Dispatch(int a) { }
+            }
+            """);
+
+        var store = await IndexAsync();
+
+        // Nothing in the workspace is named HttpClient, so the type settles nothing and
+        // the one candidate the tiers found survives.
+        var dispatch = SymbolId(store, "Dispatch", "src/Relay.cs");
+        var detail = new GraphQueryService(store.Connection).GetDetail(dispatch);
+        Assert.Contains(detail!.Callers, c => c.Name == "Send");
     }
 
     /// <summary>
