@@ -100,6 +100,13 @@ rides on every edge (`~` = one of several name matches, `?` = cross-language).
 codeanalyzer index "C:\some\repo"
 ```
 
+A refresh skips files whose size, timestamp and content hash are unchanged. That is right
+about the only thing it can see — the file — and wrong whenever the *analyzer* changed
+underneath it: edit a query pack and an untouched file is still read the old way, because
+nothing about the file says otherwise. `index --full` re-parses everything and is the
+answer while you are working on a pack. (Reference resolution needs no such flag: every
+run rebuilds every edge from scratch, so a resolver change lands in full either way.)
+
 | Command | Answers |
 |---|---|
 | `search <query>` | fuzzy symbol search (`--kinds fn,type,…`, `--limit N`, `--exact` for verbatim containment instead of subsequence) |
@@ -112,6 +119,7 @@ codeanalyzer index "C:\some\repo"
 | `boundaries` | where data leaves/enters the workspace (I/O catalog + your marks) |
 | `value <literal>` | definitions whose literal denotes this value, in any language (`0xA5` finds `165` and `8'hA5`) |
 | `constants` | values defined in more than one language, ranked by how many agree (`--by-dir`, `--include-trivial`) |
+| `index [path]` | build or refresh the workspace's index (`--full` re-parses every file instead of skipping unchanged ones) |
 | `mcp` | the MCP stdio server for AI agent clients |
 
 A `<symbol>` argument is a name, `Container.Name`, `path/to/file.c:name`, or a `#id` from

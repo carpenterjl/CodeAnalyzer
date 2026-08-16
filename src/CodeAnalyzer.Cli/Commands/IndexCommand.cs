@@ -14,13 +14,14 @@ internal static class IndexCommand
 {
     public static CommandSpec Spec { get; } = new(
         "index",
-        "index [path]",
-        "build or refresh the workspace's index (defaults to the current directory)",
+        "index [path] [--full]",
+        "build or refresh the workspace's index (defaults to the current directory); "
+            + "--full re-parses every file instead of skipping unchanged ones",
         Run);
 
     private static async Task<int> Run(string[] rawArgs, CancellationToken cancellationToken)
     {
-        var args = ArgReader.Parse(rawArgs, [], []);
+        var args = ArgReader.Parse(rawArgs, [], ["full"]);
         if (args.Error is not null)
         {
             Console.Error.WriteLine(args.Error);
@@ -54,7 +55,8 @@ internal static class IndexCommand
             // --quiet drops the progress chatter, never the summary: the summary is the
             // answer, and a run that reported nothing at all could not be checked.
             var progress = new ConsoleIndexProgress(silent: args.Switch("quiet"));
-            var result = await session.IndexAsync(selected, progress, cancellationToken)
+            var result = await session
+                .IndexAsync(selected, progress, cancellationToken, full: args.Switch("full"))
                 .ConfigureAwait(false);
             progress.FinishLine();
 

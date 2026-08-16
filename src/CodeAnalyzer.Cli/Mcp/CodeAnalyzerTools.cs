@@ -181,13 +181,18 @@ internal sealed class CodeAnalyzerTools(McpSessionHolder holder)
     [McpServerTool(Name = "reindex")]
     [Description("Rebuild or refresh the workspace's index through the full pipeline. "
         + "Run this when the index is missing or the build date in results looks stale.")]
-    public async Task<string> Reindex(CancellationToken cancellationToken = default)
+    public async Task<string> Reindex(
+        [Description("Re-parse every file instead of skipping unchanged ones. Needed only "
+            + "after a query pack changed, since the incremental gate reads the file and "
+            + "cannot see that the analyzer now reads it differently.")]
+        bool full = false,
+        CancellationToken cancellationToken = default)
     {
         try
         {
             using var session = WorkspaceSession.Open(holder.RootPath, new TreeSitterAnalyzerFactory());
             var result = await session
-                .IndexAsync(session.LoadSelectedDirectories(), progress: null, cancellationToken)
+                .IndexAsync(session.LoadSelectedDirectories(), progress: null, cancellationToken, full)
                 .ConfigureAwait(false);
 
             if (result.Outcome.WasCancelled)

@@ -148,10 +148,24 @@ public sealed class WorkspaceSession : IDisposable
     /// Indexes the selected directories, resolves references, and refreshes search.
     /// All work runs on a background thread; the caller stays responsive.
     /// </summary>
+    /// <param name="full">
+    /// True to re-parse every file instead of skipping the ones whose size, timestamp and
+    /// content hash are unchanged. The gate is right about the only thing it can see — the
+    /// file — and wrong whenever the <em>analyzer</em> changed underneath it: a new query
+    /// pack reads an untouched file differently, and no amount of looking at the file says
+    /// so. <see cref="Storage.Schema.Version"/> is the mechanism for shipping such a change
+    /// to everyone; this is the one for the person who just edited the <c>.scm</c> and wants
+    /// to see the result, without spending a version number to find out.
+    /// <para>
+    /// Reference resolution is unaffected either way: it is rebuilt from scratch on every
+    /// run of this method, full or not.
+    /// </para>
+    /// </param>
     public async Task<IndexRunResult> IndexAsync(
         IReadOnlyList<string> selectedDirectories,
         IProgress<IndexProgress>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool full = false)
     {
         var startedAt = DateTimeOffset.UtcNow;
 
@@ -168,7 +182,7 @@ public sealed class WorkspaceSession : IDisposable
         var outcome = await orchestrator.IndexAsync(
             selection,
             _store,
-            incrementalGate: _store,
+            incrementalGate: full ? null : _store,
             progress: progress,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 

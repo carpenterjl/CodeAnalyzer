@@ -65,6 +65,33 @@ public class WorkspaceSessionTests : IDisposable
         return _session;
     }
 
+    /// <summary>
+    /// The gate is right about the only thing it can see — the file — and wrong whenever
+    /// the analyzer changed underneath it, which is what a query-pack edit does. These two
+    /// facts are the whole of <c>--full</c>: by default an untouched file is skipped, and
+    /// with the flag it is read again.
+    /// </summary>
+    [Fact]
+    public async Task AFullIndexReparsesFilesTheGateWouldHaveSkipped()
+    {
+        var session = OpenSession();
+
+        var first = await session.IndexAsync([string.Empty]);
+        Assert.True(first.Outcome.FilesParsed >= 3);
+
+        var incremental = await session.IndexAsync([string.Empty]);
+        Assert.Equal(0, incremental.Outcome.FilesParsed);
+        Assert.Equal(first.Outcome.FilesParsed, incremental.Outcome.FilesUnchanged);
+
+        var full = await session.IndexAsync([string.Empty], full: true);
+        Assert.Equal(first.Outcome.FilesParsed, full.Outcome.FilesParsed);
+        Assert.Equal(0, full.Outcome.FilesUnchanged);
+
+        // Re-reading the same bytes must produce the same index, not a doubled one.
+        Assert.Equal(first.Outcome.SymbolsFound, full.Outcome.SymbolsFound);
+        Assert.Equal(first.EdgesCreated, full.EdgesCreated);
+    }
+
     [Fact]
     public async Task IndexThenSearchThenDetail_IsTheFlowTheShellUses()
     {

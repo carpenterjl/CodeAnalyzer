@@ -43,15 +43,30 @@ public static class Schema
     /// it has to be an index seek. Both are NULL wherever the parser cannot be certain.
     /// </para>
     /// <para>
-    /// Versions 19 and 20 (M20.3) change no DDL. The resolver now reads a reference's
-    /// receiver against the declared type of the field or property that names it, and
-    /// prefers a candidate whose container is that type over one that is merely nearby.
-    /// Edges an earlier build recorded as one of several name matches would stay that way,
-    /// since the incremental gate re-resolves only the dirty files' references — same reason
-    /// as version 17, and the same one level of the pipeline. Two numbers for one milestone
-    /// exactly as versions 15 and 16: 19 was built and dogfooded before the rule learned to
-    /// read <c>var x = new T()</c>, and on this workspace every real call goes through such
-    /// a local, so a database 19 wrote has the ambiguity 20 resolves.
+    /// <b>What actually needs a version, established after 17, 19 and 20 were spent finding
+    /// out.</b> A <em>parser or pack</em> change needs one: the incremental gate screens on
+    /// size, timestamp and hash, so a file it judges unchanged keeps the symbol and reference
+    /// rows an older analyzer wrote, and only the version can say those rows are stale. A
+    /// <em>resolver</em> change does not, and this is the distinction the three versions
+    /// below were bumped without: <see cref="Resolution.ReferenceResolver.ResolveAll"/> opens
+    /// with <c>DELETE FROM edge</c> and rebuilds every edge from the reference rows, and
+    /// every indexing entry point except the file watcher calls it unconditionally. A
+    /// resolver change therefore lands in full on the next <c>index</c> run, on unchanged
+    /// files included, and needs no help from the version. The rule is not "when the meaning
+    /// of a stored value changes" but "when the meaning of a <em>parsed</em> row changes" —
+    /// version 18 is the one below that qualifies. The three that did not are kept rather
+    /// than reclaimed: they cost a rebuild each and nothing else, and a version number that
+    /// once shipped is not worth reusing.
+    /// </para>
+    /// <para>
+    /// Versions 19 and 20 (M20.3) change no DDL, and — per the paragraph above — need not
+    /// have existed. The resolver now reads a reference's receiver against the declared type
+    /// of the field or property that names it, and prefers a candidate whose container is
+    /// that type over one that is merely nearby. 20 followed 19 on the theory that a
+    /// database 19 wrote would keep the ambiguity, by analogy with 15 and 16; the analogy
+    /// was wrong, and the measurement that showed it was the incremental run after the
+    /// <c>var x = new T()</c> inference landing on exactly the same 53,418 links as the full
+    /// rebuild that followed it.
     /// </para>
     /// <para>
     /// Version 18 (M20.2) changes no DDL. A XAML <c>x:Key</c> is now its own symbol kind
@@ -62,14 +77,12 @@ public static class Schema
     /// timestamp and hash and cannot see a <c>.scm</c> edit.
     /// </para>
     /// <para>
-    /// Version 17 (M20.1) changes no DDL. A bare-identifier use may now bind to a member of
-    /// a type — a class's constant, an enum's member — where before the rule that keeps
-    /// loop counters out of the graph excluded every one of them along with the locals it
-    /// was aimed at. Edges are derived from references, and the incremental gate re-resolves
-    /// only the dirty files' references, so a database written by an earlier build is
-    /// missing those edges permanently and no file change would ever restore them. Same
-    /// reason as version 6, one level down the pipeline: it is the resolver's output, not
-    /// the parser's, whose meaning changed.
+    /// Version 17 (M20.1) changes no DDL, and need not have existed either. A bare-identifier
+    /// use may now bind to a member of a type — a class's constant, an enum's member — where
+    /// before the rule that keeps loop counters out of the graph excluded every one of them
+    /// along with the locals it was aimed at. This is a resolver change, so the next
+    /// <c>index</c> run would have applied it to every file regardless; the version was
+    /// bumped on the belief that edges, being derived, went stale the way parsed rows do.
     /// </para>
     /// <para>
     /// Versions 15 and 16 (M19.3) change no DDL. The XAML pack now reads markup
