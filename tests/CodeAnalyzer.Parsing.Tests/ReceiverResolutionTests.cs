@@ -644,4 +644,83 @@ public class ReceiverResolutionTests : IDisposable
         Assert.Equal("device", site.ReceiverText);
         Assert.Equal("(1)", site.ArgumentText);
     }
+
+    /// <summary>
+    /// Writes <paramref name="count"/> classes that each declare a <c>Name</c> property, so
+    /// the name carries more definitions than <see cref="ReferenceResolver.MaxCandidatesPerReference"/>
+    /// and trips the hot-name gate. One of them, <c>Widget</c>, is the one the tests below
+    /// aim a receiver at.
+    /// </summary>
+    private void WriteAHotName(int count = 30)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            var name = i == 0 ? "Widget" : $"Filler{i}";
+            WriteFile($"src/{name}.cs", $$"""
+                public class {{name}}
+                {
+                    public string Name { get; set; } = "";
+                }
+                """);
+        }
+    }
+
+    /// <summary>
+    /// A name with more definitions than the candidate cap never reaches the cross-file
+    /// pass — the gate drops it before the join, because a set of thirty rivals is
+    /// guesswork whichever way it falls. That reasoning does not hold for
+    /// <c>widget.Name</c>: the receiver names the type the member is looked up on, and
+    /// M26.1 admits hot references on exactly that condition, restricted to members of
+    /// the receiver's own type.
+    /// </summary>
+    [Fact]
+    public async Task AHotNameIsAdmittedWhenItsReceiverNamesTheType()
+    {
+        WriteAHotName();
+        WriteFile("src/Reader.cs", """
+            public class Reader
+            {
+                private Widget widget = new Widget();
+                public string Read() { return widget.Name; }
+            }
+            """);
+
+        var store = await IndexAsync();
+        var name = SymbolId(store, "Name", "src/Widget.cs");
+        var detail = new GraphQueryService(store.Connection).GetDetail(name);
+
+        var caller = Assert.Single(detail!.Callers, c => c.Name == "Read");
+        Assert.Equal(EdgeConfidence.Unique, caller.Confidence);
+    }
+
+    /// <summary>
+    /// The other half of the same rule, and the one that keeps it honest: the receiver is
+    /// what buys the admission, so a hot name whose receiver cannot be typed stays out.
+    /// Without this the change would read as "let hot names through", which would convert
+    /// thousands of unresolved references into thirty-candidate ambiguous ones and score
+    /// it as progress.
+    /// </summary>
+    [Fact]
+    public async Task AHotNameWithAnUntypedReceiverIsStillRefused()
+    {
+        WriteAHotName();
+        WriteFile("src/Reader.cs", """
+            public class Reader
+            {
+                public string Read()
+                {
+                    var thing = Fetch();
+                    return thing.Name;
+                }
+
+                private object Fetch() { return new object(); }
+            }
+            """);
+
+        var store = await IndexAsync();
+        var name = SymbolId(store, "Name", "src/Widget.cs");
+        var detail = new GraphQueryService(store.Connection).GetDetail(name);
+
+        Assert.DoesNotContain(detail!.Callers, c => c.Name == "Read");
+    }
 }

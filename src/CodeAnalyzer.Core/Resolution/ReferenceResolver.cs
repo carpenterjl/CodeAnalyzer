@@ -396,16 +396,31 @@ public sealed class ReferenceResolver(SqliteConnection connection)
         // planner no small table to drive from, so it chose an order that scanned symbols
         // per reference and turned this stage quadratic in workspace size. Materialising
         // only the still-unresolved, non-hot references keeps the driving set small.
+        // A hot name is admitted after all when the reference carries a receiver. The gate
+        // exists to stop a name with dozens of definitions from producing a candidate set
+        // that is guesswork whichever way it falls — but `item.RelativePath` is not that
+        // reference. Its receiver says which type the member is looked up on, which is the
+        // actual language rule, and the candidate clause below holds hot references to
+        // exactly that: a member of the receiver's own type, or nothing. So the admitted
+        // set is bounded by one type's members rather than by every rival of the name.
+        //
+        // Measured before it was written: of the references this gate was discarding,
+        // 145 have a receiver that types and names exactly one member of that type, and
+        // none land on more than one. Admitting them unrestricted would have added 63,681
+        // candidate rows and turned unresolved references into ambiguous ones, which is
+        // not an improvement; admitting them receiver-matched adds 145.
         Timed("pending_ref", () => Execute(transaction, $"""
             CREATE TEMP TABLE pending_ref AS
             SELECT r.id, r.file_id, r.name, r.kind, r.from_symbol_id, r.arg_count,
                    r.receiver_text,
                    {ForeignReceiverSql("r")} AS foreign_receiver,
+                   EXISTS (SELECT 1 FROM hot_name h WHERE h.name = r.name) AS is_hot,
                    rf.language, rf.top_dir
             FROM {scope.Source}
             JOIN file rf ON rf.id = r.file_id
             WHERE r.kind NOT IN ({(int)ReferenceKind.Include}, {(int)ReferenceKind.Import})
-              AND NOT EXISTS (SELECT 1 FROM hot_name h WHERE h.name = r.name)
+              AND (r.receiver_text IS NOT NULL AND r.receiver_text <> ''
+                   OR NOT EXISTS (SELECT 1 FROM hot_name h WHERE h.name = r.name))
               AND NOT EXISTS (SELECT 1 FROM edge e WHERE e.ref_id = r.id)
             """));
 
@@ -440,6 +455,8 @@ public sealed class ReferenceResolver(SqliteConnection connection)
             LEFT JOIN symbol sc ON sc.id = s.container_id
             WHERE (s.file_id <> p.file_id OR p.foreign_receiver)
               AND ({PendingKindCompatibilitySql})
+              AND (p.is_hot = 0
+                   OR (rt.type_name IS NOT NULL AND sc.name = rt.type_name))
             """));
 
         Execute(transaction, "CREATE INDEX temp.ix_candidate ON candidate(ref_id, tier)");
