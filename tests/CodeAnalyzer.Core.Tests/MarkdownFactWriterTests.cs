@@ -62,6 +62,35 @@ public class MarkdownFactWriterTests
         Assert.DoesNotContain("## Same value elsewhere", text);
         Assert.DoesNotContain("## Unresolved references", text);
         Assert.DoesNotContain("## Source", text);
+        Assert.DoesNotContain("## Inheritance", text);
+    }
+
+    [Fact]
+    public void InheritanceNamesABaseTypeTheWorkspaceDoesNotDefine()
+    {
+        // The case the fact report has to get right, and the reason the section cannot be
+        // left to Callers: `IDisposable` has no symbol here, so it can never be a caller of
+        // anything. Printing the name and saying where it stops beats omitting the fact.
+        var detail = Detail() with
+        {
+            BaseTypes =
+            [
+                new BaseTypeFact("SessionBase", 88, "core/session.cs", 12),
+                new BaseTypeFact("IDisposable", null, null, null),
+            ],
+            DerivedTypes =
+            [
+                new RelatedSymbol(91, "ChildSession", SymbolKind.Class, "core/child.cs", 4,
+                    ReferenceKind.Inherit, EdgeConfidence.Unique),
+            ],
+        };
+
+        var text = MarkdownFactWriter.Write(Report(detail));
+
+        Assert.Contains("## Inheritance", text);
+        Assert.Contains("derives from `SessionBase` — `core/session.cs:12`", text);
+        Assert.Contains("derives from `IDisposable` — not defined in this workspace", text);
+        Assert.Contains("derived by `ChildSession` — `core/child.cs:4`", text);
     }
 
     [Fact]

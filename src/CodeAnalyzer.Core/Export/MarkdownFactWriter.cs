@@ -55,6 +55,7 @@ public static class MarkdownFactWriter
         }
 
         WriteMembers(text, detail);
+        WriteInheritance(text, detail);
         WriteOverloads(text, detail);
         WriteRelated(text, "Callers", detail.Callers, report.RelatedLimit, incoming: true);
         WriteRelated(text, "Callees", detail.Callees, report.RelatedLimit, incoming: false,
@@ -95,6 +96,43 @@ public static class MarkdownFactWriter
             }
 
             text.Append(" (line ").Append(member.Line).Append(")\n");
+        }
+    }
+
+    /// <summary>
+    /// What the type derives from and what derives from it. The reason this section is
+    /// worth its own heading rather than being left to Callers: a base type the workspace
+    /// does not define — <c>IDisposable</c>, <c>Exception</c> — has no symbol to be a
+    /// caller of, so the only place the fact can appear is one that prints the name the
+    /// declaration wrote and says plainly that it stops there.
+    /// <para>
+    /// Derived types do also appear under Callers, labelled "inherits". That repetition is
+    /// deliberate and matches the terse formatter: a reader scanning for "who touches this"
+    /// should not have to know that inheritance was filed elsewhere.
+    /// </para>
+    /// </summary>
+    private static void WriteInheritance(StringBuilder text, SymbolDetail detail)
+    {
+        if (detail.BaseTypes.Count == 0 && detail.DerivedTypes.Count == 0)
+        {
+            return;
+        }
+
+        text.Append("\n## Inheritance\n\n");
+
+        foreach (var baseType in detail.BaseTypes)
+        {
+            text.Append("- derives from ").Append(Code(baseType.Name));
+            text.Append(baseType.TargetPath is { } path
+                ? $" — {Code($"{path}:{baseType.TargetLine}")}"
+                : " — not defined in this workspace");
+            text.Append('\n');
+        }
+
+        foreach (var derived in detail.DerivedTypes)
+        {
+            text.Append("- derived by ").Append(Code(derived.Name))
+                .Append(" — ").Append(Code($"{derived.RelativePath}:{derived.Line}")).Append('\n');
         }
     }
 
