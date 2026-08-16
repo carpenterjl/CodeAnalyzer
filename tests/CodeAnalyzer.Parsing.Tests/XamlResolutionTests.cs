@@ -199,13 +199,58 @@ public class XamlResolutionTests : IDisposable
         var declared = hits.First(h => h.RelativePath == "ViewModels/SearchResultItem.cs").SymbolId;
         var rival = hits.First(h => h.RelativePath == "ViewModels/OverloadItem.cs").SymbolId;
 
-        // One edge, to the declared type's property; cross-language name match is still
-        // all the confidence the index can honestly claim for it.
+        // One edge, to the declared type's property. This asserted Weak when M25.2 wrote
+        // it — the edge crosses a language boundary, and that was the whole of the rule.
+        // M26.2 separated the two things the rung was conflating: crossing a language is
+        // only weak evidence when the name is all there was, and here the markup names
+        // the type, so the edge is as good as any same-language unique match. The rival
+        // below is what makes that claim checkable rather than generous.
         var caller = Assert.Single(graph.GetDetail(declared)!.Callers, c => c.Name == "Row");
         Assert.Equal(ReferenceKind.Binding, caller.ReferenceKind);
-        Assert.Equal(EdgeConfidence.Weak, caller.Confidence);
+        Assert.Equal(EdgeConfidence.Unique, caller.Confidence);
 
         Assert.Empty(graph.GetDetail(rival)!.Callers);
+    }
+
+    /// <summary>
+    /// The other side of M26.2's rule, and the reason it is a distinction rather than a
+    /// promotion: a binding with no declared context has only the name, so its edge stays
+    /// Weak. If both shapes came out Unique the confidence column would have stopped
+    /// carrying information the moment the rung was widened.
+    /// </summary>
+    [Fact]
+    public async Task ABindingWithNoDeclaredContextStaysWeak()
+    {
+        WriteFile("Views/Loose.xaml", """
+            <UserControl x:Class="Demo.Views.Loose"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                <UserControl.Resources>
+                    <DataTemplate x:Key="RowTemplate">
+                        <TextBlock x:Name="Row" Text="{Binding Descriptor}" />
+                    </DataTemplate>
+                </UserControl.Resources>
+            </UserControl>
+            """);
+        WriteFile("ViewModels/SearchResultItem.cs", """
+            namespace Demo.ViewModels;
+
+            public class SearchResultItem
+            {
+                public string Descriptor { get; set; } = "";
+            }
+            """);
+
+        var store = await IndexAsync();
+        var search = new SymbolSearchService(store.Connection);
+        search.Reload();
+
+        var declared = search.Search("Descriptor")
+            .First(h => h.Kind == SymbolKind.Property).SymbolId;
+
+        var caller = Assert.Single(
+            new GraphQueryService(store.Connection).GetDetail(declared)!.Callers,
+            c => c.Name == "Row");
+        Assert.Equal(EdgeConfidence.Weak, caller.Confidence);
     }
 
     [Fact]

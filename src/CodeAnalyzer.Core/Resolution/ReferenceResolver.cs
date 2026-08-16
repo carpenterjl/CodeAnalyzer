@@ -514,11 +514,27 @@ public sealed class ReferenceResolver(SqliteConnection connection)
 
         cancellationToken.ThrowIfCancellationRequested();
 
+        // Weak means "the only thing connecting these two is that the name matched, and
+        // they are not even the same language" — a JavaScript `render` beside a C# one.
+        // That reading stopped being true for one shape of edge when M25.2 landed. A
+        // binding written under DataType="{x:Type vm:MainViewModel}" carries the type the
+        // markup itself declared, and an edge that matched on it did not find a coincidence:
+        // it found the member of the type the author named. Marking those Weak put a
+        // declaration and a homonym on the same rung, which is the one thing the confidence
+        // column exists to tell apart.
+        //
+        // So the cross-language demotion asks whether the receiver matched. Where it did,
+        // the edge falls through to the ordinary candidate count and is Unique or Ambiguous
+        // on the same terms as any same-language edge. Measured: 160 edges re-rank, all of
+        // them Binding, all single-candidate; the 847 Weak `Use` edges are untouched
+        // because none of them is receiver-matched, which is exactly the population the
+        // rung was written for.
         return TimedInsert("cross-file edges", transaction, $"""
             INSERT OR IGNORE INTO edge (ref_id, target_symbol_id, confidence, src_file_id, dst_file_id, to_own_member)
             SELECT c.ref_id, c.symbol_id,
                    CASE
-                       WHEN r.tier = {TierAnyLanguage} THEN {(int)EdgeConfidence.Weak}
+                       WHEN r.tier = {TierAnyLanguage} AND v.receiver_match = 0
+                            THEN {(int)EdgeConfidence.Weak}
                        WHEN r.candidates > 1 THEN {(int)EdgeConfidence.Ambiguous}
                        ELSE {(int)EdgeConfidence.Unique}
                    END,
