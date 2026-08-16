@@ -627,10 +627,22 @@ public sealed class ReferenceResolver(SqliteConnection connection)
         // substr(value, 5, instr(value, '(') - 5) is the text between "new " and the first
         // open paren. The LIKE guard is what makes the arithmetic safe: no match means no
         // row, rather than a negative length.
+        //
+        // The outer rtrim drops C#'s nullable annotation. `private WorkspaceWatcher?
+        // _watcher` declares a receiver of type WorkspaceWatcher, and matching the
+        // annotation verbatim looked for a type named "WorkspaceWatcher?", which no
+        // definition carries — so the whole receiver rule silently switched off for every
+        // nullable declaration. Measured before the fix: 132 references in this workspace
+        // have a receiver declared with a nullable workspace type, and the annotation was
+        // costing 86 of them (73 that had to fall back to tier and arity and landed
+        // ambiguous, 13 that landed nowhere). `?` is not part of the type's name, and the
+        // declaration is no less a declaration for admitting null.
         static string TypeOf(string alias) => $"""
-            CASE WHEN {alias}.type_text IN ('var', 'auto') AND {alias}.value LIKE 'new %(%'
-                 THEN rtrim(substr({alias}.value, 5, instr({alias}.value, '(') - 5))
-                 ELSE {alias}.type_text END
+            rtrim(
+                CASE WHEN {alias}.type_text IN ('var', 'auto') AND {alias}.value LIKE 'new %(%'
+                     THEN rtrim(substr({alias}.value, 5, instr({alias}.value, '(') - 5))
+                     ELSE {alias}.type_text END,
+                '?')
             """;
 
         var declaredType = TypeOf("d");

@@ -646,6 +646,52 @@ public class ReceiverResolutionTests : IDisposable
     }
 
     /// <summary>
+    /// A nullable annotation is not part of the type's name. `WorkspaceWatcher? _watcher`
+    /// declares a receiver of type WorkspaceWatcher, and reading the annotation as part of
+    /// the name looked for a definition called "WorkspaceWatcher?" — so the receiver rule
+    /// switched itself off for every nullable field in the workspace, silently, and the
+    /// reference fell back to tier and arity.
+    /// <para>
+    /// The rival is the point, as ever: two types carry <c>Close</c>, so a reference that
+    /// resolves without reading the receiver has an even chance and this assertion would
+    /// pass for the wrong reason.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task ANullableReceiverIsStillTypedByItsDeclaration()
+    {
+        WriteFile("src/Consumer.cs", """
+            public class Consumer
+            {
+                private Gate? gate;
+                public void Run() { gate.Close(); }
+            }
+            """);
+        WriteFile("src/Gate.cs", """
+            public class Gate
+            {
+                public void Close() { }
+            }
+            """);
+        WriteFile("other/Hatch.cs", """
+            public class Hatch
+            {
+                public void Close() { }
+            }
+            """);
+
+        var store = await IndexAsync();
+        var graph = new GraphQueryService(store.Connection);
+
+        var wanted = SymbolId(store, "Close", "src/Gate.cs");
+        var caller = Assert.Single(graph.GetDetail(wanted)!.Callers, c => c.Name == "Run");
+        Assert.Equal(EdgeConfidence.Unique, caller.Confidence);
+
+        var rival = SymbolId(store, "Close", "other/Hatch.cs");
+        Assert.DoesNotContain(graph.GetDetail(rival)!.Callers, c => c.Name == "Run");
+    }
+
+    /// <summary>
     /// Writes <paramref name="count"/> classes that each declare a <c>Name</c> property, so
     /// the name carries more definitions than <see cref="ReferenceResolver.MaxCandidatesPerReference"/>
     /// and trips the hot-name gate. One of them, <c>Widget</c>, is the one the tests below
