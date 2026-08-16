@@ -83,6 +83,12 @@ internal static class ReadCommands
         "files the parser could not fully read, and the construct it stopped at",
         (args, ct) => RunErrors(args, ct));
 
+    public static CommandSpec Stats { get; } = new(
+        "stats",
+        "stats [--root path] [--json]",
+        "aggregate facts about the index: what is in it, and how well it is resolving",
+        (args, ct) => RunStats(args, ct));
+
     // ---- runners ------------------------------------------------------------
 
     private static Task<int> RunSearch(string[] rawArgs, CancellationToken cancellationToken)
@@ -422,6 +428,22 @@ internal static class ReadCommands
                 : TerseFormatter.ParseErrors(report, limit));
 
             // An imperfect parse is a fact about the workspace, not a failure of the query.
+            return Task.FromResult(ExitCodes.Ok);
+        });
+    }
+
+    private static Task<int> RunStats(string[] rawArgs, CancellationToken cancellationToken)
+    {
+        var args = ArgReader.Parse(rawArgs, ["root"], ["json"]);
+
+        return CommandEnvironment.WithSession(args, toolset =>
+        {
+            var stats = toolset.Stats();
+
+            Console.WriteLine(args.Switch("json")
+                ? JsonFormatter.Stats(toolset.Session, stats)
+                : TerseFormatter.Stats(stats));
+
             return Task.FromResult(ExitCodes.Ok);
         });
     }

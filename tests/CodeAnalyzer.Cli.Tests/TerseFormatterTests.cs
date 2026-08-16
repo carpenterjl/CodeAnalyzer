@@ -88,6 +88,56 @@ public class TerseFormatterTests
         Assert.DoesNotContain("0 indexed", text);
     }
 
+    private static IndexStats SomeStats(int unresolved = 10, int ambiguous = 5) => new(
+        TotalFiles: 3,
+        FilesByLanguage: [new("C#", 2), new("C", 1)],
+        ImperfectFiles: 1,
+        TotalSymbols: 40,
+        SymbolsByKind: [new("Method", 30), new("Field", 10)],
+        TotalRefs: 100,
+        RefsWithReceiver: 20,
+        RefsWithArgs: 30,
+        RefsResolvedUniquely: 100 - unresolved - ambiguous,
+        RefsAmbiguous: ambiguous,
+        RefsUnresolved: unresolved,
+        MeanCandidatesWhenAmbiguous: 2.5,
+        TotalEdges: 95,
+        EdgesByConfidence: [new("Unique", 85), new("Ambiguous", 10)],
+        TotalDeps: 8,
+        ResolvedDeps: 3,
+        DatabaseBytes: 5 * 1024 * 1024);
+
+    [Fact]
+    public void StatsKeepTheUnresolvedCountHonest()
+    {
+        // Half a workspace's references pointing nowhere reads as a broken index unless
+        // the block says what unresolved means. The note must ride with the number.
+        var text = TerseFormatter.Stats(SomeStats(unresolved: 50));
+
+        Assert.Contains("unresolved", text);
+        Assert.Contains("50.0%", text);
+        Assert.Contains("not a defect count", text);
+    }
+
+    [Fact]
+    public void StatsResolutionTripleSumsToTheReferenceTotal()
+    {
+        var text = TerseFormatter.Stats(SomeStats(unresolved: 10, ambiguous: 5));
+
+        Assert.Contains("references: 100", text);
+        Assert.Contains("resolved uniquely", text);
+        Assert.Contains("85", text);
+        Assert.Contains("(2.5 candidates each)", text);
+    }
+
+    [Fact]
+    public void StatsWithNoAmbiguityDoNotInventACandidateAverage()
+    {
+        var text = TerseFormatter.Stats(SomeStats(ambiguous: 0));
+
+        Assert.DoesNotContain("candidates each", text);
+    }
+
     [Fact]
     public void AnExhaustedEmptySearchNeverReadsAsNoRoute()
     {

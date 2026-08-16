@@ -120,6 +120,7 @@ run rebuilds every edge from scratch, so a resolver change lands in full either 
 | `value <literal>` | definitions whose literal denotes this value, in any language (`0xA5` finds `165` and `8'hA5`) |
 | `constants` | values defined in more than one language, ranked by how many agree (`--by-dir`, `--include-trivial`) |
 | `errors` | files the parser could not fully read, the construct it stopped at, and a tally of the most common ones |
+| `stats` | aggregate facts about the index: files by language, symbols by kind, and how well resolution is doing |
 | `index [path]` | build or refresh the workspace's index (`--full` re-parses every file instead of skipping unchanged ones) |
 | `mcp` | the MCP stdio server for AI agent clients |
 
@@ -140,7 +141,7 @@ while keeping the summary.
 For AI agents, the MCP server exposes the same queries as tools
 (`search_symbols`, `get_symbol`, `get_context`, `get_callers`, `get_callees`,
 `trace_paths`, `repo_map`, `file_outline`, `io_boundaries`, `find_by_value`,
-`shared_constants`, `parse_errors`, `reindex`). This
+`shared_constants`, `parse_errors`, `stats`, `reindex`). This
 repo's `.mcp.json` registers it for Claude Code; elsewhere:
 
 ```bash

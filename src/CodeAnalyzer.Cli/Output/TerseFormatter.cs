@@ -511,6 +511,50 @@ internal static class TerseFormatter
         return builder.Finish();
     }
 
+    /// <summary>
+    /// The index's aggregate self-portrait. The resolution triple is the reason the block
+    /// exists — the tool could always say who calls one symbol and could not say how well
+    /// it was resolving anything — and the closing note keeps the biggest number honest:
+    /// an unresolved reference is usually a name defined outside the workspace, not a miss.
+    /// </summary>
+    public static string Stats(IndexStats stats)
+    {
+        var builder = new StringBuilder();
+
+        builder.AppendLine($"files: {stats.TotalFiles} ({Tally(stats.FilesByLanguage)})"
+            + (stats.ImperfectFiles == 0
+                ? string.Empty
+                : $" · {stats.ImperfectFiles} imperfect parses (see: errors)"));
+
+        builder.AppendLine($"symbols: {stats.TotalSymbols:n0} ({Tally(stats.SymbolsByKind)})");
+
+        builder.AppendLine($"references: {stats.TotalRefs:n0} · "
+            + $"{stats.RefsWithReceiver:n0} carry a receiver ({Percent(stats.RefsWithReceiver, stats.TotalRefs)}) · "
+            + $"{stats.RefsWithArgs:n0} carry arguments ({Percent(stats.RefsWithArgs, stats.TotalRefs)})");
+
+        builder.AppendLine("resolution, per reference:");
+        builder.AppendLine($"  resolved uniquely  {stats.RefsResolvedUniquely,9:n0}  {Percent(stats.RefsResolvedUniquely, stats.TotalRefs),6}");
+        builder.AppendLine($"  ambiguous          {stats.RefsAmbiguous,9:n0}  {Percent(stats.RefsAmbiguous, stats.TotalRefs),6}"
+            + (stats.RefsAmbiguous == 0 ? string.Empty : $"  ({stats.MeanCandidatesWhenAmbiguous:0.0} candidates each)"));
+        builder.AppendLine($"  unresolved         {stats.RefsUnresolved,9:n0}  {Percent(stats.RefsUnresolved, stats.TotalRefs),6}");
+
+        builder.AppendLine($"edges: {stats.TotalEdges:n0} ({Tally(stats.EdgesByConfidence)})");
+        builder.AppendLine($"imports: {stats.ResolvedDeps:n0} of {stats.TotalDeps:n0} name a workspace file");
+        builder.AppendLine($"database: {stats.DatabaseBytes / 1024.0 / 1024.0:0.0} MB");
+
+        builder.AppendLine();
+        builder.AppendLine("an unresolved reference is one no workspace definition matched — for a workspace "
+            + "that leans on external libraries that is the normal shape, not a defect count.");
+
+        return builder.Finish();
+    }
+
+    private static string Tally(IReadOnlyList<NamedCount> counts) =>
+        string.Join(" · ", counts.Select(c => $"{c.Name} {c.Count:n0}"));
+
+    private static string Percent(int part, int whole) =>
+        whole == 0 ? "0%" : $"{100.0 * part / whole:0.0}%";
+
     public static string Boundaries(IReadOnlyList<IoBoundarySite> sites)
     {
         if (sites.Count == 0)

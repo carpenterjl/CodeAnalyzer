@@ -149,6 +149,13 @@ internal sealed class AgentToolset(ReadOnlyIndexSession session)
     public ParseErrorReport ParseErrors() =>
         Query(() => FileErrorQuery.Read(Session.Connection));
 
+    /// <summary>
+    /// Aggregate facts about the index itself — the answer to "how well is this thing
+    /// resolving", which every per-symbol query implies and none states.
+    /// </summary>
+    public IndexStats Stats() =>
+        Query(() => IndexStatsQuery.Read(Session.Connection));
+
     /// <summary>Runs a read under the gate, translating a torn-down index into one message.</summary>
     public T Query<T>(Func<T> query)
     {

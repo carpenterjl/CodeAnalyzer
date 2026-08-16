@@ -341,6 +341,42 @@ internal static class JsonFormatter
             }),
         }, Options);
 
+    public static string Stats(ReadOnlyIndexSession session, IndexStats stats) =>
+        JsonSerializer.Serialize(new
+        {
+            index = Index(session),
+            files = new
+            {
+                total = stats.TotalFiles,
+                byLanguage = stats.FilesByLanguage.ToDictionary(c => c.Name, c => c.Count),
+                imperfectParses = stats.ImperfectFiles,
+            },
+            symbols = new
+            {
+                total = stats.TotalSymbols,
+                byKind = stats.SymbolsByKind.ToDictionary(c => c.Name, c => c.Count),
+            },
+            references = new
+            {
+                total = stats.TotalRefs,
+                withReceiver = stats.RefsWithReceiver,
+                withArguments = stats.RefsWithArgs,
+                resolvedUniquely = stats.RefsResolvedUniquely,
+                ambiguous = stats.RefsAmbiguous,
+                unresolved = stats.RefsUnresolved,
+                meanCandidatesWhenAmbiguous = Math.Round(stats.MeanCandidatesWhenAmbiguous, 2),
+                note = "unresolved counts references no workspace definition matched, which "
+                    + "includes every call into an external library",
+            },
+            edges = new
+            {
+                total = stats.TotalEdges,
+                byConfidence = stats.EdgesByConfidence.ToDictionary(c => c.Name, c => c.Count),
+            },
+            imports = new { total = stats.TotalDeps, resolvedToWorkspaceFile = stats.ResolvedDeps },
+            databaseBytes = stats.DatabaseBytes,
+        }, Options);
+
     public static string Boundaries(ReadOnlyIndexSession session, IReadOnlyList<IoBoundarySite> sites) =>
         JsonSerializer.Serialize(new
         {

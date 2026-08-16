@@ -190,6 +190,14 @@ internal sealed class CodeAnalyzerTools(McpSessionHolder holder)
         WithToolset(toolset =>
             TerseFormatter.ParseErrors(toolset.ParseErrors(), Math.Clamp(limit, 1, 5000)));
 
+    [McpServerTool(Name = "stats")]
+    [Description("Aggregate facts about the index itself: files by language, symbols by kind, "
+        + "and — the part no other tool states — how well resolution is doing, as a per-reference "
+        + "breakdown into resolved uniquely / ambiguous / unresolved. Use it to judge the index "
+        + "before trusting any per-symbol answer, or to measure a change.")]
+    public string Stats() =>
+        WithToolset(toolset => TerseFormatter.Stats(toolset.Stats()));
+
     [McpServerTool(Name = "reindex")]
     [Description("Rebuild or refresh the workspace's index through the full pipeline. "
         + "Run this when the index is missing or the build date in results looks stale.")]
