@@ -1,4 +1,4 @@
-using CodeAnalyzer.Core.Domain;
+﻿using CodeAnalyzer.Core.Domain;
 using Microsoft.Data.Sqlite;
 
 namespace CodeAnalyzer.Core.Resolution;
@@ -553,13 +553,30 @@ public sealed class ReferenceResolver(SqliteConnection connection)
     /// actually does, and the reason the receiver was recorded at all.
     /// </para>
     /// <para>
-    /// Deliberately narrow, because a wrong type is worse than no type. The declaration must
-    /// be in the same file as the reference — the overwhelmingly common case, a field used
-    /// by a method of its own class — and the file must name the receiver exactly once, or
-    /// the type is not established and the reference is left to the tiers. No generic
-    /// stripping and no namespace trimming either: <c>List&lt;Widget&gt;</c> matches no
-    /// container name, so it contributes nothing, which is the correct outcome rather than
-    /// a guess at <c>Widget</c>.
+    /// Three sources, ranked by how much the language guarantees rather than by how much
+    /// each one wins. <c>this</c> is the type the reference sits inside, which needs no
+    /// lookup at all. A declaration in the same file contributes the type it was declared
+    /// with. And a receiver that <em>is</em> a type name — <c>SymbolKind.Method</c>,
+    /// <c>Console.WriteLine</c> — is a static or enum member access, where the type needs no
+    /// declaration to be found because the receiver already is one. That last rank is last
+    /// on purpose: a local named <c>Console</c> shadows the type <c>Console</c>, and only
+    /// consulting the best rank present keeps the shadowing right.
+    /// </para>
+    /// <para>
+    /// Still narrow where it counts, because a wrong type is worse than no type: one
+    /// distinct type at the winning rank or nothing, and no generic stripping or namespace
+    /// trimming — <c>List&lt;Widget&gt;</c> matches no container name, so it contributes
+    /// nothing, which is the correct outcome rather than a guess at <c>Widget</c>. Two types
+    /// sharing a name resolve to that shared name and prefer members of either, which is a
+    /// preference over a genuine ambiguity and not a claim about which one it is.
+    /// </para>
+    /// <para>
+    /// The declaration rank is still same-file only. Widening it was this round's brief and
+    /// the measurement refused: no type in this workspace is declared across two files, so a
+    /// partial-class rule would have been machinery with nothing to run on. Inheritance is
+    /// not widened either, for a harder reason — no base-type relation is stored anywhere,
+    /// so reaching a base class's field is a query-pack change first and a resolver change
+    /// second.
     /// </para>
     /// <para>
     /// One inference beyond the verbatim type, because without it this repo's own motivating
@@ -583,19 +600,67 @@ public sealed class ReferenceResolver(SqliteConnection connection)
                  ELSE d.type_text END
             """;
 
+        var typeKinds =
+            $"{(int)SymbolKind.Class}, {(int)SymbolKind.Struct}, {(int)SymbolKind.Union}, "
+            + $"{(int)SymbolKind.Enum}, {(int)SymbolKind.Typedef}, {(int)SymbolKind.Interface}";
+
+        var variableKinds =
+            $"{(int)SymbolKind.Field}, {(int)SymbolKind.Property}, "
+            + $"{(int)SymbolKind.Variable}, {(int)SymbolKind.Constant}";
+
+        // Three ways a receiver's type is knowable, in order of how much the language
+        // guarantees. Rank is a precedence, not a score: only the best rank present for a
+        // reference is consulted, so a shadowing local is never outvoted by the type whose
+        // name it borrowed.
         Execute(transaction, $"""
-            CREATE TEMP TABLE receiver_type AS
-            SELECT p.id AS ref_id, MIN({DeclaredType}) AS type_name
+            CREATE TEMP TABLE receiver_candidate AS
+
+            -- 1. `this` is the type the reference is written inside. No lookup, no guess.
+            SELECT p.id AS ref_id, 1 AS rank, container.name AS type_name
+            FROM pending_ref p
+            JOIN symbol source ON source.id = p.from_symbol_id
+            JOIN symbol container ON container.id = source.container_id
+                                 AND container.kind IN ({typeKinds})
+            WHERE p.receiver_text IN ('this', 'self')
+
+            UNION ALL
+
+            -- 2. A declaration of that name in this file, and the type it was declared with.
+            SELECT p.id, 2, {DeclaredType}
             FROM pending_ref p
             JOIN symbol d ON d.file_id = p.file_id
                          AND d.name = p.receiver_text
                          AND d.is_definition = 1
-                         AND d.kind IN ({(int)SymbolKind.Field}, {(int)SymbolKind.Property},
-                                        {(int)SymbolKind.Variable}, {(int)SymbolKind.Constant})
+                         AND d.kind IN ({variableKinds})
             WHERE p.receiver_text IS NOT NULL
               AND {DeclaredType} <> ''
-            GROUP BY p.id
-            HAVING COUNT(DISTINCT {DeclaredType}) = 1
+
+            UNION ALL
+
+            -- 3. The receiver *is* a type name: static and enum member access, and the one
+            -- shape where the type needs no declaration to be found because the receiver
+            -- already is one. Ranked last because a local of the same name shadows it.
+            SELECT p.id, 3, t.name
+            FROM pending_ref p
+            JOIN symbol t ON t.name = p.receiver_text
+                         AND t.is_definition = 1
+                         AND t.kind IN ({typeKinds})
+            WHERE p.receiver_text IS NOT NULL
+            """);
+
+        Execute(transaction, "CREATE INDEX temp.ix_receiver_candidate ON receiver_candidate(ref_id, rank)");
+
+        // One distinct type at the winning rank, or nothing. Two candidates disagreeing is
+        // not a tie to break — it is the index failing to know, and saying so costs nothing
+        // because an unestablished receiver type leaves the candidate set exactly as it was.
+        Execute(transaction, """
+            CREATE TEMP TABLE receiver_type AS
+            SELECT c.ref_id, MIN(c.type_name) AS type_name
+            FROM receiver_candidate c
+            JOIN (SELECT ref_id, MIN(rank) AS rank FROM receiver_candidate GROUP BY ref_id) best
+              ON best.ref_id = c.ref_id AND best.rank = c.rank
+            GROUP BY c.ref_id
+            HAVING COUNT(DISTINCT c.type_name) = 1
             """);
 
         Execute(transaction, "CREATE INDEX temp.ix_receiver_type ON receiver_type(ref_id)");
@@ -665,7 +730,8 @@ public sealed class ReferenceResolver(SqliteConnection connection)
                  {
                      "local_candidate", "local_best_arity", "local_count", "hot_name",
                      "hot_base", "suffix_match", "pending_ref", "include_reach", "candidate",
-                     "receiver_type", "code_behind", "best_receiver", "best_tier", "best_arity",
+                     "receiver_candidate", "receiver_type", "code_behind",
+                     "best_receiver", "best_tier", "best_arity",
                      "resolved",
                      "dirty_file", "dirty_name", "work_ref", "work_name",
                  })

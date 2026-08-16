@@ -165,6 +165,127 @@ public class ReceiverResolutionTests : IDisposable
     }
 
     /// <summary>
+    /// The widening that measurement chose. A receiver that <em>is</em> a type name needs no
+    /// declaration anywhere — it is a static or enum member access, and the type is the
+    /// receiver. On this workspace that is 1,589 references against 4 the old same-file rule
+    /// already had, which is why it beat the base-class and partial-class cases the previous
+    /// round's report had nominated.
+    /// </summary>
+    [Fact]
+    public async Task AReceiverThatIsATypeNameResolvesToThatTypesMember()
+    {
+        WriteFile("src/Kinds.cs", """
+            public enum SymbolKind
+            {
+                Method,
+            }
+            """);
+        WriteFile("src/Other.cs", """
+            public class Decoy
+            {
+                public int Method;
+            }
+            """);
+        WriteFile("src/Use.cs", """
+            public class User
+            {
+                public void Run()
+                {
+                    var k = SymbolKind.Method;
+                }
+            }
+            """);
+
+        var store = await IndexAsync();
+        var graph = new GraphQueryService(store.Connection);
+
+        var enumMember = SymbolId(store, "Method", "src/Kinds.cs");
+        var real = Assert.Single(graph.GetDetail(enumMember)!.Callers, c => c.Name == "Run");
+        Assert.Equal(EdgeConfidence.Unique, real.Confidence);
+
+        // The field that merely shares the name is not a candidate: the receiver named a
+        // type, and Decoy is not it.
+        var decoy = SymbolId(store, "Method", "src/Other.cs");
+        Assert.DoesNotContain(graph.GetDetail(decoy)!.Callers, c => c.Name == "Run");
+    }
+
+    /// <summary>
+    /// <c>this</c> is the one receiver whose type needs no lookup at all — it is whatever
+    /// type the reference is written inside.
+    /// </summary>
+    [Fact]
+    public async Task AThisReceiverMeansTheTypeTheCallIsWrittenInside()
+    {
+        WriteFile("src/Holder.cs", """
+            public class Holder
+            {
+                public void Target(int a) { }
+
+                public void Run()
+                {
+                    this.Target(1);
+                }
+            }
+            """);
+        WriteFile("src/Elsewhere.cs", """
+            public class Elsewhere
+            {
+                public void Target(int a) { }
+            }
+            """);
+
+        var store = await IndexAsync();
+        var graph = new GraphQueryService(store.Connection);
+
+        // Elsewhere.Target shares the name and loses: `this` says Holder.
+        var elsewhere = SymbolId(store, "Target", "src/Elsewhere.cs");
+        Assert.DoesNotContain(graph.GetDetail(elsewhere)!.Callers, c => c.Name == "Run");
+    }
+
+    /// <summary>
+    /// Rank is precedence, not a vote. A local shadowing a type name must be read as the
+    /// local, which is what the language does — so the declaration rank has to be consulted
+    /// to the exclusion of the type-name rank, not averaged with it.
+    /// </summary>
+    [Fact]
+    public async Task ALocalShadowingATypeNameIsReadAsTheLocal()
+    {
+        WriteFile("src/Config.cs", """
+            public class Config
+            {
+                public void Load(int a) { }
+            }
+            """);
+        WriteFile("src/Real.cs", """
+            public class Real
+            {
+                public void Load(int a) { }
+            }
+            """);
+        WriteFile("src/Caller.cs", """
+            public class Caller
+            {
+                public void Run()
+                {
+                    Real Config = new Real();
+                    Config.Load(1);
+                }
+            }
+            """);
+
+        var store = await IndexAsync();
+        var graph = new GraphQueryService(store.Connection);
+
+        // The declaration says Real, and it outranks the type that happens to be called
+        // Config — so Config.Load is not the answer.
+        var shadowedType = SymbolId(store, "Load", "src/Config.cs");
+        Assert.DoesNotContain(graph.GetDetail(shadowedType)!.Callers, c => c.Name == "Run");
+
+        var real = SymbolId(store, "Load", "src/Real.cs");
+        Assert.Contains(graph.GetDetail(real)!.Callers, c => c.Name == "Run");
+    }
+
+    /// <summary>
     /// This workspace's own shape, and the one the v4 report predicted would be fixed by
     /// reading the receiver's type — it very nearly was not. Every real call here goes
     /// through <c>var orchestrator = new IndexOrchestrator(…)</c>, whose declared type is
