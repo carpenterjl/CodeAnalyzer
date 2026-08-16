@@ -78,10 +78,11 @@ public class ReceiverResolutionTests : IDisposable
     /// receiver stored, every definition of the name competes and the edge is honest
     /// about being a name match.
     /// <para>
-    /// The receiver here is a parameter, which no pack indexes, so its type is not
-    /// established and this stays a test of the tier rule alone. Where the type
-    /// <em>is</em> established the answer is better than honest — see
-    /// <see cref="ATypedReceiverPicksItsOwnClassesMethodExactly"/>.
+    /// The receiver here is a <c>var</c> local initialized from a call, so its type is
+    /// not establishable and this stays a test of the tier rule alone. (It used to be a
+    /// parameter, until M22.3 made parameters exactly the typed thing this test needs
+    /// its receiver not to be.) Where the type <em>is</em> established the answer is
+    /// better than honest — see <see cref="ATypedReceiverPicksItsOwnClassesMethodExactly"/>.
     /// </para>
     /// </summary>
     [Fact]
@@ -92,8 +93,9 @@ public class ReceiverResolutionTests : IDisposable
             {
                 public void Index(int a) { }
 
-                public void Apply(Orchestrator orchestrator)
+                public void Apply()
                 {
+                    var orchestrator = Fetch();
                     orchestrator.Index(1);
                 }
             }

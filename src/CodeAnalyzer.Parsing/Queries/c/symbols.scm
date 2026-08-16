@@ -96,3 +96,20 @@
   type: (_) @type
   declarator: (array_declarator
     declarator: (identifier) @name)) @def.variable
+
+; Parameters, in the same three declarator shapes as variables. Captured for what the
+; declared type buys the resolver: `dev->field` can be typed when `dev` is a parameter,
+; not only when it is a local.
+(parameter_declaration
+  type: (_) @type
+  declarator: (identifier) @name) @def.parameter
+
+(parameter_declaration
+  type: (_) @type
+  declarator: (pointer_declarator
+    declarator: (identifier) @name)) @def.parameter
+
+(parameter_declaration
+  type: (_) @type
+  declarator: (array_declarator
+    declarator: (identifier) @name)) @def.parameter

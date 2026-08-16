@@ -115,6 +115,28 @@
   declarator: (array_declarator
     declarator: (identifier) @name)) @def.variable
 
+; Parameters, in the same declarator shapes as variables, plus the reference form C
+; does not have. Captured for what the declared type buys the resolver: a receiver
+; naming a parameter can be typed like one naming a local.
+(parameter_declaration
+  type: (_) @type
+  declarator: (identifier) @name) @def.parameter
+
+(parameter_declaration
+  type: (_) @type
+  declarator: (pointer_declarator
+    declarator: (identifier) @name)) @def.parameter
+
+(parameter_declaration
+  type: (_) @type
+  declarator: (reference_declarator
+    (identifier) @name)) @def.parameter
+
+(parameter_declaration
+  type: (_) @type
+  declarator: (array_declarator
+    declarator: (identifier) @name)) @def.parameter
+
 ; ------------------------------------------------------------------- C++ only
 
 (namespace_definition

@@ -115,6 +115,16 @@
       type: (_) @type
       name: (identifier) @name) @def.field))
 
+; Parameters, captured for what the declared type buys: a receiver that names a
+; parameter can be typed exactly like one naming a local, and a method's inputs are
+; searchable beside its locals. Only typed parameters land — an implicit lambda
+; parameter carries no type and would add a bare name with nothing to say. The
+; positional-record rule above out-ranks this one, so a record's parameters stay
+; the fields they declare.
+(parameter
+  type: (_) @type
+  name: (identifier) @name) @def.parameter
+
 ; Locals, so a method's own state is searchable and linked to it by container.
 (local_declaration_statement
   (variable_declaration

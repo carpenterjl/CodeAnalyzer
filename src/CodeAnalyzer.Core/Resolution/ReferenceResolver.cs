@@ -606,7 +606,8 @@ public sealed class ReferenceResolver(SqliteConnection connection)
 
         var variableKinds =
             $"{(int)SymbolKind.Field}, {(int)SymbolKind.Property}, "
-            + $"{(int)SymbolKind.Variable}, {(int)SymbolKind.Constant}";
+            + $"{(int)SymbolKind.Variable}, {(int)SymbolKind.Constant}, "
+            + $"{(int)SymbolKind.Parameter}";
 
         // Three ways a receiver's type is knowable, in order of how much the language
         // guarantees. Rank is a precedence, not a score: only the best rank present for a
@@ -800,21 +801,15 @@ public sealed class ReferenceResolver(SqliteConnection connection)
         // macros, constants, enum members, fields, and file-scope declarations. This is
         // what keeps every loop counter named `i` out of the graph.
         //
-        // SymbolKind.Parameter was here and is not any more, and the reason it went is worth
-        // keeping. It was never wrong — a parameter would have been admitted to its own
-        // function by the container clause below and correctly refused everywhere else — it
-        // simply never once applied, because no query pack captures a parameter and none
-        // ever has. The capture name is wired end to end (`["parameter"] = Parameter` in
-        // CaptureNames, with a specificity rank), so switching it on is a pack change in
-        // each language, a schema version, and several thousand new symbols; measured
-        // against this workspace it would establish a receiver type for about 848 more
-        // references. That is a milestone someone can choose on the evidence. What it is
-        // not is a line in a list that has silently claimed to be doing something since it
-        // was written. Whoever captures parameters puts the kind back, with a test.
+        // SymbolKind.Parameter left this list in M21.3 because no pack captured one and the
+        // line had silently claimed to matter since it was written; M22.3 captures them (C#,
+        // C, C++ — the languages whose parameters carry a declared type) and puts it back,
+        // with the test M21.3 asked for. A parameter is admitted to its own function by the
+        // container clause below and correctly refused everywhere else, exactly like a local.
         var referencable = In(
             SymbolKind.Macro, SymbolKind.Constant, SymbolKind.EnumMember,
             SymbolKind.Field, SymbolKind.Function, SymbolKind.Variable, SymbolKind.Port,
-            SymbolKind.Property);
+            SymbolKind.Property, SymbolKind.Parameter);
 
         // ...but "across scopes" has to mean something. A symbol declared inside a
         // *function* is a local: unreachable by name from anywhere else, and admitting it

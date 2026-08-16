@@ -75,6 +75,14 @@ public static class Schema
     /// once shipped is not worth reusing.
     /// </para>
     /// <para>
+    /// Version 23 (M22.3) changes no DDL. The C#, C and C++ packs now capture typed
+    /// parameters as <c>SymbolKind.Parameter</c> rows, so a file the gate judges unchanged
+    /// is missing symbols the analyzer now produces — the same shape as version 18, from
+    /// the parsed side rather than the stored-meaning side. The resolver half of the
+    /// milestone (Parameter back in the referencable and receiver-typable sets) would have
+    /// needed no version on its own.
+    /// </para>
+    /// <para>
     /// Versions 19 and 20 (M20.3) change no DDL, and — per the paragraph above — need not
     /// have existed. The resolver now reads a reference's receiver against the declared type
     /// of the field or property that names it, and prefers a candidate whose container is
@@ -139,7 +147,7 @@ public static class Schema
     /// files are newly discovered rather than stale.
     /// </para>
     /// </summary>
-    public const int Version = 22;
+    public const int Version = 23;
 
     public const string MetaSchemaVersion = "schema_version";
     public const string MetaRootPath = "root_path";
