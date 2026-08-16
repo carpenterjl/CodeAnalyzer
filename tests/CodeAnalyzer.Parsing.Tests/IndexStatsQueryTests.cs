@@ -85,6 +85,38 @@ public class IndexStatsQueryTests : IDisposable
     }
 
     [Fact]
+    public async Task EverySplitPartitionsTheSameReferenceTotal()
+    {
+        // The splits are computed by a different query than the whole-index triple, over a
+        // LEFT JOIN whose whole job is to keep edgeless references in the count. Drop the
+        // join to an inner one and the unresolved column silently empties — so the check
+        // that matters is that each split still adds up to the totals it slices.
+        WriteFile("a.c", """
+            void defined_here(void) { }
+            void caller(void) {
+                defined_here();
+                absent_everywhere();
+            }
+            """);
+        WriteFile("b.py", "gamma = 1");
+
+        var stats = await IndexAndReadAsync();
+
+        foreach (var splits in new[] { stats.RefsByKind, stats.RefsByLanguage })
+        {
+            Assert.Equal(stats.TotalRefs, splits.Sum(s => s.Total));
+            Assert.Equal(stats.RefsResolvedUniquely, splits.Sum(s => s.Unique));
+            Assert.Equal(stats.RefsAmbiguous, splits.Sum(s => s.Ambiguous));
+            Assert.Equal(stats.RefsUnresolved, splits.Sum(s => s.Unresolved));
+            Assert.All(splits, s => Assert.Equal(s.Total, s.Unique + s.Ambiguous + s.Unresolved));
+        }
+
+        // Unresolved must actually be populated, or the sums above pass on all-zero columns.
+        Assert.True(stats.RefsUnresolved > 0);
+        Assert.Contains(stats.RefsByLanguage, s => s.Name == "C");
+    }
+
+    [Fact]
     public async Task TalliesCoverEveryFileAndSymbol()
     {
         WriteFile("a.c", "int alpha;");

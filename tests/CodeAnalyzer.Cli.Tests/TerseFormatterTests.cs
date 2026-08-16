@@ -101,6 +101,8 @@ public class TerseFormatterTests
         RefsAmbiguous: ambiguous,
         RefsUnresolved: unresolved,
         MeanCandidatesWhenAmbiguous: 2.5,
+        RefsByKind: [new("Call", 60, 40, 5, 15), new("Use", 40, 25, 0, 15)],
+        RefsByLanguage: [new("C#", 70, 50, 5, 15), new("C", 30, 15, 0, 15)],
         TotalEdges: 95,
         EdgesByConfidence: [new("Unique", 85), new("Ambiguous", 10)],
         TotalDeps: 8,
@@ -128,6 +130,34 @@ public class TerseFormatterTests
         Assert.Contains("resolved uniquely", text);
         Assert.Contains("85", text);
         Assert.Contains("(2.5 candidates each)", text);
+    }
+
+    [Fact]
+    public void StatsNameReferenceKindsRatherThanNumberingThem()
+    {
+        // The whole point of the by-kind table is that a reader can act on a bad row. A
+        // row labelled "7" is a lookup in the enum before the reader learns anything.
+        var text = TerseFormatter.Stats(SomeStats());
+
+        Assert.Contains("by reference kind", text);
+        Assert.Contains("Call", text);
+        Assert.DoesNotContain("kind 1", text);
+    }
+
+    [Fact]
+    public void StatsShowASubsetResolvingWorseThanTheIndexAverage()
+    {
+        // A kind or language whose unresolved share stands out is the reason to publish
+        // the split at all — this is the shape that sent round eight after `new Foo()`.
+        var stats = SomeStats() with
+        {
+            RefsByKind = [new("Call", 60, 40, 5, 15), new("Instantiate", 20, 0, 0, 20)],
+        };
+
+        var text = TerseFormatter.Stats(stats);
+
+        Assert.Contains("Instantiate", text);
+        Assert.Contains("unres 100.0%", text);
     }
 
     [Fact]

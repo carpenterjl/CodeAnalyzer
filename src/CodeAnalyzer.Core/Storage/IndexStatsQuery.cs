@@ -7,6 +7,15 @@ namespace CodeAnalyzer.Core.Storage;
 public sealed record NamedCount(string Name, int Count);
 
 /// <summary>
+/// One slice of the resolution triple: how a named subset of references — a reference
+/// kind, or the references written in one language — divided into uniquely resolved,
+/// ambiguous and unresolved. The whole-index triple is the sum of any complete set of
+/// these, which is what makes an outlier row worth reading: a subset resolving far worse
+/// than the index as a whole is a resolver gap with a name on it.
+/// </summary>
+public sealed record ResolutionSplit(string Name, int Total, int Unique, int Ambiguous, int Unresolved);
+
+/// <summary>
 /// Aggregate facts about one workspace's index: what is in it, and — the part no other
 /// query answers — how well resolution is doing. Every count is measured from the tables
 /// at read time; nothing here is cached or estimated.
@@ -24,6 +33,8 @@ public sealed record IndexStats(
     int RefsAmbiguous,
     int RefsUnresolved,
     double MeanCandidatesWhenAmbiguous,
+    IReadOnlyList<ResolutionSplit> RefsByKind,
+    IReadOnlyList<ResolutionSplit> RefsByLanguage,
     int TotalEdges,
     IReadOnlyList<NamedCount> EdgesByConfidence,
     int TotalDeps,
@@ -89,6 +100,12 @@ public static class IndexStatsQuery
             ambiguousEdges = reader.GetInt64(2);
         }
 
+        var refsByKind = ReadSplits(connection,
+            "r.kind", "ref r", name => ((ReferenceKind)int.Parse(name)).ToString());
+
+        var refsByLanguage = ReadSplits(connection,
+            "f.language", "ref r JOIN file f ON f.id = r.file_id");
+
         var totalRefs = (int)scalars[3];
         return new IndexStats(
             TotalFiles: (int)scalars[0],
@@ -102,12 +119,50 @@ public static class IndexStatsQuery
             RefsAmbiguous: ambiguous,
             RefsUnresolved: totalRefs - unique - ambiguous,
             MeanCandidatesWhenAmbiguous: ambiguous == 0 ? 0 : (double)ambiguousEdges / ambiguous,
+            RefsByKind: refsByKind,
+            RefsByLanguage: refsByLanguage,
             SymbolsByKind: symbolsByKind,
             TotalEdges: (int)scalars[6],
             EdgesByConfidence: edgesByConfidence,
             TotalDeps: (int)scalars[7],
             ResolvedDeps: (int)scalars[8],
             DatabaseBytes: scalars[9]);
+    }
+
+    /// <summary>
+    /// The resolution triple, grouped by any single column. The LEFT JOIN is what makes the
+    /// unresolved column possible: a reference with no edge has no row in the fan-out
+    /// subquery, so it survives the join with a NULL count rather than dropping out.
+    /// </summary>
+    private static List<ResolutionSplit> ReadSplits(
+        SqliteConnection connection, string groupBy, string from, Func<string, string>? nameOf = null)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = $"""
+            SELECT {groupBy},
+                   COUNT(*),
+                   COALESCE(SUM(CASE WHEN e.n = 1 THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN e.n > 1 THEN 1 ELSE 0 END), 0)
+            FROM {from}
+            LEFT JOIN (SELECT ref_id, COUNT(*) AS n FROM edge GROUP BY ref_id) e ON e.ref_id = r.id
+            GROUP BY {groupBy}
+            ORDER BY COUNT(*) DESC
+            """;
+
+        var splits = new List<ResolutionSplit>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var raw = reader.GetValue(0)?.ToString() ?? string.Empty;
+            var total = reader.GetInt32(1);
+            var unique = reader.GetInt32(2);
+            var ambiguous = reader.GetInt32(3);
+            splits.Add(new ResolutionSplit(
+                nameOf is null ? raw : nameOf(raw),
+                total, unique, ambiguous, total - unique - ambiguous));
+        }
+
+        return splits;
     }
 
     private static List<NamedCount> ReadPairs(

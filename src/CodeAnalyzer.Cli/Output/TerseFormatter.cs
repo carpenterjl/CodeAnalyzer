@@ -555,6 +555,9 @@ internal static class TerseFormatter
             + (stats.RefsAmbiguous == 0 ? string.Empty : $"  ({stats.MeanCandidatesWhenAmbiguous:0.0} candidates each)"));
         builder.AppendLine($"  unresolved         {stats.RefsUnresolved,9:n0}  {Percent(stats.RefsUnresolved, stats.TotalRefs),6}");
 
+        AppendSplits(builder, "by reference kind", stats.RefsByKind);
+        AppendSplits(builder, "by language", stats.RefsByLanguage);
+
         builder.AppendLine($"edges: {stats.TotalEdges:n0} ({Tally(stats.EdgesByConfidence)})");
         builder.AppendLine($"imports: {stats.ResolvedDeps:n0} of {stats.TotalDeps:n0} name a workspace file");
         builder.AppendLine($"database: {stats.DatabaseBytes / 1024.0 / 1024.0:0.0} MB");
@@ -564,6 +567,31 @@ internal static class TerseFormatter
             + "that leans on external libraries that is the normal shape, not a defect count.");
 
         return builder.Finish();
+    }
+
+    /// <summary>
+    /// One resolution table. The columns repeat the whole-index triple for a subset, which
+    /// is the point: a kind or a language that resolves far below the index average is the
+    /// shape of a resolver gap, and reading it off a table beats guessing at it.
+    /// </summary>
+    private static void AppendSplits(
+        StringBuilder builder, string heading, IReadOnlyList<ResolutionSplit> splits)
+    {
+        if (splits.Count == 0)
+        {
+            return;
+        }
+
+        builder.AppendLine($"{heading}:");
+        var width = splits.Max(s => s.Name.Length);
+        foreach (var split in splits)
+        {
+            builder.AppendLine(
+                $"  {split.Name.PadRight(width)}  {split.Total,8:n0}  "
+                + $"uniq {Percent(split.Unique, split.Total),6}  "
+                + $"amb {Percent(split.Ambiguous, split.Total),6}  "
+                + $"unres {Percent(split.Unresolved, split.Total),6}");
+        }
     }
 
     private static string Tally(IReadOnlyList<NamedCount> counts) =>

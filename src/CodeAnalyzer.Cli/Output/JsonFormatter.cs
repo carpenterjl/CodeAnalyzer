@@ -350,6 +350,15 @@ internal static class JsonFormatter
             }),
         }, Options);
 
+    private static object Split(ResolutionSplit split) => new
+    {
+        name = split.Name,
+        total = split.Total,
+        resolvedUniquely = split.Unique,
+        ambiguous = split.Ambiguous,
+        unresolved = split.Unresolved,
+    };
+
     public static string Stats(ReadOnlyIndexSession session, IndexStats stats) =>
         JsonSerializer.Serialize(new
         {
@@ -376,6 +385,8 @@ internal static class JsonFormatter
                 meanCandidatesWhenAmbiguous = Math.Round(stats.MeanCandidatesWhenAmbiguous, 2),
                 note = "unresolved counts references no workspace definition matched, which "
                     + "includes every call into an external library",
+                byKind = stats.RefsByKind.Select(Split),
+                byLanguage = stats.RefsByLanguage.Select(Split),
             },
             edges = new
             {
