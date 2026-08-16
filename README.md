@@ -121,6 +121,7 @@ run rebuilds every edge from scratch, so a resolver change lands in full either 
 | `constants` | values defined in more than one language, ranked by how many agree (`--by-dir`, `--include-trivial`) |
 | `errors` | files the parser could not fully read, the construct it stopped at, and a tally of the most common ones |
 | `stats` | aggregate facts about the index: files by language, symbols by kind, and how well resolution is doing |
+| `cache` | every workspace cache on this machine, live or stale; `--prune` deletes the stale ones |
 | `index [path]` | build or refresh the workspace's index (`--full` re-parses every file instead of skipping unchanged ones) |
 | `mcp` | the MCP stdio server for AI agent clients |
 
@@ -242,6 +243,8 @@ Set `CODEANALYZER_CACHE_ROOT` to put that tree somewhere else — a different dr
 scratch directory for a test run. Caches are never removed automatically, so a machine that
 has indexed many short-lived directories accumulates them; each one records the workspace it
 was built from in `meta.root_path`, which is what makes a stale one identifiable.
+`codeanalyzer cache` lists them all, judged live or stale by that recorded origin, and
+`cache --prune` deletes the stale ones — never the live or unjudgeable ones.
 
 **Resolution** matches a reference to a definition by tiers, first non-empty winning: same
 file → reachable through includes/imports → same language and top-level directory → same

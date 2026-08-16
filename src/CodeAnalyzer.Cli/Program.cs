@@ -30,6 +30,7 @@ internal static class Program
         ReadCommands.Outline,
         ReadCommands.Errors,
         ReadCommands.Stats,
+        CacheCommand.Spec,
         IndexCommand.Spec,
         Mcp.McpCommand.Spec,
     ];
