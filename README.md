@@ -237,6 +237,11 @@ first, a content hash decides second, and only genuinely changed files are re-pa
 `%LOCALAPPDATA%\CodeAnalyzer\workspaces\<hash>\index.db`. It is a cache — deleting it costs
 one re-index and nothing else, which is why a schema change simply rebuilds.
 
+Set `CODEANALYZER_CACHE_ROOT` to put that tree somewhere else — a different drive, or a
+scratch directory for a test run. Caches are never removed automatically, so a machine that
+has indexed many short-lived directories accumulates them; each one records the workspace it
+was built from in `meta.root_path`, which is what makes a stale one identifiable.
+
 **Resolution** matches a reference to a definition by tiers, first non-empty winning: same
 file → reachable through includes/imports → same language and top-level directory → same
 language anywhere → any language (weak). Within the winning tier, a soft argument-count filter
