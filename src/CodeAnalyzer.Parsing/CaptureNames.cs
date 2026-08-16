@@ -55,6 +55,7 @@ internal static class CaptureNames
         ["inherit"] = ReferenceKind.Inherit,
         ["instantiate"] = ReferenceKind.Instantiate,
         ["binding"] = ReferenceKind.Binding,
+        ["handler"] = ReferenceKind.Handler,
     };
 
     /// <summary>Capture suffixes that declare a symbol but are not resolution targets.</summary>
@@ -136,6 +137,9 @@ internal static class CaptureNames
         ReferenceKind.TypeUse => 3,
         ReferenceKind.Binding => 3,
         ReferenceKind.Resource => 3,
+        // Above the extension kinds: a handler pattern and the brace test cannot both
+        // match the same value, but an attribute-name rule is the more specific claim.
+        ReferenceKind.Handler => 4,
         ReferenceKind.Use => 1,
         _ => 0,
     };

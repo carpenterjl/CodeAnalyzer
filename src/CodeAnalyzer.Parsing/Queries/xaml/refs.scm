@@ -36,6 +36,29 @@
     (attribute_value) @name)
   (#match? @name "^[{]")) @ref.binding
 
+; An event handler is a reference too (M20.5), and it is the one place this pack guesses.
+; XAML marks an event attribute with no syntax whatever: Click="OnAccept" and
+; TargetType="Button" are the same shape, and only the type system the index does not have
+; tells them apart. So the rule here is a convention — an attribute whose name reads like a
+; WPF routed event, whose value is a bare identifier — and it nominates rather than decides.
+; What makes nominating safe is the other end: a handler reference may resolve only to a
+; method on this file's own x:Class, so IsExpanded="True" finds nothing, claims nothing, and
+; is not reported as unresolved either. A misspelled handler is likewise silent here, which
+; is the deliberate trade — the compiler already fails on those, so the cost of catching
+; them is not worth an unresolved list full of attribute values.
+;
+; The suffix list is the standard routed-event vocabulary, not a guess at one: Click and
+; DoubleClick, the Changed family, mouse and key Down/Up/Enter/Leave/Move/Wheel, the
+; lifecycle pairs Loaded/Unloaded, Opened/Opening, Closed/Closing, Expanded/Collapsed,
+; Activated/Deactivated, Checked, GotFocus/LostFocus, drag and drop, and the async-ish
+; Started/Completed/Invoked.
+(attribute
+  (attribute_name) @attribute
+  (quoted_attribute_value
+    (attribute_value) @name)
+  (#match? @attribute "(Click|Changed|Down|Up|Enter|Leave|Move|Wheel|Loaded|Unloaded|Opened|Opening|Closed|Closing|Focus|Checked|Expanded|Collapsed|Activated|Deactivated|Initialized|Drop|Drag|Scroll|Sorting|Started|Completed|Invoked|Toggled)$")
+  (#match? @name "^[A-Za-z_][A-Za-z0-9_]*$")) @ref.handler
+
 ; Nothing else here is a reference. TargetType="Button" names a type but so does every
 ; other bare word in an attribute, and there is no syntax separating them — a bare word
 ; in an attribute value stays stored, not claimed.

@@ -47,6 +47,7 @@ public static class KindLabels
         ReferenceKind.Instantiate => "instantiates",
         ReferenceKind.Binding => "binding",
         ReferenceKind.Resource => "resource",
+        ReferenceKind.Handler => "handler",
         _ => "reference",
     };
 

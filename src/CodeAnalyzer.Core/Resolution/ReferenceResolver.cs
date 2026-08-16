@@ -412,6 +412,7 @@ public sealed class ReferenceResolver(SqliteConnection connection)
         Execute(transaction, "CREATE INDEX temp.ix_pending_ref ON pending_ref(name)");
 
         BuildReceiverType(transaction);
+        BuildCodeBehind(transaction);
         BuildIncludeReach(transaction);
 
         Timed("candidate", () => Execute(transaction, $"""
@@ -512,6 +513,34 @@ public sealed class ReferenceResolver(SqliteConnection connection)
             WHERE r.candidates <= $maxCandidates
             """);
     }
+
+    /// <summary>
+    /// Which class each markup file compiles into, read from its own <c>x:Class</c>
+    /// reference — the short segment the analyzer split out, which is the name a C# class
+    /// definition carries.
+    /// <para>
+    /// This is what makes the handler rule safe. XAML gives no syntax that separates
+    /// <c>Click="OnAccept"</c> from <c>TargetType="Button"</c>, so the pack nominates on a
+    /// naming convention and would nominate wrongly if left alone; requiring the target to
+    /// be a method on <em>this file's</em> code-behind throws out every wrong nomination
+    /// silently, because a class has no method called <c>True</c>.
+    /// </para>
+    /// </summary>
+    private void BuildCodeBehind(SqliteTransaction transaction) => Timed("code_behind", () =>
+    {
+        Execute(transaction, $"""
+            CREATE TEMP TABLE code_behind AS
+            SELECT r.file_id, r.name AS class_name
+            FROM ref r
+            WHERE r.kind = {(int)ReferenceKind.TypeUse}
+              AND EXISTS (SELECT 1 FROM pending_ref p
+                          WHERE p.file_id = r.file_id
+                            AND p.kind = {(int)ReferenceKind.Handler})
+            GROUP BY r.file_id, r.name
+            """);
+
+        Execute(transaction, "CREATE INDEX temp.ix_code_behind ON code_behind(file_id)");
+    });
 
     /// <summary>
     /// The declared type of each pending reference's receiver, where the workspace states
@@ -636,7 +665,8 @@ public sealed class ReferenceResolver(SqliteConnection connection)
                  {
                      "local_candidate", "local_best_arity", "local_count", "hot_name",
                      "hot_base", "suffix_match", "pending_ref", "include_reach", "candidate",
-                     "receiver_type", "best_receiver", "best_tier", "best_arity", "resolved",
+                     "receiver_type", "code_behind", "best_receiver", "best_tier", "best_arity",
+                     "resolved",
                      "dirty_file", "dirty_name", "work_ref", "work_name",
                  })
         {
@@ -678,12 +708,18 @@ public sealed class ReferenceResolver(SqliteConnection connection)
     /// Restricts which symbol kinds a reference kind may resolve to. Without this a call
     /// could bind to a struct field that happens to share the callee's name.
     /// </summary>
-    private static string KindCompatibilitySql { get; } = BuildKindCompatibility("r");
+    private static string KindCompatibilitySql { get; } = BuildKindCompatibility("r", crossFile: false);
 
     /// <summary>The same rules expressed against the pre-filtered pending_ref table.</summary>
-    private static string PendingKindCompatibilitySql { get; } = BuildKindCompatibility("p");
+    private static string PendingKindCompatibilitySql { get; } = BuildKindCompatibility("p", crossFile: true);
 
-    private static string BuildKindCompatibility(string referenceAlias)
+    /// <param name="crossFile">
+    /// True for the pass that runs after <c>code_behind</c> exists. A markup event handler
+    /// names a method on the code-behind class, which by construction lives in a different
+    /// file, so the same-file tier offers it no clause at all and every one of them falls
+    /// through to here.
+    /// </param>
+    private static string BuildKindCompatibility(string referenceAlias, bool crossFile)
     {
         static string In(params SymbolKind[] kinds) =>
             string.Join(", ", kinds.Select(k => (int)k));
@@ -728,6 +764,17 @@ public sealed class ReferenceResolver(SqliteConnection connection)
         // resolved to the TextBox — a self-edge, and so invisible in every listing.
         var bindable = In(SymbolKind.Property, SymbolKind.Field);
 
+        var handler = crossFile
+            ? $"""
+                OR ({referenceAlias}.kind = {(int)ReferenceKind.Handler}
+                    AND s.kind = {(int)SymbolKind.Method}
+                    AND EXISTS (SELECT 1 FROM code_behind cb
+                                JOIN symbol owner ON owner.id = s.container_id
+                                WHERE cb.file_id = {referenceAlias}.file_id
+                                  AND owner.name = cb.class_name))
+              """
+            : string.Empty;
+
         return $"""
             ({referenceAlias}.kind = {(int)ReferenceKind.Call} AND s.kind IN ({callable}))
             OR ({referenceAlias}.kind = {(int)ReferenceKind.TypeUse} AND s.kind IN ({types}))
@@ -739,7 +786,7 @@ public sealed class ReferenceResolver(SqliteConnection connection)
                 AND (s.container_id IS NULL
                      OR s.container_id = {referenceAlias}.from_symbol_id
                      OR EXISTS (SELECT 1 FROM symbol c
-                                WHERE c.id = s.container_id AND c.kind IN ({scopes}))))
+                                WHERE c.id = s.container_id AND c.kind IN ({scopes})))){handler}
             """;
     }
 

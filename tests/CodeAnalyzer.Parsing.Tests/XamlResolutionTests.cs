@@ -226,6 +226,88 @@ public class XamlResolutionTests : IDisposable
             c => c.ReferenceKind == ReferenceKind.Resource);
     }
 
+    /// <summary>
+    /// An event handler reaches the code-behind method it names. Cross-language, so the
+    /// edge is a name match and says so.
+    /// </summary>
+    [Fact]
+    public async Task AnEventHandlerReachesItsCodeBehindMethod()
+    {
+        WriteFile("Views/Panel.xaml", """
+            <UserControl x:Class="Demo.Views.Panel"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                <Button x:Name="Accept" Click="OnAccept" />
+            </UserControl>
+            """);
+        WriteFile("Views/Panel.xaml.cs", """
+            namespace Demo.Views;
+
+            public partial class Panel
+            {
+                private void OnAccept(object sender, System.EventArgs e) { }
+            }
+            """);
+
+        var store = await IndexAsync();
+        var search = new SymbolSearchService(store.Connection);
+        search.Reload();
+
+        var handler = search.Search("OnAccept").First(h => h.Name == "OnAccept").SymbolId;
+        var detail = new GraphQueryService(store.Connection).GetDetail(handler);
+
+        var caller = Assert.Single(detail!.Callers, c => c.Name == "Accept");
+        Assert.Equal(ReferenceKind.Handler, caller.ReferenceKind);
+    }
+
+    /// <summary>
+    /// The pack nominates on a naming convention, so it nominates wrongly — and this is
+    /// what makes that harmless. <c>IsExpanded="True"</c> matches the attribute rule and
+    /// the value rule both, and still resolves to nothing, because no method on the
+    /// code-behind is called <c>True</c>. It is not reported as unresolved either.
+    /// </summary>
+    [Fact]
+    public async Task AnAttributeThatMerelyLooksLikeAHandlerResolvesToNothingAndIsNotReported()
+    {
+        WriteFile("Views/Tree.xaml", """
+            <UserControl x:Class="Demo.Views.Tree"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                <TreeViewItem x:Name="Root" IsExpanded="True" MouseEnter="OnHover" />
+            </UserControl>
+            """);
+        WriteFile("Views/Tree.xaml.cs", """
+            namespace Demo.Views;
+
+            public partial class Tree
+            {
+                private void OnHover(object sender, System.EventArgs e) { }
+            }
+            """);
+        // A decoy elsewhere carrying the tempting name, to prove the restriction is the
+        // code-behind class and not merely "no method called True exists".
+        WriteFile("Other/Flags.cs", """
+            namespace Demo.Other;
+
+            public class Flags
+            {
+                public void True() { }
+            }
+            """);
+
+        var store = await IndexAsync();
+        var search = new SymbolSearchService(store.Connection);
+        search.Reload();
+        var graph = new GraphQueryService(store.Connection);
+
+        var decoy = search.Search("True").First(h => h.Name == "True").SymbolId;
+        Assert.Empty(graph.GetDetail(decoy)!.Callers);
+
+        // The real handler on the same element still lands, and the misfire is silent.
+        var root = search.Search("Root").First(h => h.Name == "Root").SymbolId;
+        var rootDetail = graph.GetDetail(root)!;
+        Assert.Contains(rootDetail.Callees, c => c.Name == "OnHover");
+        Assert.DoesNotContain(rootDetail.UnresolvedReferences, u => u.Name == "True");
+    }
+
     [Fact]
     public async Task AMisspelledBindingPathIsListedAsUnresolvedNotDropped()
     {

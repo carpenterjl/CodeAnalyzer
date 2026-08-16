@@ -43,6 +43,13 @@ public static class Schema
     /// it has to be an index seek. Both are NULL wherever the parser cannot be certain.
     /// </para>
     /// <para>
+    /// Version 21 (M20.5) changes no DDL, and — by the rule below — is one that genuinely
+    /// needs a number: the XAML pack now emits a handler reference for an attribute whose
+    /// name reads like a routed event, so an unchanged <c>.xaml</c> file holds fewer
+    /// reference rows than this build would write for it, and no resolve can invent a row
+    /// the parser never stored.
+    /// </para>
+    /// <para>
     /// <b>What actually needs a version, established after 17, 19 and 20 were spent finding
     /// out.</b> A <em>parser or pack</em> change needs one: the incremental gate screens on
     /// size, timestamp and hash, so a file it judges unchanged keeps the symbol and reference
@@ -123,7 +130,7 @@ public static class Schema
     /// files are newly discovered rather than stale.
     /// </para>
     /// </summary>
-    public const int Version = 20;
+    public const int Version = 21;
 
     public const string MetaSchemaVersion = "schema_version";
     public const string MetaRootPath = "root_path";

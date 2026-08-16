@@ -158,16 +158,49 @@ public class XamlAnalyzerTests() : LanguagePackFixture(LanguageRegistry.Xaml, "V
     }
 
     [Fact]
-    public void PlainAttributesAndHandlersAreStillNotReferences()
+    public void APlainAttributeIsStillNotAReference()
     {
         var result = Analyze(Source);
 
-        // Title="CodeAnalyzer" names nothing; Click="OnGoClicked" is a bare word with no
-        // syntax marking it as a reference, and inventing one would be a guess.
+        // Title="CodeAnalyzer" names nothing, and no rule here claims it does.
         var referenced = result.References.Select(r => r.Name).ToList();
-        Assert.DoesNotContain("OnGoClicked", referenced);
         Assert.DoesNotContain("CodeAnalyzer", referenced);
         Assert.DoesNotContain("{Binding SearchQuery, Mode=TwoWay}", referenced);
+    }
+
+    /// <summary>
+    /// A handler is nominated by convention, since XAML marks an event attribute with no
+    /// syntax at all. The pack's half of the bargain is only to nominate; the resolver
+    /// requires the target be a method on this file's own <c>x:Class</c>, which is what
+    /// discards the wrong nominations.
+    /// </summary>
+    [Fact]
+    public void AnEventAttributeWithABareIdentifierIsAHandlerReference()
+    {
+        var result = Analyze("""
+            <Grid>
+                <Button x:Name="Go" Click="OnGoClicked" Content="Go" />
+            </Grid>
+            """);
+
+        var handler = Assert.Single(result.References, r => r.Kind == ReferenceKind.Handler);
+        Assert.Equal("OnGoClicked", handler.Name);
+
+        // Content="Go" is a bare identifier too, but Content is not an event name.
+        Assert.DoesNotContain(result.References, r => r.Name == "Go");
+    }
+
+    /// <summary>An event attribute whose value is not a bare identifier names no method.</summary>
+    [Fact]
+    public void AnEventAttributeWithANonIdentifierValueIsNotNominated()
+    {
+        var result = Analyze("""
+            <Grid>
+                <Button x:Name="Go" IsEnabled="{Binding CanGo}" MouseEnter="{x:Null}" />
+            </Grid>
+            """);
+
+        Assert.DoesNotContain(result.References, r => r.Kind == ReferenceKind.Handler);
     }
 
     [Fact]

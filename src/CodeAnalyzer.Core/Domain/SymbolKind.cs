@@ -91,6 +91,17 @@ public enum ReferenceKind
     /// name and vice versa.
     /// </summary>
     Resource = 9,
+
+    /// <summary>
+    /// A markup event handler: the <c>OnAccept</c> of <c>Click="OnAccept"</c>, naming a
+    /// method on the code-behind class this file compiles into. Its own kind because what
+    /// it may resolve to is narrower than anything else here — not merely a method, but a
+    /// method on <em>this file's</em> <c>x:Class</c> — and that narrowness is what makes it
+    /// safe to guess at. XAML marks event attributes with no syntax at all, so the pack
+    /// nominates candidates by convention and the resolver throws out the ones that cannot
+    /// be handlers, which is nearly all of them.
+    /// </summary>
+    Handler = 10,
 }
 
 /// <summary>
