@@ -363,6 +363,7 @@ internal static class JsonFormatter
         JsonSerializer.Serialize(new
         {
             index = Index(session),
+            scope = stats.ScopePath,
             files = new
             {
                 total = stats.TotalFiles,

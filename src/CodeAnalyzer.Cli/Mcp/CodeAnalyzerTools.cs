@@ -194,9 +194,13 @@ internal sealed class CodeAnalyzerTools(McpSessionHolder holder)
     [Description("Aggregate facts about the index itself: files by language, symbols by kind, "
         + "and — the part no other tool states — how well resolution is doing, as a per-reference "
         + "breakdown into resolved uniquely / ambiguous / unresolved. Use it to judge the index "
-        + "before trusting any per-symbol answer, or to measure a change.")]
-    public string Stats() =>
-        WithToolset(toolset => TerseFormatter.Stats(toolset.Stats()));
+        + "before trusting any per-symbol answer, or to measure a change. Pass a path to narrow "
+        + "every count to one file or subtree.")]
+    public string Stats(
+        [Description("Optional workspace-relative file or directory; limits every count to it. "
+            + "Omit for the whole workspace.")]
+        string? path = null) =>
+        WithToolset(toolset => TerseFormatter.Stats(toolset.Stats(path)));
 
     [McpServerTool(Name = "reindex")]
     [Description("Rebuild or refresh the workspace's index through the full pipeline. "

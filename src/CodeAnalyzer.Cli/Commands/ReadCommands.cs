@@ -85,8 +85,9 @@ internal static class ReadCommands
 
     public static CommandSpec Stats { get; } = new(
         "stats",
-        "stats [--root path] [--json]",
-        "aggregate facts about the index: what is in it, and how well it is resolving",
+        "stats [path] [--root path] [--json]",
+        "aggregate facts about the index: what is in it, and how well it is resolving; "
+        + "a path narrows every count to that file or subtree",
         (args, ct) => RunStats(args, ct));
 
     // ---- runners ------------------------------------------------------------
@@ -438,7 +439,14 @@ internal static class ReadCommands
 
         return CommandEnvironment.WithSession(args, toolset =>
         {
-            var stats = toolset.Stats();
+            if (args.Positionals.Count > 1)
+            {
+                Console.Error.WriteLine("usage: codeanalyzer " + Stats.Usage);
+                return Task.FromResult(ExitCodes.Error);
+            }
+
+            var scope = args.Positionals.Count == 1 ? args.Positionals[0] : null;
+            var stats = toolset.Stats(scope);
 
             Console.WriteLine(args.Switch("json")
                 ? JsonFormatter.Stats(toolset.Session, stats)

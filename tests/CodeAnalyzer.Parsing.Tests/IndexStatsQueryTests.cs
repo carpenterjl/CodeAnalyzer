@@ -153,6 +153,45 @@ public class IndexStatsQueryTests : IDisposable
     }
 
     [Fact]
+    public async Task APathScopeNarrowsEveryCountToItsSubtree()
+    {
+        WriteFile("core/a.c", """
+            int shared_core;
+            void core_fn(void) { shared_core = 1; }
+            """);
+        WriteFile("app/b.c", """
+            int app_only;
+            void app_fn(void) { app_only = 2; }
+            """);
+
+        var whole = await IndexAndReadAsync();
+        var core = IndexStatsQuery.Read(_store!.Connection, "core");
+
+        // The subtree sees only its own file and echoes the scope back normalised; the whole
+        // workspace carries no scope at all.
+        Assert.Equal(2, whole.TotalFiles);
+        Assert.Null(whole.ScopePath);
+        Assert.Equal(1, core.TotalFiles);
+        Assert.Equal("core", core.ScopePath);
+        Assert.True(core.TotalRefs > 0 && core.TotalRefs < whole.TotalRefs);
+
+        // Every split still partitions the scoped total, the same invariant the whole-index
+        // report holds — a scope narrows the rows, it does not break their arithmetic.
+        Assert.Equal(core.TotalRefs, core.RefsByKind.Sum(s => s.Total));
+        Assert.Equal(core.RefsResolvedUniquely, core.RefsByKind.Sum(s => s.Unique));
+        Assert.Equal(core.TotalSymbols, core.SymbolsByKind.Sum(c => c.Count));
+
+        // "." and a blank string are the workspace root — everything — not a literal path
+        // that no forward-slashed rel_path could match, which would silently zero the report.
+        Assert.Equal(whole.TotalFiles, IndexStatsQuery.Read(_store.Connection, ".").TotalFiles);
+        Assert.Equal(whole.TotalFiles, IndexStatsQuery.Read(_store.Connection, "  ").TotalFiles);
+
+        // A sibling prefix must not be swept in by the LIKE: scoping to "app" never sees
+        // "appendix". (There is no appendix here; the guard is that "core" saw exactly one.)
+        Assert.Equal(0, IndexStatsQuery.Read(_store.Connection, "cor").TotalFiles);
+    }
+
+    [Fact]
     public async Task TalliesCoverEveryFileAndSymbol()
     {
         WriteFile("a.c", "int alpha;");

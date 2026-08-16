@@ -39,7 +39,14 @@ public sealed record IndexStats(
     IReadOnlyList<NamedCount> EdgesByConfidence,
     int TotalDeps,
     int ResolvedDeps,
-    long DatabaseBytes);
+    long DatabaseBytes,
+    /// <summary>
+    /// The subtree every count was narrowed to, forward-slashed and normalised, or null when
+    /// the whole workspace was measured. Carried here so the one place that decides what a
+    /// scope means — <c>.</c> is the whole workspace, not a path — is also the place the
+    /// formatters read, rather than each re-deciding it.
+    /// </summary>
+    string? ScopePath = null);
 
 /// <summary>
 /// The stats block, read straight off a connection. Same placement reasoning as
@@ -61,45 +68,56 @@ public sealed record IndexStats(
 /// </summary>
 public static class IndexStatsQuery
 {
-    public static IndexStats Read(SqliteConnection connection)
+    public static IndexStats Read(SqliteConnection connection, string? pathScope = null)
     {
+        var scope = FileScope.For(pathScope);
+
         var filesByLanguage = ReadPairs(connection,
-            "SELECT language, COUNT(*) FROM file GROUP BY language ORDER BY COUNT(*) DESC, language");
+            $"SELECT language, COUNT(*) FROM file{scope.WhereFileIn("id")} "
+            + "GROUP BY language ORDER BY COUNT(*) DESC, language", scope);
 
         var symbolsByKind = ReadPairs(connection,
-            "SELECT kind, COUNT(*) FROM symbol WHERE is_definition = 1 GROUP BY kind ORDER BY COUNT(*) DESC",
-            kind => ((SymbolKind)kind).ToString());
+            "SELECT kind, COUNT(*) FROM symbol WHERE is_definition = 1"
+            + $"{scope.AndFileIn("file_id")} GROUP BY kind ORDER BY COUNT(*) DESC",
+            scope, kind => ((SymbolKind)kind).ToString());
 
         var edgesByConfidence = ReadPairs(connection,
-            "SELECT confidence, COUNT(*) FROM edge GROUP BY confidence ORDER BY confidence",
-            confidence => ((EdgeConfidence)confidence).ToString());
+            $"SELECT confidence, COUNT(*) FROM edge{scope.WhereFileIn("src_file_id")} "
+            + "GROUP BY confidence ORDER BY confidence",
+            scope, confidence => ((EdgeConfidence)confidence).ToString());
 
-        var scalars = ReadScalars(connection, """
+        // Every count is scoped by the *source* side — the file a reference, symbol, edge or
+        // dependency was written in — because a reference resolves against definitions
+        // anywhere, so "of what this subtree holds, how much resolves" is the only question a
+        // path can answer. The database size is the one physical fact a subtree cannot narrow.
+        var scalars = ReadScalars(connection, $"""
             SELECT
-                (SELECT COUNT(*) FROM file),
-                (SELECT COUNT(*) FROM file WHERE status <> 0),
-                (SELECT COUNT(*) FROM symbol WHERE is_definition = 1),
-                (SELECT COUNT(*) FROM ref),
-                (SELECT COUNT(*) FROM ref WHERE receiver_text IS NOT NULL),
-                (SELECT COUNT(*) FROM ref WHERE arg_text IS NOT NULL),
-                (SELECT COUNT(*) FROM edge),
-                (SELECT COUNT(*) FROM file_dep),
-                (SELECT COUNT(*) FROM file_dep WHERE dep_file_id IS NOT NULL),
+                (SELECT COUNT(*) FROM file{scope.WhereFileIn("id")}),
+                (SELECT COUNT(*) FROM file WHERE status <> 0{scope.AndFileIn("id")}),
+                (SELECT COUNT(*) FROM symbol WHERE is_definition = 1{scope.AndFileIn("file_id")}),
+                (SELECT COUNT(*) FROM ref{scope.WhereFileIn("file_id")}),
+                (SELECT COUNT(*) FROM ref WHERE receiver_text IS NOT NULL{scope.AndFileIn("file_id")}),
+                (SELECT COUNT(*) FROM ref WHERE arg_text IS NOT NULL{scope.AndFileIn("file_id")}),
+                (SELECT COUNT(*) FROM edge{scope.WhereFileIn("src_file_id")}),
+                (SELECT COUNT(*) FROM file_dep{scope.WhereFileIn("file_id")}),
+                (SELECT COUNT(*) FROM file_dep WHERE dep_file_id IS NOT NULL{scope.AndFileIn("file_id")}),
                 (SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size())
-            """);
+            """, scope);
 
         // Per-reference fan-out, computed once: how many refs landed on exactly one
-        // definition, on several, and on none at all.
+        // definition, on several, and on none at all. Scoped by the edge's source file, which
+        // is the reference's own file, so a whole reference is kept or dropped together.
         int unique, ambiguous;
         long ambiguousEdges;
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = """
+            command.CommandText = $"""
                 SELECT COALESCE(SUM(n = 1), 0),
                        COALESCE(SUM(n > 1), 0),
                        COALESCE(SUM(CASE WHEN n > 1 THEN n ELSE 0 END), 0)
-                FROM (SELECT COUNT(*) AS n FROM edge GROUP BY ref_id)
+                FROM (SELECT COUNT(*) AS n FROM edge{scope.WhereFileIn("src_file_id")} GROUP BY ref_id)
                 """;
+            scope.Bind(command);
             using var reader = command.ExecuteReader();
             reader.Read();
             unique = reader.GetInt32(0);
@@ -118,16 +136,17 @@ public static class IndexStatsQuery
                 FROM ref r
                 JOIN file_dep d ON d.file_id = r.file_id AND d.dep_path = r.name
                 WHERE r.kind IN ({(int)ReferenceKind.Include}, {(int)ReferenceKind.Import})
-                  AND d.dep_file_id IS NOT NULL
+                  AND d.dep_file_id IS NOT NULL{scope.AndFileIn("r.file_id")}
                 """;
+            scope.Bind(command);
             unique += Convert.ToInt32(command.ExecuteScalar());
         }
 
         var refsByKind = ReadSplits(connection,
-            "r.kind", "ref r", name => ((ReferenceKind)int.Parse(name)).ToString());
+            "r.kind", "ref r", scope, name => ((ReferenceKind)int.Parse(name)).ToString());
 
         var refsByLanguage = ReadSplits(connection,
-            "f.language", "ref r JOIN file f ON f.id = r.file_id");
+            "f.language", "ref r JOIN file f ON f.id = r.file_id", scope);
 
         var totalRefs = (int)scalars[3];
         return new IndexStats(
@@ -149,7 +168,8 @@ public static class IndexStatsQuery
             EdgesByConfidence: edgesByConfidence,
             TotalDeps: (int)scalars[7],
             ResolvedDeps: (int)scalars[8],
-            DatabaseBytes: scalars[9]);
+            DatabaseBytes: scalars[9],
+            ScopePath: scope.Path);
     }
 
     /// <summary>
@@ -171,7 +191,8 @@ public static class IndexStatsQuery
     /// </para>
     /// </summary>
     private static List<ResolutionSplit> ReadSplits(
-        SqliteConnection connection, string groupBy, string from, Func<string, string>? nameOf = null)
+        SqliteConnection connection, string groupBy, string from,
+        FileScope scope, Func<string, string>? nameOf = null)
     {
         var fileScoped = $"{(int)ReferenceKind.Include}, {(int)ReferenceKind.Import}";
         using var command = connection.CreateCommand();
@@ -186,10 +207,11 @@ public static class IndexStatsQuery
                                      ELSE (CASE WHEN e.n > 1 THEN 1 ELSE 0 END) END), 0)
             FROM {from}
             LEFT JOIN (SELECT ref_id, COUNT(*) AS n FROM edge GROUP BY ref_id) e ON e.ref_id = r.id
-            LEFT JOIN file_dep d ON d.file_id = r.file_id AND d.dep_path = r.name
+            LEFT JOIN file_dep d ON d.file_id = r.file_id AND d.dep_path = r.name{scope.WhereFileIn("r.file_id")}
             GROUP BY {groupBy}
             ORDER BY COUNT(*) DESC
             """;
+        scope.Bind(command);
 
         var splits = new List<ResolutionSplit>();
         using var reader = command.ExecuteReader();
@@ -208,10 +230,11 @@ public static class IndexStatsQuery
     }
 
     private static List<NamedCount> ReadPairs(
-        SqliteConnection connection, string sql, Func<int, string>? nameOf = null)
+        SqliteConnection connection, string sql, FileScope scope, Func<int, string>? nameOf = null)
     {
         using var command = connection.CreateCommand();
         command.CommandText = sql;
+        scope.Bind(command);
 
         var pairs = new List<NamedCount>();
         using var reader = command.ExecuteReader();
@@ -224,10 +247,11 @@ public static class IndexStatsQuery
         return pairs;
     }
 
-    private static long[] ReadScalars(SqliteConnection connection, string sql)
+    private static long[] ReadScalars(SqliteConnection connection, string sql, FileScope scope)
     {
         using var command = connection.CreateCommand();
         command.CommandText = sql;
+        scope.Bind(command);
         using var reader = command.ExecuteReader();
         reader.Read();
 
@@ -238,5 +262,74 @@ public static class IndexStatsQuery
         }
 
         return values;
+    }
+
+    /// <summary>
+    /// An optional restriction of the whole report to one subtree. A scope is a
+    /// forward-slashed, workspace-relative path that names either a single file or a
+    /// directory; every count is narrowed to the files at or under it. Matching is by the
+    /// <em>source</em> side — the file a reference, symbol, edge or dependency was written in
+    /// — never by what a reference resolves to, because a reference can resolve to a
+    /// definition anywhere and "how well does this subtree resolve" is the only question a
+    /// path answers.
+    /// <para>
+    /// The predicate is the same in every query: a file id in the set of files whose
+    /// <c>rel_path</c> equals the scope or begins with it plus a slash. The two bound values
+    /// carry the exact name and the <c>prefix/%</c> pattern, so a directory named
+    /// <c>src/App</c> never sweeps in a sibling <c>src/AppHost</c>.
+    /// </para>
+    /// </summary>
+    private sealed class FileScope
+    {
+        private readonly string? _prefix;
+
+        private FileScope(string? prefix) => _prefix = prefix;
+
+        public bool IsWholeWorkspace => _prefix is null;
+
+        /// <summary>The normalised scope path, or null for the whole workspace.</summary>
+        public string? Path => _prefix;
+
+        public static FileScope For(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return new FileScope(null);
+            }
+
+            var normalised = raw.Replace('\\', '/').Trim().TrimEnd('/');
+
+            // A leading "./" is noise; "." on its own is the workspace root — the whole
+            // workspace, not a literal path that no rel_path (which never starts with "./")
+            // could ever match. `codeanalyzer stats .` has meant "everything" every round.
+            if (normalised.StartsWith("./", StringComparison.Ordinal))
+            {
+                normalised = normalised[2..];
+            }
+
+            return new FileScope(normalised is "" or "." ? null : normalised);
+        }
+
+        /// <summary>A leading <c>WHERE</c> restriction on a file-id column, or empty when unscoped.</summary>
+        public string WhereFileIn(string column) =>
+            _prefix is null ? string.Empty : $" WHERE {FileIdIn(column)}";
+
+        /// <summary>A trailing <c>AND</c> restriction on a file-id column, or empty when unscoped.</summary>
+        public string AndFileIn(string column) =>
+            _prefix is null ? string.Empty : $" AND {FileIdIn(column)}";
+
+        public void Bind(SqliteCommand command)
+        {
+            if (_prefix is null)
+            {
+                return;
+            }
+
+            command.Parameters.AddWithValue("$scope", _prefix);
+            command.Parameters.AddWithValue("$scopePrefix", _prefix + "/%");
+        }
+
+        private static string FileIdIn(string column) =>
+            $"{column} IN (SELECT id FROM file WHERE rel_path = $scope OR rel_path LIKE $scopePrefix)";
     }
 }

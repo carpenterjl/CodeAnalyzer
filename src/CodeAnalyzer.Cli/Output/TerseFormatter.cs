@@ -538,6 +538,12 @@ internal static class TerseFormatter
     {
         var builder = new StringBuilder();
 
+        if (stats.ScopePath is not null)
+        {
+            builder.AppendLine($"scope: {stats.ScopePath} "
+                + "(every count below is limited to this file or subtree)");
+        }
+
         builder.AppendLine($"files: {stats.TotalFiles} ({Tally(stats.FilesByLanguage)})"
             + (stats.ImperfectFiles == 0
                 ? string.Empty

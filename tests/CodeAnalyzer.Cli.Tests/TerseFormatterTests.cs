@@ -133,6 +133,17 @@ public class TerseFormatterTests
     }
 
     [Fact]
+    public void StatsAnnounceAPathScopeAndTheWholeWorkspaceStaysSilent()
+    {
+        // A scoped report must say so up front, or a reader takes a subtree's numbers for the
+        // whole index's. The unscoped report carries no such line — silence is the default.
+        Assert.DoesNotContain("scope:", TerseFormatter.Stats(SomeStats()));
+
+        var scoped = TerseFormatter.Stats(SomeStats() with { ScopePath = "src/CodeAnalyzer.Core" });
+        Assert.Contains("scope: src/CodeAnalyzer.Core", scoped);
+    }
+
+    [Fact]
     public void StatsNameReferenceKindsRatherThanNumberingThem()
     {
         // The whole point of the by-kind table is that a reader can act on a bad row. A
