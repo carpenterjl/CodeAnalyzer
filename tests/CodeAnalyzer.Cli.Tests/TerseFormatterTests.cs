@@ -144,6 +144,56 @@ public class TerseFormatterTests
     }
 
     [Fact]
+    public void StatsSayHowMuchOfARowsUnresolvedIsCorrectlyExternal()
+    {
+        // A row that is all external reads "correct, not a gap" at a glance; a fully
+        // resolved row has no unresolved to slice and must not carry the share at all.
+        var stats = SomeStats() with
+        {
+            RefsByKind =
+            [
+                new("Inherit", 90, 27, 0, 63, External: 63),
+                new("Include", 5, 5, 0, 0),
+            ],
+        };
+
+        var text = TerseFormatter.Stats(stats);
+        Assert.Contains("100.0% external", text);
+        var includeRow = text.Split('\n').Single(l => l.Contains("Include"));
+        Assert.DoesNotContain("external", includeRow);
+    }
+
+    [Fact]
+    public void StatsCallDependenciesWhatTheyAreAndReconcileThemWithTheirReferences()
+    {
+        // "imports: 18 of 559" mislabelled C's includes and could not be compared with
+        // the by-kind rows, whose Include+Import total counts references before the
+        // packs deduplicate them. The line now names the thing it counts and, when the
+        // two totals differ, says why rather than letting the tables disagree quietly.
+        var stats = SomeStats() with
+        {
+            RefsByKind =
+            [
+                new("Call", 50, 40, 5, 5),
+                new("Include", 6, 6, 0, 0),
+                new("Import", 4, 0, 0, 4),
+            ],
+        };
+
+        var text = TerseFormatter.Stats(stats);
+        Assert.Contains("file dependencies: 3 of 8 name a workspace file", text);
+        Assert.Contains("(10 include/import references, deduplicated)", text);
+        Assert.DoesNotContain("imports:", text);
+
+        // When nothing was deduplicated there is nothing to explain.
+        var agreeing = SomeStats() with
+        {
+            RefsByKind = [new("Include", 8, 3, 0, 5)],
+        };
+        Assert.DoesNotContain("deduplicated", TerseFormatter.Stats(agreeing));
+    }
+
+    [Fact]
     public void StatsNameReferenceKindsRatherThanNumberingThem()
     {
         // The whole point of the by-kind table is that a reader can act on a bad row. A

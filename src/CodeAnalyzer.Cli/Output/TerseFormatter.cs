@@ -565,7 +565,22 @@ internal static class TerseFormatter
         AppendSplits(builder, "by language", stats.RefsByLanguage);
 
         builder.AppendLine($"edges: {stats.TotalEdges:n0} ({Tally(stats.EdgesByConfidence)})");
-        builder.AppendLine($"imports: {stats.ResolvedDeps:n0} of {stats.TotalDeps:n0} name a workspace file");
+
+        // "file dependencies", not "imports": the rows behind this line include C's
+        // #include lines, which the old label miscounted as imports. And the count is of
+        // *dependencies*, which a pack may deduplicate (JavaScript records one row for a
+        // module required twice), so when it differs from the Include+Import reference
+        // total the line says how, rather than leaving the two tables to disagree quietly.
+        var dependencyRefs = stats.RefsByKind
+            .Where(s => s.Name is nameof(Core.Domain.ReferenceKind.Include)
+                or nameof(Core.Domain.ReferenceKind.Import))
+            .Sum(s => s.Total);
+        var reconciliation = dependencyRefs == stats.TotalDeps || dependencyRefs == 0
+            ? string.Empty
+            : $" ({dependencyRefs:n0} include/import references, deduplicated)";
+        builder.AppendLine(
+            $"file dependencies: {stats.ResolvedDeps:n0} of {stats.TotalDeps:n0} "
+            + $"name a workspace file{reconciliation}");
         builder.AppendLine($"database: {stats.DatabaseBytes / 1024.0 / 1024.0:0.0} MB");
 
         builder.AppendLine();

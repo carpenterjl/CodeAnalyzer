@@ -397,7 +397,10 @@ internal static class JsonFormatter
                 total = stats.TotalEdges,
                 byConfidence = stats.EdgesByConfidence.ToDictionary(c => c.Name, c => c.Count),
             },
-            imports = new { total = stats.TotalDeps, resolvedToWorkspaceFile = stats.ResolvedDeps },
+            // Renamed from "imports" in M25.3: these are file dependencies — C includes
+            // as much as imports — and a pack may deduplicate them, so the count is of
+            // distinct dependencies rather than of include/import references.
+            fileDependencies = new { total = stats.TotalDeps, resolvedToWorkspaceFile = stats.ResolvedDeps },
             databaseBytes = stats.DatabaseBytes,
         }, Options);
 
