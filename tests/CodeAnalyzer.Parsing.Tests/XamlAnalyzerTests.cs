@@ -234,6 +234,72 @@ public class XamlAnalyzerTests() : LanguagePackFixture(LanguageRegistry.Xaml, "V
     }
 
     [Fact]
+    public void ABindingInsideATypedTemplateCarriesTheTemplatesTypeAsItsReceiver()
+    {
+        // The DataTemplate states its item type, and that statement is the fact that
+        // makes {Binding Descriptor} resolvable: the type name lands in the receiver
+        // slot, where the resolver's receiver-is-a-type-name rank prefers a property
+        // whose container is SearchResultItem over one that merely shares the name.
+        var result = Analyze("""
+            <Window x:Class="CodeAnalyzer.App.Views.MainWindow">
+                <Window.Resources>
+                    <DataTemplate x:Key="SearchResultTemplate" DataType="{x:Type vm:SearchResultItem}">
+                        <TextBlock x:Name="Row" Text="{Binding Descriptor}" />
+                    </DataTemplate>
+                </Window.Resources>
+            </Window>
+            """);
+
+        var binding = Assert.Single(result.References, r => r.Kind == ReferenceKind.Binding);
+        Assert.Equal("Descriptor", binding.Name);
+        Assert.Equal("SearchResultItem", binding.ReceiverText);
+    }
+
+    [Fact]
+    public void ARootDesignContextTypesEveryBindingOutsideATemplate()
+    {
+        // d:DataContext is the root element declaring what its own bindings resolve
+        // against — in-file, parseable, no code-behind data flow required.
+        var result = Analyze("""
+            <Window x:Class="CodeAnalyzer.App.Views.MainWindow"
+                    d:DataContext="{d:DesignInstance Type=vm:MainViewModel}">
+                <TextBox x:Name="SearchBox" Text="{Binding SearchQuery}" />
+            </Window>
+            """);
+
+        var binding = Assert.Single(result.References, r => r.Kind == ReferenceKind.Binding);
+        Assert.Equal("MainViewModel", binding.ReceiverText);
+    }
+
+    [Fact]
+    public void AnUndeclaredTemplateIsAWallNotAWindow()
+    {
+        // The template's real item type is whatever its ItemsSource holds — something
+        // this index cannot know. Inheriting the window's context instead would be an
+        // invented claim, so a typeless template blocks it: the binding inside carries
+        // no receiver, while its sibling outside still carries the root's.
+        var result = Analyze("""
+            <Window x:Class="CodeAnalyzer.App.Views.MainWindow"
+                    d:DataContext="{d:DesignInstance Type=vm:MainViewModel}">
+                <TextBlock x:Name="Header" Text="{Binding Status}" />
+                <ItemsControl x:Name="Rows">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock x:Name="Row" Text="{Binding Language}" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Window>
+            """);
+
+        var outside = Assert.Single(result.References, r => r.Name == "Status");
+        Assert.Equal("MainViewModel", outside.ReceiverText);
+
+        var inside = Assert.Single(result.References, r => r.Name == "Language");
+        Assert.Null(inside.ReceiverText);
+    }
+
+    [Fact]
     public void AnExtensionTheParserCannotReadMakesNoClaim()
     {
         var result = Analyze("""

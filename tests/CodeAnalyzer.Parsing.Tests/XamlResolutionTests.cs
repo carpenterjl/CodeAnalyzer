@@ -157,6 +157,58 @@ public class XamlResolutionTests : IDisposable
     }
 
     [Fact]
+    public async Task ATypedTemplateBindingLandsOnItsDeclaredTypeDespiteARival()
+    {
+        // The rival is the point of this fixture (a lesson round eight bought): with one
+        // Descriptor in the workspace the edge is unique for lack of competition and the
+        // assertion proves nothing. Here two types carry the property, the template
+        // declares which one it binds, and the declaration must beat the tie.
+        WriteFile("Views/ResultList.xaml", """
+            <UserControl x:Class="Demo.Views.ResultList"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                <UserControl.Resources>
+                    <DataTemplate x:Key="RowTemplate" DataType="{x:Type vm:SearchResultItem}">
+                        <TextBlock x:Name="Row" Text="{Binding Descriptor}" />
+                    </DataTemplate>
+                </UserControl.Resources>
+            </UserControl>
+            """);
+        WriteFile("ViewModels/SearchResultItem.cs", """
+            namespace Demo.ViewModels;
+
+            public class SearchResultItem
+            {
+                public string Descriptor { get; set; } = "";
+            }
+            """);
+        WriteFile("ViewModels/OverloadItem.cs", """
+            namespace Demo.ViewModels;
+
+            public class OverloadItem
+            {
+                public string Descriptor { get; set; } = "";
+            }
+            """);
+
+        var store = await IndexAsync();
+        var search = new SymbolSearchService(store.Connection);
+        search.Reload();
+
+        var graph = new GraphQueryService(store.Connection);
+        var hits = search.Search("Descriptor").Where(h => h.Kind == SymbolKind.Property).ToList();
+        var declared = hits.First(h => h.RelativePath == "ViewModels/SearchResultItem.cs").SymbolId;
+        var rival = hits.First(h => h.RelativePath == "ViewModels/OverloadItem.cs").SymbolId;
+
+        // One edge, to the declared type's property; cross-language name match is still
+        // all the confidence the index can honestly claim for it.
+        var caller = Assert.Single(graph.GetDetail(declared)!.Callers, c => c.Name == "Row");
+        Assert.Equal(ReferenceKind.Binding, caller.ReferenceKind);
+        Assert.Equal(EdgeConfidence.Weak, caller.Confidence);
+
+        Assert.Empty(graph.GetDetail(rival)!.Callers);
+    }
+
+    [Fact]
     public async Task AStaticResourceKeyResolvesToTheKeyedElement()
     {
         WriteFile("Views/Panel.xaml", """

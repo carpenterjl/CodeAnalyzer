@@ -59,6 +59,56 @@
   (#match? @attribute "(Click|Changed|Down|Up|Enter|Leave|Move|Wheel|Loaded|Unloaded|Opened|Opening|Closed|Closing|Focus|Checked|Expanded|Collapsed|Activated|Deactivated|Initialized|Drop|Drag|Scroll|Sorting|Started|Completed|Invoked|Toggled)$")
   (#match? @name "^[A-Za-z_][A-Za-z0-9_]*$")) @ref.handler
 
+; A binding context is not a reference, but it is the fact that makes binding references
+; resolvable (M25.2). {Binding Descriptor} names a property on a type the attribute never
+; states — but the enclosing markup usually does state it: a DataTemplate declares its
+; item type in DataType="{x:Type vm:SearchResultItem}", and the root element declares the
+; window's own context in d:DataContext="{d:DesignInstance Type=vm:MainViewModel}". These
+; patterns hand each such element to the analyzer as a context span plus the declaring
+; value; the analyzer stamps the innermost context's type into each binding's receiver
+; slot, where it means what a receiver means everywhere else — the source located the
+; target, not the file the reference sits in.
+;
+; A DataTemplate with no DataType still matches (the pattern below the typed one), and a
+; runtime DataContext="{Binding …}" parses to no type. Both become typeless contexts, and
+; a typeless context is a wall: bindings inside it get no receiver at all rather than
+; inheriting one from outside, because the template's real item type is something this
+; index cannot know.
+(element
+  (start_tag
+    (tag_name) @ctxtag
+    (attribute
+      (attribute_name) @attribute
+      (quoted_attribute_value
+        (attribute_value) @ctx.type)))
+  (#match? @ctxtag "^(DataTemplate|HierarchicalDataTemplate)$")
+  (#eq? @attribute "DataType")) @ctx
+
+; Every template is at least a typeless context — a wall. ControlTemplate and
+; ItemsPanelTemplate are here although they can never carry DataType, because what their
+; bindings resolve against (the templated control) is a thing this index cannot type, and
+; letting them inherit the window's context would be an invented claim.
+(element
+  (start_tag
+    (tag_name) @ctxtag)
+  (#match? @ctxtag "^(DataTemplate|HierarchicalDataTemplate|ControlTemplate|ItemsPanelTemplate)$")) @ctx
+
+(element
+  (start_tag
+    (attribute
+      (attribute_name) @attribute
+      (quoted_attribute_value
+        (attribute_value) @ctx.type)))
+  (#match? @attribute "^(d:DataContext|DataContext)$")) @ctx
+
+(element
+  (self_closing_tag
+    (attribute
+      (attribute_name) @attribute
+      (quoted_attribute_value
+        (attribute_value) @ctx.type)))
+  (#match? @attribute "^(d:DataContext|DataContext)$")) @ctx
+
 ; Nothing else here is a reference. TargetType="Button" names a type but so does every
 ; other bare word in an attribute, and there is no syntax separating them — a bare word
 ; in an attribute value stays stored, not claimed.

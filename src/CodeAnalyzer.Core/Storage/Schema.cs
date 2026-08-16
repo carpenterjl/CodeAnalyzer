@@ -93,6 +93,15 @@ public static class Schema
     /// rebuild that followed it.
     /// </para>
     /// <para>
+    /// Version 24 (M25.2) changes no DDL. The XAML pack now reads binding contexts — a
+    /// DataTemplate's <c>DataType="{x:Type vm:SearchResultItem}"</c>, the root element's
+    /// <c>d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"</c> — and stamps the
+    /// innermost declared type into each binding reference's receiver slot, which the
+    /// resolver's receiver-is-a-type-name rank then prefers. Rows an earlier build stored
+    /// for an unchanged <c>.xaml</c> file carry no receiver on any binding, so only a
+    /// rebuild makes the stored file agree with the pack now running.
+    /// </para>
+    /// <para>
     /// Version 18 (M20.2) changes no DDL. A XAML <c>x:Key</c> is now its own symbol kind
     /// rather than a markup element, so rows an earlier build stored for an unchanged
     /// <c>.xaml</c> file record a resource key under the kind an element name uses — and a
@@ -147,7 +156,7 @@ public static class Schema
     /// files are newly discovered rather than stale.
     /// </para>
     /// </summary>
-    public const int Version = 23;
+    public const int Version = 24;
 
     public const string MetaSchemaVersion = "schema_version";
     public const string MetaRootPath = "root_path";

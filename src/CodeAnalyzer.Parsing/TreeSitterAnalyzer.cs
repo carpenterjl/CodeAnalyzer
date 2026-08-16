@@ -488,6 +488,11 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
         // most specific kind rather than producing duplicate edges.
         var byOffset = new Dictionary<int, (ReferenceRecord Record, int Specificity)>();
 
+        // Binding-context spans (M25.2), collected alongside the references they will
+        // re-scope. Keyed by start offset because a typed and an untyped context pattern
+        // both match a DataTemplate that declares its DataType, and the typed claim wins.
+        var contextByOffset = new Dictionary<int, (int End, string? TypeName)>();
+
         using var cursor = _referenceQuery.Execute(tree.RootNode, new QueryOptions { MatchLimit = (uint)MaxMatchesInProgress });
 
         foreach (var match in cursor.Matches)
@@ -499,6 +504,8 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
             Node? nameNode = null;
             Node? argumentsNode = null;
             Node? receiverNode = null;
+            Node? contextNode = null;
+            Node? contextTypeNode = null;
 
             foreach (var capture in match.Captures)
             {
@@ -514,6 +521,12 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
                     case CaptureNames.Name:
                         nameNode = capture.Node;
                         break;
+                    case CaptureNames.Context:
+                        contextNode = capture.Node;
+                        break;
+                    case CaptureNames.ContextType:
+                        contextTypeNode = capture.Node;
+                        break;
                     case CaptureNames.Arguments:
                         argumentsNode = capture.Node;
                         break;
@@ -521,6 +534,24 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
                         receiverNode = capture.Node;
                         break;
                 }
+            }
+
+            // A context match carries a span and possibly a declared type, never a
+            // reference. A typeless entry still lands in the table: an undeclared
+            // template blocks the context outside it rather than passing it through.
+            if (contextNode is not null)
+            {
+                var typeName = contextTypeNode is null
+                    ? null
+                    : MarkupExtensionPath.ContextType(contextTypeNode.Text);
+                var start = contextNode.StartIndex;
+
+                if (!contextByOffset.TryGetValue(start, out var known) || known.TypeName is null)
+                {
+                    contextByOffset[start] = (contextNode.EndIndex, typeName ?? known.TypeName);
+                }
+
+                continue;
             }
 
             if (referenceNode is null)
@@ -621,6 +652,41 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
         }
 
         matchLimitExceeded = cursor.IsMatchLimitExceeded;
+
+        // Each binding resolves against its innermost enclosing context (M25.2): the
+        // template's declared DataType, or the design-time DataContext for anything
+        // outside every template. The type name goes in the receiver slot verbatim,
+        // where the resolver's "the receiver is a type name" rank already knows what to
+        // do with it. Innermost-wins is what makes an undeclared template a wall: it is
+        // the closest context, and it has no type to give.
+        if (contextByOffset.Count > 0)
+        {
+            foreach (var (offset, entry) in byOffset)
+            {
+                if (entry.Record.Kind != ReferenceKind.Binding)
+                {
+                    continue;
+                }
+
+                (int Start, int End, string? TypeName)? innermost = null;
+                foreach (var (start, (end, typeName)) in contextByOffset)
+                {
+                    if (start <= offset && offset < end
+                        && (innermost is null || start > innermost.Value.Start))
+                    {
+                        innermost = (start, end, typeName);
+                    }
+                }
+
+                if (innermost is { TypeName: { } contextType })
+                {
+                    byOffset[offset] = entry with
+                    {
+                        Record = entry.Record with { ReceiverText = contextType },
+                    };
+                }
+            }
+        }
 
         return byOffset.Values.Select(v => v.Record).ToList();
     }

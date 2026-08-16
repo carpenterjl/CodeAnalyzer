@@ -150,6 +150,137 @@ public static class MarkupExtensionPath
         return true;
     }
 
+    /// <summary>
+    /// The type name a binding-context attribute declares, or null when the value
+    /// declares no type this parser is sure of.
+    /// <para>
+    /// Three spellings name a context type in this corpus's own markup and they are the
+    /// three read here: <c>DataType="{x:Type vm:SearchResultItem}"</c>,
+    /// <c>d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"</c> (the positional
+    /// spelling too), and the unbraced XML-namespace form <c>DataType="local:Item"</c>.
+    /// The XML prefix is dropped because a definition carries its short name, the same
+    /// rule the x:Class split follows. Everything else returns null — and null is load-
+    /// bearing rather than a shrug: a runtime <c>DataContext="{Binding Detail}"</c>
+    /// re-scopes its children to a type this index cannot know, so the caller treats a
+    /// typeless context as a wall, not a window to the context outside it.
+    /// </para>
+    /// </summary>
+    public static string? ContextType(string value)
+    {
+        var trimmed = value.AsSpan().Trim();
+        if (trimmed.IsEmpty || trimmed.StartsWith("{}", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        if (trimmed[0] != '{')
+        {
+            // Unbraced: the XML-namespace DataType form, a bare (possibly prefixed) name.
+            return ReadTypeName(trimmed);
+        }
+
+        if (trimmed[^1] != '}')
+        {
+            return null;
+        }
+
+        var inner = trimmed[1..^1].Trim();
+
+        var wordEnd = 0;
+        while (wordEnd < inner.Length && !char.IsWhiteSpace(inner[wordEnd]))
+        {
+            wordEnd++;
+        }
+
+        var word = inner[..wordEnd];
+        var rest = inner[wordEnd..].Trim();
+
+        if (word.SequenceEqual("x:Type"))
+        {
+            return ReadTypeName(rest);
+        }
+
+        if (!word.SequenceEqual("d:DesignInstance"))
+        {
+            return null;
+        }
+
+        // d:DesignInstance takes the type positionally or as Type=…, alongside arguments
+        // like IsDesignTimeCreatable that are not name sources. Split at top-level commas,
+        // same as Extract.
+        var depth = 0;
+        var argStart = 0;
+        for (var i = 0; i <= rest.Length; i++)
+        {
+            var atEnd = i == rest.Length;
+            if (!atEnd && rest[i] == '{')
+            {
+                depth++;
+                continue;
+            }
+
+            if (!atEnd && rest[i] == '}')
+            {
+                depth--;
+                continue;
+            }
+
+            if (!atEnd && (rest[i] != ',' || depth > 0))
+            {
+                continue;
+            }
+
+            var argument = rest[argStart..i].Trim();
+            argStart = i + 1;
+
+            var equals = TopLevelIndexOf(argument, '=');
+            if (equals >= 0)
+            {
+                if (!argument[..equals].TrimEnd().SequenceEqual("Type"))
+                {
+                    continue;
+                }
+
+                argument = argument[(equals + 1)..].Trim();
+            }
+
+            if (ReadTypeName(argument) is { } name)
+            {
+                return name;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// A (possibly XML-prefixed) type name's short segment, or null when the text is not
+    /// one plain identifier — anything with dots, braces or spaces is refused, not read.
+    /// </summary>
+    private static string? ReadTypeName(ReadOnlySpan<char> text)
+    {
+        var colon = text.IndexOf(':');
+        if (colon >= 0)
+        {
+            text = text[(colon + 1)..];
+        }
+
+        if (text.IsEmpty)
+        {
+            return null;
+        }
+
+        foreach (var ch in text)
+        {
+            if (!char.IsLetterOrDigit(ch) && ch != '_')
+            {
+                return null;
+            }
+        }
+
+        return char.IsDigit(text[0]) ? null : text.ToString();
+    }
+
     private static int TopLevelIndexOf(ReadOnlySpan<char> text, char target)
     {
         var depth = 0;

@@ -19,6 +19,17 @@ internal static class CaptureNames
     public const string Modifier = "modifier";
     public const string Receiver = "receiver";
 
+    /// <summary>
+    /// A binding-context element — a XAML <c>DataTemplate</c>, or any element carrying a
+    /// <c>DataContext</c> attribute — whose extent re-scopes what the bindings inside it
+    /// resolve against. Not a reference and not a declaration: the match contributes only
+    /// its span and, via <see cref="ContextType"/>, the type the scope declares.
+    /// </summary>
+    public const string Context = "ctx";
+
+    /// <summary>The attribute value declaring a context's type, when the element states one.</summary>
+    public const string ContextType = "ctx.type";
+
     private static readonly Dictionary<string, SymbolKind> SymbolKinds = new(StringComparer.OrdinalIgnoreCase)
     {
         ["function"] = SymbolKind.Function,
