@@ -93,6 +93,16 @@ public static class Schema
     /// rebuild that followed it.
     /// </para>
     /// <para>
+    /// Version 25 (M26.3) changes no DDL, and narrows what Version 24 introduced. A
+    /// binding that names its own source — <c>RelativeSource=</c>, <c>ElementName=</c>,
+    /// <c>Source=</c> — does not read the ambient <c>DataContext</c>, so the enclosing
+    /// context type is no longer stamped on it. Rows an earlier build stored for an
+    /// unchanged <c>.xaml</c> file assert a receiver the markup contradicts, and only a
+    /// rebuild retracts it. This is the same class of change as Version 24 and needs the
+    /// same bump for the same reason: the gate screens on size, timestamp and hash, and
+    /// cannot see that the parser now reads the file differently.
+    /// </para>
+    /// <para>
     /// Version 24 (M25.2) changes no DDL. The XAML pack now reads binding contexts — a
     /// DataTemplate's <c>DataType="{x:Type vm:SearchResultItem}"</c>, the root element's
     /// <c>d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"</c> — and stamps the
@@ -156,7 +166,7 @@ public static class Schema
     /// files are newly discovered rather than stale.
     /// </para>
     /// </summary>
-    public const int Version = 24;
+    public const int Version = 25;
 
     public const string MetaSchemaVersion = "schema_version";
     public const string MetaRootPath = "root_path";

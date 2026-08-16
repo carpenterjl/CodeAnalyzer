@@ -30,7 +30,14 @@ public static class MarkupExtensionPath
     /// type the markup never states). One flag rather than one result type per extension
     /// word, because that distinction is the only one resolution acts on.
     /// </summary>
-    public readonly record struct ExtractedName(string Name, int Offset, bool IsResource);
+    /// <param name="NamesItsOwnSource">
+    /// True when the extension carries <c>RelativeSource=</c>, <c>ElementName=</c> or
+    /// <c>Source=</c> — the three ways a binding says where it reads from. Such a binding
+    /// does not read the ambient <c>DataContext</c>, so the enclosing context type is not
+    /// its receiver and must not be stamped on it (M26.3).
+    /// </param>
+    public readonly record struct ExtractedName(
+        string Name, int Offset, bool IsResource, bool NamesItsOwnSource = false);
 
     /// <summary>
     /// The referenced name and its character offset within <paramref name="value"/>,
@@ -70,8 +77,17 @@ public static class MarkupExtensionPath
 
         // Arguments, split at top-level commas: a nested {RelativeSource …} must not
         // leak its content into a neighbouring argument.
+        //
+        // Every argument is visited even after the path is found, because the two things
+        // read here sit in different arguments: `{Binding DataContext.FocusSymbolCommand,
+        // RelativeSource={RelativeSource AncestorType=Window}}` names its path first and
+        // says where it reads from second. Returning at the first hit, as this loop used
+        // to, would have found the path and never seen the source.
         var depth = 0;
         var argStart = wordEnd;
+        ExtractedName? found = null;
+        var namesItsOwnSource = false;
+
         for (var i = wordEnd; i <= inner.Length; i++)
         {
             var atEnd = i == inner.Length;
@@ -96,15 +112,40 @@ public static class MarkupExtensionPath
             var trimmedStart = argStart + CountLeadingWhitespace(argument);
             var trimmed = argument.Trim();
 
-            if (TryReadName(trimmed, wantsPath, out var name, out var withinArgument))
+            namesItsOwnSource |= IsSourceArgument(trimmed);
+
+            // First match wins, as before — later arguments are read only for the flag.
+            if (found is null
+                && TryReadName(trimmed, wantsPath, out var name, out var withinArgument))
             {
-                return new ExtractedName(name, innerStart + trimmedStart + withinArgument, wantsKey);
+                found = new ExtractedName(
+                    name, innerStart + trimmedStart + withinArgument, wantsKey);
             }
 
             argStart = i + 1;
         }
 
-        return null;
+        return found is { } hit ? hit with { NamesItsOwnSource = namesItsOwnSource } : null;
+    }
+
+    /// <summary>
+    /// Whether one argument is the binding's own source declaration. These three names are
+    /// the whole of the list because they are the whole of what WPF offers: a binding with
+    /// none of them reads the ambient <c>DataContext</c>, and a binding with any of them
+    /// reads what it names instead.
+    /// </summary>
+    private static bool IsSourceArgument(ReadOnlySpan<char> argument)
+    {
+        var equals = TopLevelIndexOf(argument, '=');
+        if (equals < 0)
+        {
+            return false;
+        }
+
+        var key = argument[..equals].TrimEnd();
+        return key.SequenceEqual("RelativeSource")
+            || key.SequenceEqual("ElementName")
+            || key.SequenceEqual("Source");
     }
 
     /// <summary>

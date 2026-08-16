@@ -493,6 +493,10 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
         // both match a DataTemplate that declares its DataType, and the typed claim wins.
         var contextByOffset = new Dictionary<int, (int End, string? TypeName)>();
 
+        // Bindings that declare where they read from, by the offset of the name they
+        // refer to. The enclosing context is not their receiver — see the stamping pass.
+        var selfSourced = new HashSet<int>();
+
         using var cursor = _referenceQuery.Execute(tree.RootNode, new QueryOptions { MatchLimit = (uint)MaxMatchesInProgress });
 
         foreach (var match in cursor.Matches)
@@ -617,6 +621,11 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
                 position = Advance(position, name.AsSpan(0, extension.Offset));
                 name = extension.Name;
                 nameStart += extension.Offset;
+
+                if (extension.NamesItsOwnSource)
+                {
+                    selfSourced.Add(nameStart);
+                }
             }
 
             if (declarationNameOffsets.Contains(nameStart))
@@ -664,6 +673,20 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
             foreach (var (offset, entry) in byOffset)
             {
                 if (entry.Record.Kind != ReferenceKind.Binding)
+                {
+                    continue;
+                }
+
+                // A binding that names its own source never reads the ambient context, so
+                // the enclosing type is not its receiver. Stamping one anyway is the same
+                // invented claim an undeclared template is a wall to avoid, one level down:
+                // `{Binding DataContext.FocusSymbolCommand, RelativeSource={RelativeSource
+                // AncestorType=Window}}` sits inside a DataTemplate typed RelatedSymbolItem
+                // and deliberately reaches past it to the Window. Seventeen references in
+                // this corpus were stamped that way, and none of them produced a false edge
+                // — only because no viewmodel here happens to define `PlacementTarget` or
+                // `DataContext`. That is luck, and the guard is what makes it a rule.
+                if (selfSourced.Contains(offset))
                 {
                     continue;
                 }

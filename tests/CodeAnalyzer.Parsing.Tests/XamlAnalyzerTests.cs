@@ -299,6 +299,36 @@ public class XamlAnalyzerTests() : LanguagePackFixture(LanguageRegistry.Xaml, "V
         Assert.Null(inside.ReceiverText);
     }
 
+    /// <summary>
+    /// The same wall reasoning one level down. A binding that says where it reads from
+    /// does not read the ambient DataContext, so the enclosing context is not its
+    /// receiver — even though the binding sits squarely inside a typed template. The
+    /// sibling on the same element is the rival that keeps this honest: it has no source
+    /// of its own, so it must still carry the template's type.
+    /// </summary>
+    [Theory]
+    [InlineData("{Binding Command, RelativeSource={RelativeSource AncestorType=Window}}")]
+    [InlineData("{Binding Command, ElementName=Root}")]
+    [InlineData("{Binding Command, Source={StaticResource Bag}}")]
+    [InlineData("{Binding Path=Command, RelativeSource={RelativeSource Self}}")]
+    public void ABindingThatNamesItsOwnSourceDoesNotTakeTheAmbientContext(string extension)
+    {
+        var result = Analyze($$"""
+            <Window x:Class="CodeAnalyzer.App.Views.MainWindow"
+                    d:DataContext="{d:DesignInstance Type=vm:MainViewModel}">
+                <DataTemplate DataType="{x:Type vm:RowItem}">
+                    <Button x:Name="Go" Command="{{extension}}" Content="{Binding Label}" />
+                </DataTemplate>
+            </Window>
+            """);
+
+        var sourced = Assert.Single(result.References, r => r.Name == "Command");
+        Assert.Null(sourced.ReceiverText);
+
+        var ambient = Assert.Single(result.References, r => r.Name == "Label");
+        Assert.Equal("RowItem", ambient.ReceiverText);
+    }
+
     [Fact]
     public void AnExtensionTheParserCannotReadMakesNoClaim()
     {
