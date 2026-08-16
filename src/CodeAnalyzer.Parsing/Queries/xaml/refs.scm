@@ -24,10 +24,21 @@
 ; The edge lands as a cross-language name match and wears the ? marker, which is the
 ; honest confidence: the index never checked a namespace against a folder.
 ;
+; A markup extension is a reference too (M19.3). The value is still one opaque token to
+; this grammar — the brace test below is all a pattern can do — so the pattern's whole
+; job is to say "this value is an extension" and hand it to MarkupExtensionPath, which
+; reads the binding path or resource key out of it, or refuses. {Binding SearchQuery}
+; becomes a binding reference named SearchQuery; a value the parser is not certain of
+; stays a verbatim attribute making no claim.
+;
+(attribute
+  (quoted_attribute_value
+    (attribute_value) @name)
+  (#match? @name "^[{]")) @ref.binding
+
 ; Nothing else here is a reference. TargetType="Button" names a type but so does every
-; other bare word in an attribute, and there is no syntax separating them; a markup
-; extension such as "{Binding SearchQuery}" is one opaque attribute_value token to this
-; grammar. Both are stored verbatim and neither is turned into a claim.
+; other bare word in an attribute, and there is no syntax separating them — a bare word
+; in an attribute value stays stored, not claimed.
 ;
 (element
   (start_tag

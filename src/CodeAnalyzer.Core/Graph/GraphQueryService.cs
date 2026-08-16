@@ -524,11 +524,13 @@ public sealed class GraphQueryService(SqliteConnection connection)
     private List<UnresolvedReference> LoadUnresolved(long symbolId)
     {
         using var command = connection.CreateCommand();
+        // Bindings belong here as much as calls do: an unresolved binding path is either
+        // a typo or a generated member the index cannot see, and both are worth a line.
         command.CommandText = """
             SELECT DISTINCT r.name, r.kind, MIN(r.line)
             FROM ref r
             WHERE r.from_symbol_id = $symbolId
-              AND r.kind IN ($call, $instantiate)
+              AND r.kind IN ($call, $instantiate, $binding, $resource)
               AND NOT EXISTS (SELECT 1 FROM edge e WHERE e.ref_id = r.id)
             GROUP BY r.name, r.kind
             ORDER BY r.name
@@ -537,6 +539,8 @@ public sealed class GraphQueryService(SqliteConnection connection)
         command.Parameters.AddWithValue("$symbolId", symbolId);
         command.Parameters.AddWithValue("$call", (int)ReferenceKind.Call);
         command.Parameters.AddWithValue("$instantiate", (int)ReferenceKind.Instantiate);
+        command.Parameters.AddWithValue("$binding", (int)ReferenceKind.Binding);
+        command.Parameters.AddWithValue("$resource", (int)ReferenceKind.Resource);
         command.Parameters.AddWithValue("$limit", 50);
 
         var results = new List<UnresolvedReference>();

@@ -53,6 +53,7 @@ internal static class CaptureNames
         ["import"] = ReferenceKind.Import,
         ["inherit"] = ReferenceKind.Inherit,
         ["instantiate"] = ReferenceKind.Instantiate,
+        ["binding"] = ReferenceKind.Binding,
     };
 
     /// <summary>Capture suffixes that declare a symbol but are not resolution targets.</summary>
@@ -132,6 +133,8 @@ internal static class CaptureNames
         ReferenceKind.Include => 4,
         ReferenceKind.Import => 4,
         ReferenceKind.TypeUse => 3,
+        ReferenceKind.Binding => 3,
+        ReferenceKind.Resource => 3,
         ReferenceKind.Use => 1,
         _ => 0,
     };

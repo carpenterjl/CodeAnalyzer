@@ -29,9 +29,10 @@
 ;   - A property element (<Grid.RowDefinitions>) is parsed as a tag plus an error. Names
 ;     nested inside one are still found; the file is flagged as having a parse error, and
 ;     GrammarNotes is what stops that being reported as the author's mistake.
-;   - A markup extension is stored verbatim as the attribute's value — "{Binding Path}"
-;     is one opaque token to this grammar, so nothing here pretends to have read inside
-;     it. Splitting those into real references is a separate piece of work.
+;   - A markup extension is still one opaque token to this grammar, but it is no longer
+;     only stored: refs.scm flags it and MarkupExtensionPath reads the binding path or
+;     resource key out of it (M19.3). Extensions the parser cannot read with certainty
+;     remain verbatim values making no claim.
 
 (element
   (start_tag

@@ -452,6 +452,7 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
             var startPosition = nameNode.StartPosition;
             var position = new SourcePosition(startPosition.Row + 1, startPosition.Column);
             var receiverText = TruncateText(receiverNode, MaxReceiverTextLength);
+            var argumentText = TruncateText(argumentsNode, MaxArgumentTextLength);
 
             // A dotted type reference is a qualified one — XAML's
             // x:Class="CodeAnalyzer.App.Views.MainWindow" — and resolution matches names
@@ -462,16 +463,38 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
             // the segment too, which is both the truer position and what keeps this
             // reference from being dropped as a declaration naming itself when the same
             // attribute also declares the markup root below.
-            if (kind == ReferenceKind.TypeUse && !name.Contains('\n'))
+            if (kind == ReferenceKind.TypeUse)
             {
                 var lastDot = name.LastIndexOf('.');
                 if (lastDot > 0 && lastDot < name.Length - 1)
                 {
                     receiverText = TruncateForStorage(name[..lastDot], MaxReceiverTextLength);
+                    position = Advance(position, name.AsSpan(0, lastDot + 1));
                     name = name[(lastDot + 1)..];
                     nameStart += lastDot + 1;
-                    position = position with { Column = position.Column + lastDot + 1 };
                 }
+            }
+
+            // A binding reference arrives as the whole markup extension — the grammar
+            // hands "{Binding SearchQuery, Mode=TwoWay}" over as one token — and the
+            // pack can only say what it is, not read inside it. The parser pulls out the
+            // one name the extension refers to, and which world it resolves into: a
+            // resource key becomes a Resource reference, a path stays Binding. A value
+            // the parser cannot read with certainty stays what it always was, a verbatim
+            // attribute making no claim. The whole extension rides along as the argument
+            // text, so a call-site listing shows the claim's evidence verbatim.
+            if (kind == ReferenceKind.Binding)
+            {
+                if (MarkupExtensionPath.Extract(name) is not { } extension)
+                {
+                    continue;
+                }
+
+                argumentText = TruncateForStorage(name, MaxArgumentTextLength);
+                kind = extension.IsResource ? ReferenceKind.Resource : ReferenceKind.Binding;
+                position = Advance(position, name.AsSpan(0, extension.Offset));
+                name = extension.Name;
+                nameStart += extension.Offset;
             }
 
             if (declarationNameOffsets.Contains(nameStart))
@@ -496,7 +519,7 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
                     Name = name,
                     Kind = kind,
                     ArgumentCount = CountNamed(argumentsNode),
-                    ArgumentText = TruncateText(argumentsNode, MaxArgumentTextLength),
+                    ArgumentText = argumentText,
                     ReceiverText = receiverText,
                     Position = position,
                     FromSymbolLocalIndex = FindEnclosingCaller(
@@ -509,6 +532,32 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
         matchLimitExceeded = cursor.IsMatchLimitExceeded;
 
         return byOffset.Values.Select(v => v.Record).ToList();
+    }
+
+    /// <summary>
+    /// Where a position lands after walking over <paramref name="prefix"/> — the line and
+    /// column arithmetic behind reporting a reference at its segment rather than at the
+    /// start of the token it was cut from.
+    /// </summary>
+    private static SourcePosition Advance(SourcePosition start, ReadOnlySpan<char> prefix)
+    {
+        var line = start.Line;
+        var column = start.Column;
+
+        foreach (var ch in prefix)
+        {
+            if (ch == '\n')
+            {
+                line++;
+                column = 0;
+            }
+            else
+            {
+                column++;
+            }
+        }
+
+        return new SourcePosition(line, column);
     }
 
     private static int? FindEnclosingCaller(

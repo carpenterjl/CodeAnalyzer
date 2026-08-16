@@ -44,6 +44,8 @@ public static class KindLabels
         ReferenceKind.Import => "import",
         ReferenceKind.Inherit => "inherits",
         ReferenceKind.Instantiate => "instantiates",
+        ReferenceKind.Binding => "binding",
+        ReferenceKind.Resource => "resource",
         _ => "reference",
     };
 

@@ -61,6 +61,25 @@ public enum ReferenceKind
 
     /// <summary>Verilog module instantiation.</summary>
     Instantiate = 7,
+
+    /// <summary>
+    /// A markup binding: the path of a <c>{Binding …}</c> or the key of a
+    /// <c>{StaticResource …}</c>. Distinct from <see cref="Use"/> because what it can
+    /// resolve to is different — a property or field on some type the markup never names,
+    /// or a keyed resource element — and because the plain-identifier scope restriction
+    /// that keeps loop counters out of the graph would strangle it: a binding crosses
+    /// files by design.
+    /// </summary>
+    Binding = 8,
+
+    /// <summary>
+    /// A resource lookup: the key of a <c>{StaticResource …}</c> or
+    /// <c>{DynamicResource …}</c>. Separate from <see cref="Binding"/> because the two
+    /// resolve into different worlds — a key names a markup element, a path names a
+    /// property on a type — and one kind for both let a binding path land on an element
+    /// name and vice versa.
+    /// </summary>
+    Resource = 9,
 }
 
 /// <summary>

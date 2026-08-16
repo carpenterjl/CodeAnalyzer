@@ -43,6 +43,16 @@ public static class Schema
     /// it has to be an index seek. Both are NULL wherever the parser cannot be certain.
     /// </para>
     /// <para>
+    /// Versions 15 and 16 (M19.3) change no DDL. The XAML pack now reads markup
+    /// extensions — <c>{Binding SearchQuery}</c> becomes a binding reference named by its
+    /// first path segment, <c>{StaticResource PanelBrush}</c> a resource reference named
+    /// by its key — so once again rows stored for an unchanged <c>.xaml</c> file mean
+    /// something different than before. Two numbers for one milestone for the same reason
+    /// version 6 exists: 15 was built and indexed with before the resource kind split
+    /// landed, and a database it wrote records a resource lookup as a binding — the
+    /// incremental gate would never revisit the unchanged files to correct it.
+    /// </para>
+    /// <para>
     /// Version 14 (M19.2) changes no DDL. The XAML pack now declares a compiled file's
     /// root element under its verbatim <c>x:Class</c> value, owns the <c>x:Class</c>
     /// reference with it, and the analyzer splits dotted type references at their last
@@ -71,7 +81,7 @@ public static class Schema
     /// files are newly discovered rather than stale.
     /// </para>
     /// </summary>
-    public const int Version = 14;
+    public const int Version = 16;
 
     public const string MetaSchemaVersion = "schema_version";
     public const string MetaRootPath = "root_path";

@@ -121,16 +121,75 @@ public class XamlAnalyzerTests() : LanguagePackFixture(LanguageRegistry.Xaml, "V
     }
 
     [Fact]
-    public void NothingElseIsTurnedIntoAReference()
+    public void ABindingPathIsARealReferenceNamedByItsFirstSegment()
     {
         var result = Analyze(Source);
 
-        // Title="CodeAnalyzer" names nothing; a markup extension is one opaque token to
-        // this grammar and is not pretended to have been read.
+        var binding = Assert.Single(result.References, r => r.Kind == ReferenceKind.Binding);
+        Assert.Equal("SearchQuery", binding.Name);
+
+        // Owned by the innermost named element, so it shows up in a caller list.
+        Assert.NotNull(binding.FromSymbolLocalIndex);
+        Assert.Equal("SearchBox", result.Symbols[binding.FromSymbolLocalIndex!.Value].Name);
+    }
+
+    [Fact]
+    public void PlainAttributesAndHandlersAreStillNotReferences()
+    {
+        var result = Analyze(Source);
+
+        // Title="CodeAnalyzer" names nothing; Click="OnGoClicked" is a bare word with no
+        // syntax marking it as a reference, and inventing one would be a guess.
         var referenced = result.References.Select(r => r.Name).ToList();
-        Assert.DoesNotContain("SearchQuery", referenced);
         Assert.DoesNotContain("OnGoClicked", referenced);
+        Assert.DoesNotContain("CodeAnalyzer", referenced);
         Assert.DoesNotContain("{Binding SearchQuery, Mode=TwoWay}", referenced);
+    }
+
+    [Fact]
+    public void AStaticResourceKeyIsAResourceReferenceNotABinding()
+    {
+        // Separate kinds because they resolve into different worlds: a key names a
+        // markup element, a path names a property. One kind for both let
+        // Style="{StaticResource SearchBox}" resolve to the TextBox named SearchBox —
+        // an element name, not a style key — the moment this repo's own MainWindow was
+        // indexed.
+        var result = Analyze("""
+            <Grid>
+                <Border Background="{StaticResource PanelBrush}" x:Name="Panel" />
+            </Grid>
+            """);
+
+        var resource = Assert.Single(result.References, r => r.Kind == ReferenceKind.Resource);
+        Assert.Equal("PanelBrush", resource.Name);
+        Assert.DoesNotContain(result.References, r => r.Kind == ReferenceKind.Binding);
+    }
+
+    [Fact]
+    public void ABindingCarriesTheWholeExtensionAsItsArgumentText()
+    {
+        // The verbatim extension is the evidence a call-site listing shows beside the
+        // edge: the claim and its source, on one line.
+        var result = Analyze(Source);
+
+        var binding = Assert.Single(result.References, r => r.Kind == ReferenceKind.Binding);
+        Assert.Equal("{Binding SearchQuery, Mode=TwoWay}", binding.ArgumentText);
+    }
+
+    [Fact]
+    public void AnExtensionTheParserCannotReadMakesNoClaim()
+    {
+        var result = Analyze("""
+            <Grid>
+                <TextBlock x:Name="Version"
+                           Text="{x:Static local:AppInfo.Version}"
+                           Foreground="{Binding (Validation.Errors)[0].ErrorContent}" />
+            </Grid>
+            """);
+
+        // x:Static is not one of the four read extensions; an attached-property path
+        // does not start with a plain identifier. Both stay verbatim values.
+        Assert.DoesNotContain(result.References, r => r.Kind == ReferenceKind.Binding);
     }
 
     [Fact]

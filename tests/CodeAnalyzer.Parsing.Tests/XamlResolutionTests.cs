@@ -121,4 +121,96 @@ public class XamlResolutionTests : IDisposable
         var hit = Assert.Single(named, h => h.Kind == SymbolKind.Class);
         Assert.Equal("Views/MainWindow.xaml.cs", hit.RelativePath);
     }
+
+    [Fact]
+    public async Task ABindingPathResolvesToTheCSharpPropertyAsACrossLanguageMatch()
+    {
+        WriteFile("Views/SearchPanel.xaml", """
+            <UserControl x:Class="Demo.Views.SearchPanel"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                <TextBox x:Name="SearchBox" Text="{Binding SearchQuery, Mode=TwoWay}" />
+            </UserControl>
+            """);
+        WriteFile("ViewModels/MainViewModel.cs", """
+            namespace Demo.ViewModels;
+
+            public class MainViewModel
+            {
+                public string SearchQuery { get; set; } = "";
+            }
+            """);
+
+        var store = await IndexAsync();
+        var search = new SymbolSearchService(store.Connection);
+        search.Reload();
+
+        var property = search.Search("SearchQuery")
+            .First(h => h.Name == "SearchQuery" && h.Kind == SymbolKind.Property).SymbolId;
+        var detail = new GraphQueryService(store.Connection).GetDetail(property);
+
+        // The markup never names MainViewModel, so cross-language name match is all the
+        // index can honestly claim — but the edge exists, and it is owned by the element
+        // the binding is written on.
+        var caller = Assert.Single(detail!.Callers, c => c.Name == "SearchBox");
+        Assert.Equal(ReferenceKind.Binding, caller.ReferenceKind);
+        Assert.Equal(EdgeConfidence.Weak, caller.Confidence);
+    }
+
+    [Fact]
+    public async Task AStaticResourceKeyResolvesToTheKeyedElement()
+    {
+        WriteFile("Views/Panel.xaml", """
+            <UserControl x:Class="Demo.Views.Panel"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                <UserControl.Resources>
+                    <SolidColorBrush x:Key="PanelBrush" Color="#202020" />
+                </UserControl.Resources>
+                <Border x:Name="Chrome" Background="{StaticResource PanelBrush}" />
+            </UserControl>
+            """);
+
+        var store = await IndexAsync();
+        var search = new SymbolSearchService(store.Connection);
+        search.Reload();
+
+        var brush = search.Search("PanelBrush")
+            .First(h => h.Name == "PanelBrush").SymbolId;
+        var detail = new GraphQueryService(store.Connection).GetDetail(brush);
+
+        // Same language, same file: this one is not even a weak claim.
+        var caller = Assert.Single(detail!.Callers, c => c.Name == "Chrome");
+        Assert.Equal(ReferenceKind.Resource, caller.ReferenceKind);
+        Assert.Equal(EdgeConfidence.Unique, caller.Confidence);
+    }
+
+    [Fact]
+    public async Task AMisspelledBindingPathIsListedAsUnresolvedNotDropped()
+    {
+        WriteFile("Views/SearchPanel.xaml", """
+            <UserControl x:Class="Demo.Views.SearchPanel"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                <TextBox x:Name="SearchBox" Text="{Binding SerachQuery}" />
+            </UserControl>
+            """);
+        WriteFile("ViewModels/MainViewModel.cs", """
+            namespace Demo.ViewModels;
+
+            public class MainViewModel
+            {
+                public string SearchQuery { get; set; } = "";
+            }
+            """);
+
+        var store = await IndexAsync();
+        var search = new SymbolSearchService(store.Connection);
+        search.Reload();
+
+        var box = search.Search("SearchBox").First(h => h.Name == "SearchBox").SymbolId;
+        var detail = new GraphQueryService(store.Connection).GetDetail(box);
+
+        // This is the binding checker's territory becoming a query: the typo surfaces
+        // on the element's own fact sheet instead of needing a reflection pass.
+        Assert.Contains(detail!.UnresolvedReferences,
+            u => u.Name == "SerachQuery" && u.Kind == ReferenceKind.Binding);
+    }
 }

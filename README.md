@@ -278,10 +278,18 @@ worse than one that admits the gap.
   parser reports it — names around and inside it are still indexed, and the error list says
   what actually happened instead of blaming the file. A `<Style>` is HTML's CSS `<style>`, so
   its `Setter`s arrive as one opaque blob; the Style's own `x:Key` survives, which is the part
-  anything refers to. And a markup extension such as `{Binding SearchQuery}` is a single
-  attribute value to this grammar, so bindings are stored verbatim and are **not** references
-  — `x:Class` is recorded but resolves to nothing today, because it is fully qualified and
-  sits on an element that is not itself a symbol.
+  anything refers to. A markup extension is still a single attribute value to this grammar,
+  but it is read (M19.3): `{Binding Search.Query}` becomes a binding reference named by its
+  first path segment and `{StaticResource PanelBrush}` a resource reference named by its key,
+  each resolving at the confidence it deserves — a binding path is at best a cross-language
+  name match, and the output marks it so. `x:Class` resolves too (M19.2): the root element is
+  a declaration under its verbatim qualified name, it owns the reference, and the last
+  segment is what the code-behind class matches — markup and code-behind share a graph. Two
+  honest limits remain: a member the MVVM source generator invents (`[ObservableProperty]
+  string _query` → `Query`) exists in no source file, so bindings to it are listed as
+  unresolved rather than resolved — the binding checker below remains the tool that can see
+  those — and `x:Key` and `x:Name` are one symbol kind, so a resource lookup whose key
+  coincides with an element name can land on the element.
 - **The drift count covers indexed files only.** It compares what the index already holds
   against disk, so it reports edits and deletions but never notices a file created since the
   last run; finding those means a full crawl, which is too much to spend before answering a
