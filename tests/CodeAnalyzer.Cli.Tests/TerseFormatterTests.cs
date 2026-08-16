@@ -103,6 +103,15 @@ public class TerseFormatterTests
         MeanCandidatesWhenAmbiguous: 2.5,
         RefsByKind: [new("Call", 60, 40, 5, 15), new("Use", 40, 25, 0, 15)],
         RefsByLanguage: [new("C#", 70, 50, 5, 15), new("C", 30, 15, 0, 15)],
+        UnresolvedByRule:
+        [
+            new(UnresolvedRule.External, unresolved - 4),
+            new(UnresolvedRule.TooCommon, 2),
+            new(UnresolvedRule.ReceiverNotTyped, 1),
+            new(UnresolvedRule.OutOfScope, 1),
+            new(UnresolvedRule.Unexplained, 0),
+        ],
+        RefsOnlyCrossLanguage: 3,
         TotalEdges: 95,
         EdgesByConfidence: [new("Unique", 85), new("Ambiguous", 10)],
         TotalDeps: 8,

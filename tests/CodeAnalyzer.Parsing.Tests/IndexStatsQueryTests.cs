@@ -188,6 +188,124 @@ public class IndexStatsQueryTests : IDisposable
         Assert.All(stats.RefsByKind, s => Assert.True(s.External <= s.Unresolved));
     }
 
+    /// <summary>
+    /// A name carried by more definitions than the resolver's candidate cap allows. Twenty-six
+    /// so the set is over the cap of 24 with room to spare, and each on its own class so the
+    /// definitions are members rather than locals — a local would be refused by the container
+    /// rule first and would test the wrong bucket.
+    /// </summary>
+    private void WriteAHotName(string name)
+    {
+        for (var i = 0; i < 26; i++)
+        {
+            WriteFile($"hot/Holder{i}.cs", $$"""
+                namespace W;
+                public class Holder{{i}} { public int {{name}} { get; set; } }
+                """);
+        }
+    }
+
+    [Fact]
+    public async Task EveryUnresolvedReferenceIsAccountedForByExactlyOneRule()
+    {
+        // The block's whole claim is that the four rules are exhaustive, so the assertion that
+        // matters is the arithmetic, not any single bucket: every reference the resolver
+        // attempted and refused lands in exactly one rule, and `Unexplained` — which exists to
+        // catch the partition being wrong rather than to be populated — reads zero.
+        WriteAHotName("Widget");
+        WriteFile("Refused.cs", """
+            namespace W;
+            public class Refused
+            {
+                public void Go(object surprise)
+                {
+                    NoOneDefinesThis();     // external: no compatible definition anywhere
+                    var a = Widget;         // hot name, no receiver to narrow it
+                    var b = surprise.Widget;// hot name with a receiver that types to nothing
+                    var c = tucked;         // another function's local: out of scope
+                }
+            }
+            """);
+        WriteFile("Locals.cs", """
+            namespace W;
+            public class Locals { public void M() { var tucked = 1; } }
+            """);
+
+        var stats = await IndexAndReadAsync();
+
+        // Include and import are settled against file_dep and never attempted as symbols, so
+        // they are outside this partition by construction — subtract them, don't ignore them.
+        var fileScoped = stats.RefsByKind
+            .Where(s => s.Name is nameof(ReferenceKind.Include) or nameof(ReferenceKind.Import))
+            .Sum(s => s.Unresolved);
+        Assert.Equal(stats.RefsUnresolved - fileScoped, stats.UnresolvedByRule.Sum(r => r.Count));
+        Assert.Equal(0, Count(stats, UnresolvedRule.Unexplained));
+
+        // ...and the sum is not zero, or the equality above would hold on an empty partition.
+        Assert.True(stats.RefsUnresolved - fileScoped > 0);
+
+        // Every rule is present as a row even when it counted nothing: a rule that prints only
+        // when non-empty reads as a question never asked.
+        Assert.Equal(
+            Enum.GetValues<UnresolvedRule>().Length,
+            stats.UnresolvedByRule.Select(r => r.Rule).Distinct().Count());
+    }
+
+    [Fact]
+    public async Task EachRuleClaimsTheReferenceItActuallyRefused()
+    {
+        // Exhaustiveness alone can be met by one bucket swallowing everything, so each rule
+        // is given a reference only it can explain.
+        WriteAHotName("Widget");
+        WriteFile("Refused.cs", """
+            namespace W;
+            public class Refused
+            {
+                public void Go(object surprise)
+                {
+                    NoOneDefinesThis();
+                    var a = Widget;
+                    var b = surprise.Widget;
+                    var c = tucked;
+                }
+            }
+            """);
+        WriteFile("Locals.cs", """
+            namespace W;
+            public class Locals { public void M() { var tucked = 1; } }
+            """);
+
+        var stats = await IndexAndReadAsync();
+
+        Assert.True(Count(stats, UnresolvedRule.External) > 0, "NoOneDefinesThis names nothing");
+        Assert.True(Count(stats, UnresolvedRule.TooCommon) > 0, "bare Widget has 26 rivals");
+        Assert.True(Count(stats, UnresolvedRule.ReceiverNotTyped) > 0, "surprise types to nothing");
+        Assert.True(Count(stats, UnresolvedRule.OutOfScope) > 0, "tucked is another method's local");
+    }
+
+    [Fact]
+    public async Task AHotNameWithNoReceiverIsNotFiledAsExternal()
+    {
+        // The rules are applied in an order that makes them exclusive, and the order is load-
+        // bearing: `Widget` is a hot name *and* has compatible definitions, so a partition that
+        // tested hotness first would report a workspace-defined name as external and hide the
+        // gate that actually refused it. Nothing external exists here at all.
+        WriteAHotName("Widget");
+        WriteFile("Bare.cs", """
+            namespace W;
+            public class Bare { public void Go() { var a = Widget; } }
+            """);
+
+        var stats = await IndexAndReadAsync();
+
+        Assert.True(Count(stats, UnresolvedRule.TooCommon) > 0);
+        Assert.Equal(0, Count(stats, UnresolvedRule.External));
+        Assert.Equal(0, Count(stats, UnresolvedRule.Unexplained));
+    }
+
+    private static int Count(IndexStats stats, UnresolvedRule rule) =>
+        stats.UnresolvedByRule.Single(r => r.Rule == rule).Count;
+
     [Fact]
     public async Task APathScopeNarrowsEveryCountToItsSubtree()
     {

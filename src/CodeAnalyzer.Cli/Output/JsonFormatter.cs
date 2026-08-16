@@ -391,11 +391,18 @@ internal static class JsonFormatter
                     + "includes every call into an external library",
                 byKind = stats.RefsByKind.Select(Split),
                 byLanguage = stats.RefsByLanguage.Select(Split),
+                // The unresolved column split by the rule that refused each reference. The
+                // four rules are exhaustive by construction, so `unexplained` is expected to
+                // read 0 — a non-zero value there is a gap in the partition itself, which is
+                // why it is emitted rather than filtered out for being empty.
+                unresolvedByRule = stats.UnresolvedByRule
+                    .ToDictionary(r => r.Rule.ToString(), r => r.Count),
             },
             edges = new
             {
                 total = stats.TotalEdges,
                 byConfidence = stats.EdgesByConfidence.ToDictionary(c => c.Name, c => c.Count),
+                referencesRestingOnlyOnACrossLanguageNameMatch = stats.RefsOnlyCrossLanguage,
             },
             // Renamed from "imports" in M25.3: these are file dependencies — C includes
             // as much as imports — and a pack may deduplicate them, so the count is of

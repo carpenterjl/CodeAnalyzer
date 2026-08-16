@@ -25,7 +25,16 @@ public sealed class ReferenceResolver(SqliteConnection connection)
     /// or <c>value</c> can match thousands of definitions; recording them all would swamp
     /// the edge table and tell the user nothing.
     /// </summary>
-    public int MaxCandidatesPerReference { get; init; } = 24;
+    public int MaxCandidatesPerReference { get; init; } = DefaultMaxCandidates;
+
+    /// <summary>
+    /// The threshold <see cref="MaxCandidatesPerReference"/> starts at, as a constant the
+    /// reporting side can read. A name carried by more definitions than this is "hot", and
+    /// hotness is one of the four reasons a reference goes unresolved — so the stats block
+    /// has to apply the same number the resolver did, or its partition would misattribute
+    /// exactly the references sitting on the boundary.
+    /// </summary>
+    public const int DefaultMaxCandidates = 24;
 
     /// <summary>
     /// Optional per-step timing hook, used by the benchmark tool to locate slow stages.
@@ -898,6 +907,15 @@ public sealed class ReferenceResolver(SqliteConnection connection)
 
     private static readonly string BindableKinds = In(SymbolKind.Property, SymbolKind.Field);
 
+    // ...but "across scopes" has to mean something. A symbol declared inside a *function* is
+    // a local, unreachable by name from anywhere else; one declared inside a *type* exists
+    // precisely to be named elsewhere. Hoisted out of BuildKindCompatibility so the stats
+    // side can apply the identical set — the argument for each member is at that use site.
+    private static readonly string ScopeKinds = In(
+        SymbolKind.Class, SymbolKind.Struct, SymbolKind.Union, SymbolKind.Enum,
+        SymbolKind.Interface, SymbolKind.Namespace, SymbolKind.Module,
+        SymbolKind.MarkupElement, SymbolKind.ResourceKey);
+
     /// <summary>
     /// Whether a symbol's kind could satisfy a reference's kind at all — the kind half of
     /// <see cref="BuildKindCompatibility"/>, with every locality refinement (containers,
@@ -920,6 +938,28 @@ public sealed class ReferenceResolver(SqliteConnection connection)
             WHEN {(int)ReferenceKind.Handler} THEN {symbolAlias}.kind = {(int)SymbolKind.Method}
             ELSE {symbolAlias}.kind IN ({ReferencableKinds})
         END
+        """;
+
+    /// <summary>
+    /// Whether a definition is reachable by name from outside the scope it was written in —
+    /// the container half of the <see cref="ReferenceKind.Use"/> rule in
+    /// <see cref="BuildKindCompatibility"/>, lifted here for the same reason
+    /// <see cref="CompatibleKindSql"/> was: the stats block reports "out of scope" as one of
+    /// the reasons a reference went unresolved, and a second copy of the rule would drift
+    /// from the one that did the refusing.
+    /// <para>
+    /// Only <c>Use</c> carries the restriction. A binding path, a resource key and an event
+    /// handler cross scopes by definition — that is what they are for — so for every other
+    /// reference kind this test is vacuously true, exactly as resolution treats it.
+    /// </para>
+    /// </summary>
+    public static string AddressableSql(string referenceAlias, string symbolAlias) => $"""
+        ({referenceAlias}.kind <> {(int)ReferenceKind.Use}
+         OR {symbolAlias}.container_id IS NULL
+         OR {symbolAlias}.container_id = {referenceAlias}.from_symbol_id
+         OR EXISTS (SELECT 1 FROM symbol enclosing
+                    WHERE enclosing.id = {symbolAlias}.container_id
+                      AND enclosing.kind IN ({ScopeKinds})))
         """;
 
     /// <summary>
@@ -980,10 +1020,7 @@ public sealed class ReferenceResolver(SqliteConnection connection)
         // and `Container.Name` is how. Restricting both alike was one rule doing two jobs:
         // it kept the loop counters out and took every type member with them, so
         // `callers SymbolKind.MarkupElement` answered "none" while six call sites read it.
-        var scopes = In(
-            SymbolKind.Class, SymbolKind.Struct, SymbolKind.Union, SymbolKind.Enum,
-            SymbolKind.Interface, SymbolKind.Namespace, SymbolKind.Module,
-            SymbolKind.MarkupElement, SymbolKind.ResourceKey);
+        var scopes = ScopeKinds;
 
         // A binding path names a property or field on a type the markup never states; a
         // resource key names a keyed resource. Kept apart deliberately — one rule for

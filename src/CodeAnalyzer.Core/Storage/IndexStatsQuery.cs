@@ -28,6 +28,50 @@ public sealed record ResolutionSplit(
     string Name, int Total, int Unique, int Ambiguous, int Unresolved, int External = 0);
 
 /// <summary>
+/// Why one group of references went unresolved, and how many did. The four rules are the
+/// resolver's own, applied in the order that makes them exclusive, and they are exhaustive
+/// by construction — <see cref="UnresolvedRule.Unexplained"/> exists to prove it rather
+/// than to be populated, and a workspace that puts a number there has found a gap in this
+/// partition, which is worth more than a tidy table.
+/// <para>
+/// Naming the rule is the point. "These are external" is a claim about the corpus and is
+/// usually right; "the container rule refuses cross-scope locals" is a claim about the
+/// code, and only the second can be wrong in a way that hides — a rule that has quietly
+/// stopped working produces exactly the same observable as one doing its job, an
+/// unresolved reference, and nothing outside the resolver can tell them apart.
+/// </para>
+/// </summary>
+public enum UnresolvedRule
+{
+    /// <summary>No workspace definition of a compatible kind carries the name at all.</summary>
+    External = 0,
+
+    /// <summary>
+    /// More definitions carry the name than <c>MaxCandidatesPerReference</c> allows, and the
+    /// reference wrote no receiver, so nothing narrows it to one of them.
+    /// </summary>
+    TooCommon = 1,
+
+    /// <summary>
+    /// A hot name written against a receiver, admitted for that reason, but the receiver's
+    /// type is not known — or the type it names holds no member of this name.
+    /// </summary>
+    ReceiverNotTyped = 2,
+
+    /// <summary>
+    /// Every definition of the name is a local, or a member of a scope this reference is not
+    /// written inside — the container rule that keeps every loop counter out of the graph.
+    /// </summary>
+    OutOfScope = 3,
+
+    /// <summary>Refused by no rule above. Expected to be zero; a gap in the partition if not.</summary>
+    Unexplained = 4,
+}
+
+/// <summary>One rule and the number of unresolved references it accounts for.</summary>
+public sealed record RefusalCount(UnresolvedRule Rule, int Count);
+
+/// <summary>
 /// Aggregate facts about one workspace's index: what is in it, and — the part no other
 /// query answers — how well resolution is doing. Every count is measured from the tables
 /// at read time; nothing here is cached or estimated.
@@ -47,6 +91,20 @@ public sealed record IndexStats(
     double MeanCandidatesWhenAmbiguous,
     IReadOnlyList<ResolutionSplit> RefsByKind,
     IReadOnlyList<ResolutionSplit> RefsByLanguage,
+    /// <summary>
+    /// The unresolved column of the headline triple, split by the rule that refused it.
+    /// Sums to <see cref="RefsUnresolved"/> less the include and import references, which
+    /// this partition does not cover because the resolver never attempts them as symbols —
+    /// they are settled against <c>file_dep</c> and counted there.
+    /// </summary>
+    IReadOnlyList<RefusalCount> UnresolvedByRule,
+    /// <summary>
+    /// How many references resolved <em>only</em> by a cross-language name match. Reported
+    /// beside the resolution triple because it qualifies it: measured on this workspace,
+    /// not one of them also carried a stronger edge, so each is the sole answer its
+    /// reference has, and a reader counting resolved references is counting these too.
+    /// </summary>
+    int RefsOnlyCrossLanguage,
     int TotalEdges,
     IReadOnlyList<NamedCount> EdgesByConfidence,
     int TotalDeps,
@@ -160,6 +218,9 @@ public static class IndexStatsQuery
         var refsByLanguage = ReadSplits(connection,
             "f.language", "ref r JOIN file f ON f.id = r.file_id", scope);
 
+        var unresolvedByRule = ReadRefusals(connection, scope);
+        var onlyCrossLanguage = ReadCrossLanguageOnly(connection, scope);
+
         var totalRefs = (int)scalars[3];
         return new IndexStats(
             TotalFiles: (int)scalars[0],
@@ -175,6 +236,8 @@ public static class IndexStatsQuery
             MeanCandidatesWhenAmbiguous: ambiguous == 0 ? 0 : (double)ambiguousEdges / ambiguous,
             RefsByKind: refsByKind,
             RefsByLanguage: refsByLanguage,
+            UnresolvedByRule: unresolvedByRule,
+            RefsOnlyCrossLanguage: onlyCrossLanguage,
             SymbolsByKind: symbolsByKind,
             TotalEdges: (int)scalars[6],
             EdgesByConfidence: edgesByConfidence,
@@ -182,6 +245,90 @@ public static class IndexStatsQuery
             ResolvedDeps: (int)scalars[8],
             DatabaseBytes: scalars[9],
             ScopePath: scope.Path);
+    }
+
+    /// <summary>
+    /// Splits the unresolved references by which rule refused them, in the order that makes
+    /// the four cases exclusive: kind-compatibility first because it is a fact about the
+    /// corpus and holds whatever the resolver does, then the hot-name gate, then the
+    /// container rule.
+    /// <para>
+    /// Deliberately built from what this side can already see — kinds, containers, how many
+    /// definitions carry the name, whether a receiver was written — and nothing else. The
+    /// tempting fifth question, "would the receiver have typed?", needs the resolver's own
+    /// four-rank walk, and a reporting query that re-implements resolution is a second copy
+    /// that drifts. So a hot reference carrying a receiver is reported as one bucket:
+    /// admitted by the gate, and refused afterwards because the receiver named no type
+    /// holding that member.
+    /// </para>
+    /// </summary>
+    private static List<RefusalCount> ReadRefusals(SqliteConnection connection, FileScope scope)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = $"""
+            WITH hot(name) AS (
+                SELECT name FROM symbol WHERE is_definition = 1
+                GROUP BY name HAVING COUNT(*) > {Resolution.ReferenceResolver.DefaultMaxCandidates}
+            )
+            SELECT CASE
+                WHEN NOT EXISTS (SELECT 1 FROM symbol s
+                                 WHERE s.name = r.name AND s.is_definition = 1
+                                   AND {Resolution.ReferenceResolver.CompatibleKindSql("r", "s")})
+                    THEN {(int)UnresolvedRule.External}
+                WHEN EXISTS (SELECT 1 FROM hot WHERE hot.name = r.name)
+                    THEN CASE WHEN r.receiver_text IS NULL OR r.receiver_text = ''
+                              THEN {(int)UnresolvedRule.TooCommon}
+                              ELSE {(int)UnresolvedRule.ReceiverNotTyped} END
+                WHEN NOT EXISTS (SELECT 1 FROM symbol s
+                                 WHERE s.name = r.name AND s.is_definition = 1
+                                   AND {Resolution.ReferenceResolver.CompatibleKindSql("r", "s")}
+                                   AND {Resolution.ReferenceResolver.AddressableSql("r", "s")})
+                    THEN {(int)UnresolvedRule.OutOfScope}
+                ELSE {(int)UnresolvedRule.Unexplained}
+            END AS rule, COUNT(*)
+            FROM ref r
+            WHERE NOT EXISTS (SELECT 1 FROM edge e WHERE e.ref_id = r.id)
+              AND r.kind NOT IN ({(int)ReferenceKind.Include}, {(int)ReferenceKind.Import})
+              {scope.AndFileIn("r.file_id")}
+            GROUP BY rule
+            ORDER BY rule
+            """;
+        scope.Bind(command);
+
+        var counts = new Dictionary<UnresolvedRule, int>();
+        using (var reader = command.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                counts[(UnresolvedRule)reader.GetInt32(0)] = reader.GetInt32(1);
+            }
+        }
+
+        // Every rule is listed even at zero. A partition that prints only its non-empty rows
+        // reads as if the missing ones were never asked, and the whole point of the block is
+        // that the four questions were all asked of every unresolved reference.
+        return Enum.GetValues<UnresolvedRule>()
+            .Select(rule => new RefusalCount(rule, counts.GetValueOrDefault(rule)))
+            .ToList();
+    }
+
+    /// <summary>
+    /// References whose only edge is a cross-language name match. Counted per reference, not
+    /// per edge, because the question it answers is "how much of the resolved column rests on
+    /// this" — and a reference with four Weak edges is still one reference resting on it.
+    /// </summary>
+    private static int ReadCrossLanguageOnly(SqliteConnection connection, FileScope scope)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = $"""
+            SELECT COUNT(*) FROM (
+                SELECT e.ref_id FROM edge e{scope.WhereFileIn("e.src_file_id")}
+                GROUP BY e.ref_id
+                HAVING MIN(e.confidence) = {(int)EdgeConfidence.Weak}
+            )
+            """;
+        scope.Bind(command);
+        return Convert.ToInt32(command.ExecuteScalar());
     }
 
     /// <summary>

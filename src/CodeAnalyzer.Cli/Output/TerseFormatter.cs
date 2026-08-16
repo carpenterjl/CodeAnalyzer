@@ -563,8 +563,15 @@ internal static class TerseFormatter
 
         AppendSplits(builder, "by reference kind", stats.RefsByKind);
         AppendSplits(builder, "by language", stats.RefsByLanguage);
+        AppendRefusals(builder, stats);
 
         builder.AppendLine($"edges: {stats.TotalEdges:n0} ({Tally(stats.EdgesByConfidence)})");
+        if (stats.RefsOnlyCrossLanguage > 0)
+        {
+            builder.AppendLine(
+                $"  {stats.RefsOnlyCrossLanguage:n0} references resolve only by a cross-language "
+                + "name match — listings mark those '?'");
+        }
 
         // "file dependencies", not "imports": the rows behind this line include C's
         // #include lines, which the old label miscounted as imports. And the count is of
@@ -592,6 +599,50 @@ internal static class TerseFormatter
 
         return builder.Finish();
     }
+
+    /// <summary>
+    /// The unresolved column, split by the rule that refused each reference. The wording is
+    /// the rule, not the symptom, because an unresolved reference looks identical whether it
+    /// was refused correctly or by a rule that has quietly stopped working — naming the rule
+    /// is what makes the second case checkable.
+    /// </summary>
+    private static void AppendRefusals(StringBuilder builder, IndexStats stats)
+    {
+        var rows = stats.UnresolvedByRule;
+        if (rows.Count == 0 || rows.Sum(r => r.Count) == 0)
+        {
+            return;
+        }
+
+        // The partition covers what the resolver *attempted*, which is fewer references than
+        // the unresolved headline: an include or an import is settled against file_dep and
+        // never offered a symbol at all. Saying so on the heading keeps two numbers that are
+        // meant to differ from reading as a discrepancy — the same reconciliation the file
+        // dependencies line carries.
+        var total = rows.Sum(r => r.Count);
+        var fileScoped = stats.RefsUnresolved - total;
+        var reconciliation = fileScoped <= 0
+            ? string.Empty
+            : $" (the other {fileScoped:n0} are include/import, settled as file dependencies)";
+        builder.AppendLine($"why the {total:n0} unresolved were refused{reconciliation}:");
+        foreach (var row in rows)
+        {
+            // Every rule prints, including the zeroes: a rule showing 0 is the answer to a
+            // question that was asked, and dropping it would read as never having asked.
+            builder.AppendLine(
+                $"  {RefusalText(row.Rule).PadRight(52)}  {row.Count,8:n0}  {Percent(row.Count, total),6}");
+        }
+    }
+
+    private static string RefusalText(UnresolvedRule rule) => rule switch
+    {
+        UnresolvedRule.External => "no workspace definition of a compatible kind",
+        UnresolvedRule.TooCommon => "name too common to guess, and no receiver given",
+        UnresolvedRule.ReceiverNotTyped => "receiver named no type holding that member",
+        UnresolvedRule.OutOfScope => "a local, or a member of a scope not written in",
+        UnresolvedRule.Unexplained => "refused by no rule above — a gap in this partition",
+        _ => rule.ToString(),
+    };
 
     /// <summary>
     /// One resolution table. The columns repeat the whole-index triple for a subset, which
