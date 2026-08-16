@@ -81,8 +81,17 @@ public class XamlResolutionTests : IDisposable
         }
         """;
 
+    /// <summary>
+    /// The x:Class edge, which used to be asserted Weak here on the grounds that
+    /// "cross-language is as far as the index can honestly go". That reasoning applied a
+    /// rung meaning <em>the only thing connecting these is that the name matched</em> to the
+    /// one link in the markup model that is a declaration: x:Class states which class this
+    /// file compiles into, and code_behind is built out of it — the handler rule trusts it
+    /// completely, so grading it as a coincidence was the confidence column contradicting
+    /// what the resolver already believed.
+    /// </summary>
     [Fact]
-    public async Task TheMarkupRootAppearsAmongTheClasssCallersAsACrossLanguageMatch()
+    public async Task TheMarkupRootIsAnExactMatchOnTheClassItDeclares()
     {
         WriteFile("Views/MainWindow.xaml", Markup);
         WriteFile("Views/MainWindow.xaml.cs", CodeBehind);
@@ -97,9 +106,93 @@ public class XamlResolutionTests : IDisposable
 
         var fromMarkup = Assert.Single(detail!.Callers, c => c.Name == "Demo.Views.MainWindow");
         Assert.Equal(ReferenceKind.TypeUse, fromMarkup.ReferenceKind);
-        // Cross-language is as far as the index can honestly go: it never checked the
-        // namespace against a folder, so this must not present as an exact edge.
-        Assert.Equal(EdgeConfidence.Weak, fromMarkup.Confidence);
+        Assert.Equal(EdgeConfidence.Unique, fromMarkup.Confidence);
+    }
+
+    /// <summary>
+    /// The same link in a file that wires no events. code_behind used to be gated on the
+    /// file having an event handler — true of every file that read the table at the time,
+    /// and false of its own description, which says "which class each markup file compiles
+    /// into". App.xaml and GraphView.xaml declare an x:Class and handle nothing, and were
+    /// the two edges left behind when the rung was corrected.
+    /// </summary>
+    [Fact]
+    public async Task AMarkupFileThatWiresNoEventsStillDeclaresItsClass()
+    {
+        WriteFile("Views/Quiet.xaml", """
+            <UserControl x:Class="Demo.Views.Quiet"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                <Grid />
+            </UserControl>
+            """);
+        WriteFile("Views/Quiet.xaml.cs", """
+            namespace Demo.Views;
+
+            public partial class Quiet
+            {
+                public Quiet() { }
+            }
+            """);
+
+        var store = await IndexAsync();
+        var search = new SymbolSearchService(store.Connection);
+        search.Reload();
+
+        var classId = search.Search("Quiet")
+            .First(h => h.Name == "Quiet" && h.Kind == SymbolKind.Class).SymbolId;
+        var caller = Assert.Single(
+            new GraphQueryService(store.Connection).GetDetail(classId)!.Callers,
+            c => c.Name == "Demo.Views.Quiet");
+        Assert.Equal(EdgeConfidence.Unique, caller.Confidence);
+    }
+
+    /// <summary>
+    /// An event handler edge. The kind rule already requires the target to be a method on
+    /// this file's own code-behind class — that is what makes the naming-convention
+    /// nomination safe — so the edge is a certainty, and it was carrying the coincidence
+    /// rung for no reason beyond markup and C# being different languages. The rival is a
+    /// method of the same name on an unrelated class, which must take none of it.
+    /// </summary>
+    [Fact]
+    public async Task AnEventHandlerLandsExactlyOnItsOwnCodeBehind()
+    {
+        WriteFile("Views/Panel.xaml", """
+            <UserControl x:Class="Demo.Views.Panel"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                <Button x:Name="Accept" Click="OnAccept" />
+            </UserControl>
+            """);
+        WriteFile("Views/Panel.xaml.cs", """
+            namespace Demo.Views;
+
+            public partial class Panel
+            {
+                private void OnAccept(object sender, EventArgs e) { }
+            }
+            """);
+        WriteFile("Views/Unrelated.cs", """
+            namespace Demo.Views;
+
+            public class Unrelated
+            {
+                private void OnAccept(object sender, EventArgs e) { }
+            }
+            """);
+
+        var store = await IndexAsync();
+        var search = new SymbolSearchService(store.Connection);
+        search.Reload();
+        var graph = new GraphQueryService(store.Connection);
+
+        var wanted = search.Search("OnAccept")
+            .First(h => h.RelativePath == "Views/Panel.xaml.cs").SymbolId;
+        var caller = Assert.Single(graph.GetDetail(wanted)!.Callers);
+        Assert.Equal(ReferenceKind.Handler, caller.ReferenceKind);
+        Assert.Equal(EdgeConfidence.Unique, caller.Confidence);
+
+        var rival = search.Search("OnAccept")
+            .First(h => h.RelativePath == "Views/Unrelated.cs").SymbolId;
+        Assert.Empty(graph.GetDetail(rival)!.Callers);
     }
 
     [Fact]

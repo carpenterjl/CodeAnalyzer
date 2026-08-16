@@ -450,6 +450,21 @@ public sealed class ReferenceResolver(SqliteConnection connection)
                 {ArityMatchSql("p")} AS arity_match,
                 CASE WHEN rt.type_name IS NOT NULL AND sc.name = rt.type_name
                      THEN 1 ELSE 0 END AS receiver_match,
+                -- Whether the two sides are joined by the code-behind relation rather than by
+                -- their names happening to coincide. A handler candidate exists only because
+                -- the kind rule already proved the target is a method on this file's own
+                -- code-behind class, and an x:Class reference names that class itself. Both
+                -- are the most certain links the markup model has. See the confidence CASE.
+                --
+                -- Bindings are deliberately NOT here. M26.2 promoted the ones whose context
+                -- the markup declares and left the rest Weak on purpose: a binding written
+                -- under no DataContext really does have only its name, and that distinction
+                -- is what a binding checker is for. How many candidates it drew is already
+                -- visible in the resolution triple and in the listing itself.
+                CASE WHEN p.kind = {(int)ReferenceKind.Handler}
+                          OR EXISTS (SELECT 1 FROM code_behind cb
+                                     WHERE cb.file_id = p.file_id AND cb.class_name = s.name)
+                     THEN 1 ELSE 0 END AS crosses_by_design,
                 CASE
                     WHEN ir.file_id IS NOT NULL THEN {TierIncludeReachable}
                     WHEN s.language = p.language AND sf.top_dir = p.top_dir THEN {TierSameLanguageSameTopDirectory}
@@ -538,11 +553,31 @@ public sealed class ReferenceResolver(SqliteConnection connection)
         // them Binding, all single-candidate; the 847 Weak `Use` edges are untouched
         // because none of them is receiver-matched, which is exactly the population the
         // rung was written for.
+        //
+        // M27.3 carried the same argument to the edges that have no receiver to ask about.
+        // An x:Class reference and an event handler are the *most* certain links the markup
+        // model has — code_behind is built out of the first, and the handler rule requires
+        // the target to be a method on this file's own code-behind class, which is why it
+        // throws out every wrong nomination silently — and both were wearing the rung that
+        // means "the only thing connecting these is that the name matched".
+        //
+        // It stops there. Extending it to every binding was tried and refused: a binding
+        // written under no declared DataContext genuinely has only its name, which is the
+        // distinction M26.2 drew on purpose and the thing a binding checker exists to
+        // report. Whether it drew one candidate or sixteen is already in the resolution
+        // triple and in the listing; the rung is carrying the other fact.
+        //
+        // Measured: 8 edges leave — 5 x:Class and 3 handlers, all becoming Unique — and the
+        // rung is left holding one population and one only, a bare identifier matching a
+        // name in another language with nothing else agreeing, which is what it was written
+        // for. 864 of those remain, every one a Use reference.
         return TimedInsert("cross-file edges", transaction, $"""
             INSERT OR IGNORE INTO edge (ref_id, target_symbol_id, confidence, src_file_id, dst_file_id, to_own_member)
             SELECT c.ref_id, c.symbol_id,
                    CASE
-                       WHEN r.tier = {TierAnyLanguage} AND v.receiver_match = 0
+                       WHEN r.tier = {TierAnyLanguage}
+                            AND v.receiver_match = 0
+                            AND c.crosses_by_design = 0
                             THEN {(int)EdgeConfidence.Weak}
                        WHEN r.candidates > 1 THEN {(int)EdgeConfidence.Ambiguous}
                        ELSE {(int)EdgeConfidence.Unique}
@@ -570,14 +605,28 @@ public sealed class ReferenceResolver(SqliteConnection connection)
     /// </summary>
     private void BuildCodeBehind(SqliteTransaction transaction) => Timed("code_behind", () =>
     {
+        // The gate used to be "this file has an event handler", which was the only consumer
+        // at the time and made the table smaller. It also made the doc comment above false:
+        // a markup file that declares x:Class and wires no events — App.xaml, GraphView.xaml
+        // — compiles into a class just as much, and had no row here. That went unnoticed
+        // while handlers were the only reader; M27.3 added a second one and the two files
+        // came back still wearing the coincidence rung.
+        //
+        // The gate is now "this file defines markup", which is what was meant all along and
+        // does not go through a construct the file may simply not use. Measured on this
+        // workspace: it selects exactly the five files that declare an x:Class and no code
+        // file at all, and every one of their TypeUse references *is* the x:Class — which is
+        // the assumption the GROUP BY rests on, and the one to re-measure if a markup pack
+        // ever emits a TypeUse for something else.
         Execute(transaction, $"""
             CREATE TEMP TABLE code_behind AS
             SELECT r.file_id, r.name AS class_name
             FROM ref r
             WHERE r.kind = {(int)ReferenceKind.TypeUse}
-              AND EXISTS (SELECT 1 FROM pending_ref p
-                          WHERE p.file_id = r.file_id
-                            AND p.kind = {(int)ReferenceKind.Handler})
+              AND EXISTS (SELECT 1 FROM symbol s
+                          WHERE s.file_id = r.file_id
+                            AND s.is_definition = 1
+                            AND s.kind IN ({(int)SymbolKind.MarkupElement}, {(int)SymbolKind.ResourceKey}))
             GROUP BY r.file_id, r.name
             """);
 
