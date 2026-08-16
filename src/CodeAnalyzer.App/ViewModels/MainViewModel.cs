@@ -1083,7 +1083,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                     session.Graph.GetEdgeCallSites(selection.SourceId, selection.TargetId, selection.Kind)))
                 .ConfigureAwait(true);
 
-            await Graph.ShowEdgeDetailsAsync(selection.EdgeId, sites).ConfigureAwait(true);
+            await Graph.ShowEdgeDetailsAsync(selection.EdgeId, selection.Kind, sites).ConfigureAwait(true);
         }
         catch (Exception ex)
         {

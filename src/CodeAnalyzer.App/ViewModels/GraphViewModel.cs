@@ -1,4 +1,5 @@
 using CodeAnalyzer.App.Services;
+using CodeAnalyzer.Core.Domain;
 using CodeAnalyzer.Core.Graph;
 using CodeAnalyzer.Core.Workspaces;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -192,8 +193,8 @@ public sealed partial class GraphViewModel : ObservableObject
     public Task RequestExportAsync(GraphExportFormat format) => _service.RequestExportAsync(format);
 
     /// <summary>Delivers the call sites behind one merged edge to the page's popover.</summary>
-    public Task ShowEdgeDetailsAsync(string edgeId, IReadOnlyList<EdgeCallSite> sites) =>
-        _service.ShowEdgeDetailsAsync(edgeId, sites);
+    public Task ShowEdgeDetailsAsync(string edgeId, ReferenceKind kind, IReadOnlyList<EdgeCallSite> sites) =>
+        _service.ShowEdgeDetailsAsync(edgeId, kind, sites);
 
     [ObservableProperty]
     private bool _useHierarchicalLayout;

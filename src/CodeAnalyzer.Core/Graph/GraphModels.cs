@@ -199,7 +199,32 @@ public sealed record EdgeCallSite(
     string? ArgumentText,
     EdgeConfidence Confidence,
     string? ReceiverText = null,
-    string? Name = null);
+    string? Name = null)
+{
+    /// <summary>
+    /// The site rebuilt as the source wrote it, for the renderings that show one line of
+    /// text. <paramref name="fallbackName"/> covers rows stored before the name travelled
+    /// with the site.
+    /// <para>
+    /// Markup extensions are the exception, and the reason this lives in one place rather
+    /// than in each formatter: for a call, <see cref="ArgumentText"/> is the argument list
+    /// and the name goes in front of it, but M19.3 stores a whole <c>{StaticResource
+    /// SearchBox}</c> verbatim in that field, because the extension <em>is</em> the
+    /// reference rather than an argument to one. Prefixing the name there says
+    /// <c>SearchBox{StaticResource SearchBox}</c>.
+    /// </para>
+    /// </summary>
+    public string SourceText(ReferenceKind kind, string? fallbackName = null)
+    {
+        if (kind is ReferenceKind.Binding or ReferenceKind.Resource)
+        {
+            return ArgumentText ?? Name ?? fallbackName ?? string.Empty;
+        }
+
+        var receiver = ReceiverText is { Length: > 0 } r ? r + "." : string.Empty;
+        return receiver + (Name ?? fallbackName) + ArgumentText;
+    }
+}
 
 public sealed record RelatedSymbol(
     long Id,

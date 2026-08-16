@@ -629,13 +629,19 @@ public sealed class ReferenceResolver(SqliteConnection connection)
         var scopes = In(
             SymbolKind.Class, SymbolKind.Struct, SymbolKind.Union, SymbolKind.Enum,
             SymbolKind.Interface, SymbolKind.Namespace, SymbolKind.Module,
-            SymbolKind.MarkupElement);
+            SymbolKind.MarkupElement, SymbolKind.ResourceKey);
 
         // A binding path names a property or field on a type the markup never states; a
-        // resource key names a markup element. Kept apart deliberately — one rule for
+        // resource key names a keyed resource. Kept apart deliberately — one rule for
         // both let a binding land on an element name and a resource on a property. No
         // container restriction on either: crossing scopes is what they are for, and the
         // Use rule's restriction would strangle every one.
+        //
+        // The resource side narrowed again in M20.1's sibling: a key is its own symbol
+        // kind, not a markup element, because x:Key and x:Name are different namespaces
+        // that happened to share a kind. While they shared one,
+        // Style="{StaticResource SearchBox}" written on <TextBox x:Name="SearchBox">
+        // resolved to the TextBox — a self-edge, and so invisible in every listing.
         var bindable = In(SymbolKind.Property, SymbolKind.Field);
 
         return $"""
@@ -644,7 +650,7 @@ public sealed class ReferenceResolver(SqliteConnection connection)
             OR ({referenceAlias}.kind = {(int)ReferenceKind.Instantiate} AND s.kind = {(int)SymbolKind.Module})
             OR ({referenceAlias}.kind = {(int)ReferenceKind.Inherit} AND s.kind IN ({inheritable}))
             OR ({referenceAlias}.kind = {(int)ReferenceKind.Binding} AND s.kind IN ({bindable}))
-            OR ({referenceAlias}.kind = {(int)ReferenceKind.Resource} AND s.kind = {(int)SymbolKind.MarkupElement})
+            OR ({referenceAlias}.kind = {(int)ReferenceKind.Resource} AND s.kind = {(int)SymbolKind.ResourceKey})
             OR ({referenceAlias}.kind = {(int)ReferenceKind.Use} AND s.kind IN ({referencable})
                 AND (s.container_id IS NULL
                      OR s.container_id = {referenceAlias}.from_symbol_id

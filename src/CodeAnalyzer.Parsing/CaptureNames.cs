@@ -42,6 +42,7 @@ internal static class CaptureNames
         ["module"] = SymbolKind.Module,
         ["port"] = SymbolKind.Port,
         ["markup_element"] = SymbolKind.MarkupElement,
+        ["resource_key"] = SymbolKind.ResourceKey,
     };
 
     private static readonly Dictionary<string, ReferenceKind> ReferenceKinds = new(StringComparer.OrdinalIgnoreCase)
@@ -114,7 +115,7 @@ internal static class CaptureNames
         SymbolKind.Field or SymbolKind.Method => 5,
         SymbolKind.Class or SymbolKind.Struct or SymbolKind.Union or SymbolKind.Enum
             or SymbolKind.Typedef or SymbolKind.Interface or SymbolKind.Namespace
-            or SymbolKind.Module or SymbolKind.MarkupElement => 4,
+            or SymbolKind.Module or SymbolKind.MarkupElement or SymbolKind.ResourceKey => 4,
         SymbolKind.Function => 3,
         SymbolKind.Variable => 2,
         SymbolKind.Parameter => 1,

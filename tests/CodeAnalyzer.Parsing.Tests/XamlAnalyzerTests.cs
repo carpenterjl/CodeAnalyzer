@@ -47,7 +47,7 @@ public class XamlAnalyzerTests() : LanguagePackFixture(LanguageRegistry.Xaml, "V
     }
 
     [Fact]
-    public void AResourceKeyIsADeclaration()
+    public void AResourceKeyIsADeclarationOfItsOwnKind()
     {
         var result = Analyze("""
             <ResourceDictionary>
@@ -55,7 +55,31 @@ public class XamlAnalyzerTests() : LanguagePackFixture(LanguageRegistry.Xaml, "V
             </ResourceDictionary>
             """);
 
-        Assert.Equal(SymbolKind.MarkupElement, Symbol(result, "PanelBrush").Kind);
+        // Not MarkupElement: a key and an element name are different namespaces, and
+        // sharing a kind let a StaticResource lookup land on an x:Name.
+        Assert.Equal(SymbolKind.ResourceKey, Symbol(result, "PanelBrush").Kind);
+    }
+
+    /// <summary>
+    /// The distinction, in one file: the same word used both ways declares two symbols of
+    /// two kinds, which is what lets a resource lookup pick the right one.
+    /// </summary>
+    [Fact]
+    public void AKeyAndAnElementNameSharingAWordStayTwoDistinctSymbols()
+    {
+        var result = Analyze("""
+            <Grid>
+                <Grid.Resources>
+                    <SolidColorBrush x:Key="Accent" Color="#202020" />
+                </Grid.Resources>
+                <Border x:Name="Accent" />
+            </Grid>
+            """);
+
+        var kinds = result.Symbols.Where(s => s.Name == "Accent").Select(s => s.Kind).ToList();
+
+        Assert.Contains(SymbolKind.ResourceKey, kinds);
+        Assert.Contains(SymbolKind.MarkupElement, kinds);
     }
 
     [Fact]
@@ -72,7 +96,7 @@ public class XamlAnalyzerTests() : LanguagePackFixture(LanguageRegistry.Xaml, "V
             </ResourceDictionary>
             """);
 
-        Assert.Equal(SymbolKind.MarkupElement, Symbol(result, "RowButton").Kind);
+        Assert.Equal(SymbolKind.ResourceKey, Symbol(result, "RowButton").Kind);
     }
 
     [Fact]

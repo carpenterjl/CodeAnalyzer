@@ -140,6 +140,27 @@ public class TerseFormatterTests
         Assert.Contains(":88 orchestrator.IndexAsync(selection, store)~", text);
     }
 
+    /// <summary>
+    /// A markup extension is stored whole, because the extension is the reference rather
+    /// than an argument to one. Prefixing the name there read
+    /// <c>SearchBox{StaticResource SearchBox}</c>.
+    /// </summary>
+    [Fact]
+    public void AMarkupExtensionSiteShowsTheExtensionOnce()
+    {
+        var entry = new RelatedSymbol(3, "SearchBox", SymbolKind.ResourceKey, "Themes/Controls.xaml", 526,
+            ReferenceKind.Resource, EdgeConfidence.Unique);
+        var sites = new Dictionary<long, List<EdgeCallSite>>
+        {
+            [3] = [new EdgeCallSite(405, "{StaticResource SearchBox}", EdgeConfidence.Unique, null, "SearchBox")],
+        };
+
+        var text = TerseFormatter.Related(From, [entry], TerseFormatter.Callees, 100, sites);
+
+        Assert.Contains(":405 {StaticResource SearchBox}", text);
+        Assert.DoesNotContain("SearchBox{StaticResource", text);
+    }
+
     /// <summary>A bare reference has no receiver, and must not grow a stray separator.</summary>
     [Fact]
     public void ASiteWithNoReceiverPrintsTheNameAlone()

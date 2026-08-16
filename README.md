@@ -284,12 +284,13 @@ worse than one that admits the gap.
   each resolving at the confidence it deserves — a binding path is at best a cross-language
   name match, and the output marks it so. `x:Class` resolves too (M19.2): the root element is
   a declaration under its verbatim qualified name, it owns the reference, and the last
-  segment is what the code-behind class matches — markup and code-behind share a graph. Two
-  honest limits remain: a member the MVVM source generator invents (`[ObservableProperty]
-  string _query` → `Query`) exists in no source file, so bindings to it are listed as
-  unresolved rather than resolved — the binding checker below remains the tool that can see
-  those — and `x:Key` and `x:Name` are one symbol kind, so a resource lookup whose key
-  coincides with an element name can land on the element.
+  segment is what the code-behind class matches — markup and code-behind share a graph. A
+  key is its own symbol kind (M20.2): `x:Key` and `x:Name` are two namespaces rather than
+  two spellings, so a `{StaticResource SearchBox}` can only reach a keyed resource and never
+  the element that happens to share the word. One honest limit remains: a member the MVVM
+  source generator invents (`[ObservableProperty] string _query` → `Query`) exists in no
+  source file, so bindings to it are listed as unresolved rather than resolved — the binding
+  checker below remains the tool that can see those.
 - **The drift count covers indexed files only.** It compares what the index already holds
   against disk, so it reports edits and deletions but never notices a file created since the
   last run; finding those means a full crawl, which is too much to spend before answering a

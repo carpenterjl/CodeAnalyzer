@@ -32,6 +32,7 @@ public static class KindLabels
         SymbolKind.Module => "module",
         SymbolKind.Port => "port",
         SymbolKind.MarkupElement => "element",
+        SymbolKind.ResourceKey => "resource",
         _ => "symbol",
     };
 

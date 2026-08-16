@@ -183,6 +183,49 @@ public class XamlResolutionTests : IDisposable
         Assert.Equal(EdgeConfidence.Unique, caller.Confidence);
     }
 
+    /// <summary>
+    /// This workspace's own bug, reduced. <c>Style="{StaticResource SearchBox}"</c> written
+    /// on <c>&lt;TextBox x:Name="SearchBox"&gt;</c> used to resolve to the TextBox, because
+    /// a key and an element name shared one symbol kind and the element was the nearer
+    /// candidate. The reference and its target being the same symbol made the edge a
+    /// self-edge, which the display rule hides — so the wrong answer was not merely wrong,
+    /// it was silent. Split, the lookup can only see the key.
+    /// </summary>
+    [Fact]
+    public async Task AResourceLookupCannotLandOnAnElementSharingItsName()
+    {
+        WriteFile("Themes/Controls.xaml", """
+            <ResourceDictionary xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                <Style x:Key="SearchBox" TargetType="TextBox">
+                    <Setter Property="Padding" Value="0,5" />
+                </Style>
+            </ResourceDictionary>
+            """);
+        WriteFile("Views/Main.xaml", """
+            <UserControl x:Class="Demo.Views.Main"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                <TextBox x:Name="SearchBox" Style="{StaticResource SearchBox}" />
+            </UserControl>
+            """);
+
+        var store = await IndexAsync();
+        var search = new SymbolSearchService(store.Connection);
+        search.Reload();
+        var graph = new GraphQueryService(store.Connection);
+
+        // The Style two files away is what the lookup names, and it says so.
+        var style = search.Search("SearchBox")
+            .First(h => h.Name == "SearchBox" && h.RelativePath == "Themes/Controls.xaml").SymbolId;
+        var styleCallers = graph.GetDetail(style)!.Callers;
+        Assert.Contains(styleCallers, c => c.ReferenceKind == ReferenceKind.Resource);
+
+        // And the element that merely shares the word is not a resource target at all.
+        var element = search.Search("SearchBox")
+            .First(h => h.Name == "SearchBox" && h.RelativePath == "Views/Main.xaml").SymbolId;
+        Assert.DoesNotContain(graph.GetDetail(element)!.Callers,
+            c => c.ReferenceKind == ReferenceKind.Resource);
+    }
+
     [Fact]
     public async Task AMisspelledBindingPathIsListedAsUnresolvedNotDropped()
     {

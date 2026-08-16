@@ -213,5 +213,9 @@ public interface IGraphViewService
     /// edge. Fetched on demand rather than shipped with every fragment, because the list
     /// is only worth reading once its edge is the one being asked about.
     /// </summary>
-    Task ShowEdgeDetailsAsync(string edgeId, IReadOnlyList<EdgeCallSite> sites);
+    /// <param name="kind">
+    /// What the edge's references are, which decides how a site reads: a markup extension
+    /// is stored whole and shows as written, a call shows receiver, name and arguments.
+    /// </param>
+    Task ShowEdgeDetailsAsync(string edgeId, ReferenceKind kind, IReadOnlyList<EdgeCallSite> sites);
 }

@@ -43,6 +43,14 @@ public static class Schema
     /// it has to be an index seek. Both are NULL wherever the parser cannot be certain.
     /// </para>
     /// <para>
+    /// Version 18 (M20.2) changes no DDL. A XAML <c>x:Key</c> is now its own symbol kind
+    /// rather than a markup element, so rows an earlier build stored for an unchanged
+    /// <c>.xaml</c> file record a resource key under the kind an element name uses — and a
+    /// resource lookup would keep resolving to whichever it found first. A pack change that
+    /// alters what a stored row means needs one of these; the gate screens on size,
+    /// timestamp and hash and cannot see a <c>.scm</c> edit.
+    /// </para>
+    /// <para>
     /// Version 17 (M20.1) changes no DDL. A bare-identifier use may now bind to a member of
     /// a type — a class's constant, an enum's member — where before the rule that keeps
     /// loop counters out of the graph excluded every one of them along with the locals it
@@ -91,7 +99,7 @@ public static class Schema
     /// files are newly discovered rather than stale.
     /// </para>
     /// </summary>
-    public const int Version = 17;
+    public const int Version = 18;
 
     public const string MetaSchemaVersion = "schema_version";
     public const string MetaRootPath = "root_path";

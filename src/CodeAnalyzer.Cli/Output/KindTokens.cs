@@ -36,6 +36,7 @@ internal static class KindTokens
         SymbolKind.Module => "module",
         SymbolKind.Port => "port",
         SymbolKind.MarkupElement => "elem",
+        SymbolKind.ResourceKey => "res",
         _ => "sym",
     };
 

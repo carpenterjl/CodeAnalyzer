@@ -32,6 +32,17 @@ public enum SymbolKind
 
     /// <summary>An element carrying an id attribute in markup.</summary>
     MarkupElement = 19,
+
+    /// <summary>
+    /// A keyed resource: a XAML <c>x:Key</c>, the name a <c>{StaticResource …}</c> is
+    /// written against. Separate from <see cref="MarkupElement"/> because the two are
+    /// addressed by different things and live in different namespaces — <c>x:Name</c>
+    /// names an element for code-behind and <c>FindName</c>, <c>x:Key</c> names an entry
+    /// in a resource dictionary — and one kind for both let
+    /// <c>Style="{StaticResource SearchBox}"</c> land on the TextBox named SearchBox
+    /// instead of the Style keyed SearchBox two files away.
+    /// </summary>
+    ResourceKey = 20,
 }
 
 /// <summary>

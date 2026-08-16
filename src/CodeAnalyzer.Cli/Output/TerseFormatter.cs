@@ -361,17 +361,15 @@ internal static class TerseFormatter
                 foreach (var site in entrySites)
                 {
                     anyUncertain |= Uncertain(site.Confidence);
-                    // Rebuild what the source says, in the order it says it: the receiver
-                    // where one was written, the name the reference is against, then the
-                    // arguments. The receiver is the evidence behind the confidence mark —
-                    // `orchestrator.IndexAsync(…)~` explains itself — and the name is what
-                    // keeps the dot attached to something. Uses carry no arguments, so
-                    // before the name was printed a site read `:632 SymbolKind.` with the
-                    // dot dangling, or `:454` with nothing after it at all.
-                    var receiver = site.ReceiverText is null ? string.Empty : site.ReceiverText + ".";
-                    var name = site.Name ?? (siteNamesFocus ? focus.Name : entry.Name);
+                    // The site rebuilt as the source wrote it. The receiver is the evidence
+                    // behind the confidence mark — `orchestrator.IndexAsync(…)~` explains
+                    // itself — and the name is what keeps its dot attached to something:
+                    // a use carries no arguments, so a site used to read `:632 SymbolKind.`
+                    // with the dot dangling, or `:454` with nothing after it at all.
+                    var fallback = siteNamesFocus ? focus.Name : entry.Name;
                     builder.AppendLine(
-                        $"    :{site.Line} {receiver}{name}{site.ArgumentText}{ConfidenceMark(site.Confidence)}");
+                        $"    :{site.Line} {site.SourceText(entry.ReferenceKind, fallback)}"
+                        + ConfidenceMark(site.Confidence));
                 }
             }
         }

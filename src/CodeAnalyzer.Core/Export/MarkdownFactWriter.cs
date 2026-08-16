@@ -161,14 +161,11 @@ public static class MarkdownFactWriter
                 {
                     text.Append("  - line ").Append(site.Line);
 
-                    // Rebuild the source in source order: receiver, name, arguments. Sites
-                    // arrive only for callees, so the name is this entry's. Gating the whole
-                    // line on arguments used to drop the receiver from every reference that
-                    // has none — which, since a use may now bind to a member of a type, is
-                    // most of them: `SymbolKind.MarkupElement` would have printed bare.
-                    var receiver = site.ReceiverText is { Length: > 0 } r ? r + "." : string.Empty;
-                    var args = site.ArgumentText is { Length: > 0 } a ? Flatten(a) : string.Empty;
-                    text.Append(": ").Append(Code(receiver + (site.Name ?? entry.Name) + args));
+                    // The source as written. Gating this line on arguments used to drop the
+                    // receiver — the evidence behind the confidence mark — from every
+                    // reference that has none, which, since a use may now bind to a
+                    // member of a type, is most of them.
+                    text.Append(": ").Append(Code(Flatten(site.SourceText(entry.ReferenceKind, entry.Name))));
 
                     text.Append('\n');
                 }

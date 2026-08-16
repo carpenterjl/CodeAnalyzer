@@ -347,16 +347,15 @@ public sealed class WebView2GraphViewService(IUiDispatcher dispatcher, ILogger<W
         _ => "png",
     };
 
-    public Task ShowEdgeDetailsAsync(string edgeId, IReadOnlyList<EdgeCallSite> sites) =>
+    public Task ShowEdgeDetailsAsync(string edgeId, ReferenceKind kind, IReadOnlyList<EdgeCallSite> sites) =>
         PostAsync("edgeDetails", new EdgeDetailsMessage(
             edgeId,
             sites.Select(site => new EdgeSiteWire(
                 site.Line,
-                // Receiver and name folded into the displayed text rather than new wire
-                // fields: the popover shows one verbatim slice, and
-                // `orchestrator.IndexAsync(…)` is the evidence behind a name-match label.
-                (site.ReceiverText is null ? string.Empty : site.ReceiverText + ".")
-                    + site.Name + site.ArgumentText,
+                // One composed slice rather than separate wire fields: the popover shows
+                // the source as written, and `orchestrator.IndexAsync(…)` is the evidence
+                // behind a name-match label.
+                site.SourceText(kind),
                 KindLabels.For(site.Confidence))).ToList()));
 
     /// <summary>Wire names for the view modes. The page keys its sections off these.</summary>
