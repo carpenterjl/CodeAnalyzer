@@ -43,6 +43,15 @@ public static class Schema
     /// it has to be an index seek. Both are NULL wherever the parser cannot be certain.
     /// </para>
     /// <para>
+    /// Version 22 (M21.1) adds <c>file.error_line</c> and <c>file.error_text</c>: where the
+    /// parser first lost its footing and the text it could not read. Needed by the rule
+    /// below — the parser now writes a value it never wrote before, and an unchanged file
+    /// the gate skips would keep a NULL pair that reads as "this file parsed clean". The
+    /// columns exist because five rounds of reporting reported a <em>count</em> of imperfect
+    /// files and never once said which or why, which turned out to be hiding a duller answer
+    /// than the number implied.
+    /// </para>
+    /// <para>
     /// Version 21 (M20.5) changes no DDL, and — by the rule below — is one that genuinely
     /// needs a number: the XAML pack now emits a handler reference for an attribute whose
     /// name reads like a routed event, so an unchanged <c>.xaml</c> file holds fewer
@@ -130,7 +139,7 @@ public static class Schema
     /// files are newly discovered rather than stale.
     /// </para>
     /// </summary>
-    public const int Version = 21;
+    public const int Version = 22;
 
     public const string MetaSchemaVersion = "schema_version";
     public const string MetaRootPath = "root_path";
@@ -179,7 +188,14 @@ public static class Schema
             status       INTEGER NOT NULL DEFAULT 0,
             -- What went wrong, when status says something did. NULL for a routine syntax
             -- error (tree-sitter recovers and reports no message); set for hard failures.
-            error        TEXT
+            error        TEXT,
+            -- Where the parser first lost its footing, and the text it could not read.
+            -- Independent of `error` above, and the common case is that this pair is set
+            -- while that is NULL: the file recovered, indexed fully, and still holds a
+            -- construct the bundled grammar predates. NULL text with a line set is a token
+            -- the grammar expected and did not find, which has a position and no extent.
+            error_line   INTEGER,
+            error_text   TEXT
         );
 
         CREATE TABLE IF NOT EXISTS symbol (

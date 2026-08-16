@@ -3,6 +3,7 @@ using CodeAnalyzer.Core.Domain;
 using CodeAnalyzer.Core.Export;
 using CodeAnalyzer.Core.Graph;
 using CodeAnalyzer.Core.Search;
+using CodeAnalyzer.Core.Storage;
 using Microsoft.Data.Sqlite;
 
 namespace CodeAnalyzer.Cli.Querying;
@@ -139,6 +140,14 @@ internal sealed class AgentToolset(ReadOnlyIndexSession session)
     /// <summary>One file's definitions in source order, or null when no file matches.</summary>
     public FileOutline? Outline(string pathText) =>
         Query(() => FileOutlineService.Build(Session, pathText));
+
+    /// <summary>
+    /// Files the parser could not fully read, with the position it stopped at. Every other
+    /// answer this toolset gives is drawn from files that parsed; this is the one that says
+    /// which ones did not, so a caller can judge how much of the workspace the rest covers.
+    /// </summary>
+    public ParseErrorReport ParseErrors() =>
+        Query(() => FileErrorQuery.Read(Session.Connection));
 
     /// <summary>Runs a read under the gate, translating a torn-down index into one message.</summary>
     public T Query<T>(Func<T> query)

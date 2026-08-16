@@ -2,6 +2,7 @@ using CodeAnalyzer.Cli.Output;
 using CodeAnalyzer.Cli.Querying;
 using CodeAnalyzer.Core.Domain;
 using CodeAnalyzer.Core.Graph;
+using CodeAnalyzer.Core.Storage;
 using Xunit;
 
 namespace CodeAnalyzer.Cli.Tests;
@@ -14,6 +15,78 @@ public class TerseFormatterTests
 {
     private static readonly LocatedSymbol From = new(1, "alpha", SymbolKind.Function, "(void)", "a.c", 1);
     private static readonly LocatedSymbol To = new(2, "omega", SymbolKind.Function, "(void)", "b.c", 9);
+
+    private static FileErrorRecord Stumbled(string path, int line, string? text) =>
+        new(path, "C#", Message: null, SymbolCount: 12, Line: line, Text: text);
+
+    [Fact]
+    public void TheTallyLeadsBecauseItIsUsuallyTheWholeAnswer()
+    {
+        // The point of the command. Fifty file names read as "your workspace is a mess";
+        // the same fifty rolled up to one construct read as "your grammar is old", which
+        // is the true one. The tally must therefore come before the list, and must count
+        // every file rather than only the ones the list had room for.
+        var report = new ParseErrorReport(196, [
+            Stumbled("a.cs", 10, "[]"),
+            Stumbled("b.cs", 20, "[]"),
+            Stumbled("c.cs", 30, "<Grid.RowDefinitions>"),
+        ]);
+
+        var text = TerseFormatter.ParseErrors(report, limit: 1);
+
+        Assert.Contains("3 of 196", text);
+        Assert.Contains("2 × C#", text);
+        Assert.True(
+            text.IndexOf("what it stopped at", StringComparison.Ordinal) < text.IndexOf("a.cs", StringComparison.Ordinal),
+            "the tally has to precede the file list");
+    }
+
+    [Fact]
+    public void ACappedListSaysHowManyItDidNotShow()
+    {
+        var report = new ParseErrorReport(196, [
+            Stumbled("a.cs", 1, "[]"), Stumbled("b.cs", 2, "[]"), Stumbled("c.cs", 3, "[]"),
+        ]);
+
+        var text = TerseFormatter.ParseErrors(report, limit: 2);
+
+        Assert.Contains("1 more files not shown", text);
+        Assert.DoesNotContain("c.cs", text);
+    }
+
+    [Fact]
+    public void AFileWithNoQuotableTextIsStillCountedAndPlaced()
+    {
+        // A token the grammar expected and did not find has a position and no extent.
+        // It must not vanish from the tally for want of something to quote.
+        var report = new ParseErrorReport(2, [Stumbled("a.cs", 7, null)]);
+
+        var text = TerseFormatter.ParseErrors(report, limit: 10);
+
+        Assert.Contains("a token the grammar expected", text);
+        Assert.Contains("a.cs:7", text);
+    }
+
+    [Fact]
+    public void AWorkspaceWithNothingToReportSaysSoWithoutAnEmptyTable()
+    {
+        Assert.Equal(
+            "all 196 indexed files parsed cleanly",
+            TerseFormatter.ParseErrors(new ParseErrorReport(196, []), limit: 10));
+    }
+
+    [Fact]
+    public void AHardFailureShowsItsMessageInsteadOfASymbolCount()
+    {
+        var report = new ParseErrorReport(2, [
+            new("broken.cs", "C#", "the parser returned no tree", SymbolCount: 0),
+        ]);
+
+        var text = TerseFormatter.ParseErrors(report, limit: 10);
+
+        Assert.Contains("the parser returned no tree", text);
+        Assert.DoesNotContain("0 indexed", text);
+    }
 
     [Fact]
     public void AnExhaustedEmptySearchNeverReadsAsNoRoute()

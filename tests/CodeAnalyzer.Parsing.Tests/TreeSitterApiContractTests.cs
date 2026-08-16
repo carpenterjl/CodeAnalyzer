@@ -254,6 +254,37 @@ public class TreeSitterApiContractTests
     }
 
     [Fact]
+    public void MissingToken_SurfacesOnlyThroughHasError()
+    {
+        // The binding fact the error locator is built on, and the one that broke its first
+        // cut. A token the grammar expected and did not find does NOT arrive as a node
+        // reporting IsMissing or IsError: it arrives as an ordinary childless node of some
+        // ordinary type, empty, with HasError set and the other two flags clear. Anything
+        // that descends a tree looking for IsError or IsMissing walks off the end and
+        // concludes the file is fine.
+        using var language = new Language("C#");
+        using var parser = new Parser(language);
+
+        // A C# 12 collection expression, which this bundled grammar predates.
+        using var tree = parser.Parse("class A { private readonly List<int> _x = []; }")!;
+
+        Assert.True(tree.RootNode.HasError);
+
+        // Descend on HasError alone, to the innermost node that still reports one.
+        var node = tree.RootNode;
+        while (node.Children.FirstOrDefault(c => c.HasError) is { } child)
+        {
+            node = child;
+        }
+
+        Assert.Empty(node.Children);
+        Assert.True(node.HasError);
+        Assert.False(node.IsError);
+        Assert.False(node.IsMissing);
+        Assert.True(string.IsNullOrEmpty(node.Text));
+    }
+
+    [Fact]
     public void MatchLimit_BoundsInProgressMatchesAndReportsExceeding()
     {
         // The analyzer caps in-progress matches to bound native memory on pathological

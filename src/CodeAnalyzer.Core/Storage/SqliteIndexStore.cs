@@ -206,8 +206,8 @@ public sealed class SqliteIndexStore : IParseResultSink, IIncrementalGate, IDisp
         using var deleteDependencies = CreateCommand(transaction, "DELETE FROM file_dep WHERE file_id = $fileId");
 
         using var upsertFile = CreateCommand(transaction, """
-            INSERT INTO file (id, rel_path, top_dir, base_name, dir_path, language, content_hash, size, mtime, status, error)
-            VALUES ($id, $relPath, $topDir, $baseName, $dirPath, $language, $hash, $size, $mtime, $status, $error)
+            INSERT INTO file (id, rel_path, top_dir, base_name, dir_path, language, content_hash, size, mtime, status, error, error_line, error_text)
+            VALUES ($id, $relPath, $topDir, $baseName, $dirPath, $language, $hash, $size, $mtime, $status, $error, $errorLine, $errorText)
             ON CONFLICT(rel_path) DO UPDATE SET
                 top_dir = excluded.top_dir,
                 base_name = excluded.base_name,
@@ -217,7 +217,9 @@ public sealed class SqliteIndexStore : IParseResultSink, IIncrementalGate, IDisp
                 size = excluded.size,
                 mtime = excluded.mtime,
                 status = excluded.status,
-                error = excluded.error
+                error = excluded.error,
+                error_line = excluded.error_line,
+                error_text = excluded.error_text
             """);
 
         using var insertSymbol = CreateCommand(transaction, """
@@ -278,6 +280,8 @@ public sealed class SqliteIndexStore : IParseResultSink, IIncrementalGate, IDisp
         Set(upsertFile, "$mtime", result.ModifiedUnixMs);
         Set(upsertFile, "$status", (int)result.Status);
         Set(upsertFile, "$error", result.ErrorMessage);
+        Set(upsertFile, "$errorLine", result.ErrorLine);
+        Set(upsertFile, "$errorText", result.ErrorText);
         upsertFile.ExecuteNonQuery();
 
         // Replace rather than merge: re-parsing a file supersedes everything it declared.
@@ -629,32 +633,11 @@ public sealed class SqliteIndexStore : IParseResultSink, IIncrementalGate, IDisp
     /// <summary>
     /// Files whose last parse was imperfect. A null message is a routine syntax error —
     /// tree-sitter recovered and the partial symbols are indexed; a message is a hard
-    /// failure that produced nothing.
+    /// failure that produced nothing. <c>error_line</c> says where the grammar stopped
+    /// understanding, which is what tells the two apart at a glance.
     /// </summary>
-    public List<FileErrorRecord> ReadFileErrors() => Gate.Read(() =>
-    {
-        using var command = _connection.CreateCommand();
-        command.CommandText = """
-            SELECT rel_path, language, error,
-                   (SELECT COUNT(*) FROM symbol s WHERE s.file_id = file.id)
-            FROM file
-            WHERE status <> 0
-            ORDER BY rel_path
-            """;
-
-        var results = new List<FileErrorRecord>();
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
-        {
-            results.Add(new FileErrorRecord(
-                reader.GetString(0),
-                reader.GetString(1),
-                reader.IsDBNull(2) ? null : reader.GetString(2),
-                reader.GetInt32(3)));
-        }
-
-        return results;
-    });
+    public List<FileErrorRecord> ReadFileErrors() =>
+        Gate.Read(() => FileErrorQuery.Read(_connection).Files.ToList());
 
     /// <summary>Persists the user's directory selection so reopening restores it.</summary>
     public void SaveSelectedDirectories(IReadOnlyList<string> relativePaths) => Gate.Run(() =>

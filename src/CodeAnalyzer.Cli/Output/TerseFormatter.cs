@@ -3,6 +3,7 @@ using CodeAnalyzer.Cli.Querying;
 using CodeAnalyzer.Core.Domain;
 using CodeAnalyzer.Core.Graph;
 using CodeAnalyzer.Core.Search;
+using CodeAnalyzer.Core.Storage;
 
 namespace CodeAnalyzer.Cli.Output;
 
@@ -439,6 +440,73 @@ internal static class TerseFormatter
         {
             builder.AppendLine(ConfidenceFooter);
         }
+
+        return builder.Finish();
+    }
+
+    /// <summary>
+    /// The imperfect-parse list, led by a tally of what the parser actually stopped at.
+    /// <para>
+    /// The tally comes first because it is usually the whole answer. A list of fifty file
+    /// names invites the reader to conclude their workspace is in bad shape; the same fifty
+    /// files rolled up to one line saying every one of them stopped at <c>[]</c> says the
+    /// true thing instead, which is that the bundled grammar is older than the code.
+    /// </para>
+    /// </summary>
+    public static string ParseErrors(ParseErrorReport report, int limit)
+    {
+        if (report.Files.Count == 0)
+        {
+            return $"all {report.TotalFiles} indexed files parsed cleanly";
+        }
+
+        var builder = new StringBuilder();
+        builder.AppendLine(
+            $"{report.Files.Count} of {report.TotalFiles} indexed files hold something the parser could not read");
+
+        builder.AppendLine();
+        builder.AppendLine("what it stopped at:");
+        foreach (var group in report.Files
+            .GroupBy(f => (f.Language, Text: f.Text ?? "(a token the grammar expected and did not find)"))
+            .OrderByDescending(g => g.Count())
+            .ThenBy(g => g.Key.Text, StringComparer.Ordinal))
+        {
+            builder.AppendLine($"  {group.Count(),4} × {group.Key.Language,-6} {Flatten(group.Key.Text)}");
+        }
+
+        var shown = 0;
+        foreach (var language in report.Files
+            .GroupBy(f => f.Language)
+            .OrderByDescending(g => g.Count())
+            .ThenBy(g => g.Key, StringComparer.Ordinal))
+        {
+            builder.AppendLine();
+            builder.AppendLine($"{language.Key} ({language.Count()} files)");
+
+            foreach (var file in language)
+            {
+                if (shown++ == limit)
+                {
+                    builder.AppendLine($"  … {report.Files.Count - limit} more files not shown (--limit)");
+                    break;
+                }
+
+                // A hard failure indexed nothing and has a message; a recovered parse
+                // indexed what it could and has a position. Never both.
+                var where = file.Line is { } line ? $":{line}" : string.Empty;
+                var what = file.Message is { } message
+                    ? $"  {Flatten(message)}"
+                    : $"  {file.SymbolCount} indexed";
+
+                builder.AppendLine($"  {file.RelativePath}{where}{what}");
+            }
+        }
+
+        builder.AppendLine();
+        builder.AppendLine(
+            "every file above was still indexed — the count is what survived. A file lands here when "
+            + "the grammar cannot read one construct, which is more often a language feature newer "
+            + "than the bundled grammar than a mistake in the file.");
 
         return builder.Finish();
     }

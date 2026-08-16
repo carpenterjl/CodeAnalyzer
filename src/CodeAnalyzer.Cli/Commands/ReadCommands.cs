@@ -77,6 +77,12 @@ internal static class ReadCommands
         "one file's definitions in source order, indented by containment",
         (args, ct) => RunOutline(args, ct));
 
+    public static CommandSpec Errors { get; } = new(
+        "errors",
+        "errors [--limit N] [--root path] [--json]",
+        "files the parser could not fully read, and the construct it stopped at",
+        (args, ct) => RunErrors(args, ct));
+
     // ---- runners ------------------------------------------------------------
 
     private static Task<int> RunSearch(string[] rawArgs, CancellationToken cancellationToken)
@@ -393,6 +399,30 @@ internal static class ReadCommands
 
             // An ambiguous path listed candidates rather than answering the question.
             return Task.FromResult(outline.CandidatePaths is null ? ExitCodes.Ok : ExitCodes.Error);
+        });
+    }
+
+    private static Task<int> RunErrors(string[] rawArgs, CancellationToken cancellationToken)
+    {
+        var args = ArgReader.Parse(rawArgs, ["root", "limit"], ["json"]);
+
+        return CommandEnvironment.WithSession(args, toolset =>
+        {
+            var limit = args.IntValue("limit", 200);
+            if (args.Error is not null)
+            {
+                Console.Error.WriteLine(args.Error);
+                return Task.FromResult(ExitCodes.Error);
+            }
+
+            var report = toolset.ParseErrors();
+
+            Console.WriteLine(args.Switch("json")
+                ? JsonFormatter.ParseErrors(toolset.Session, report)
+                : TerseFormatter.ParseErrors(report, limit));
+
+            // An imperfect parse is a fact about the workspace, not a failure of the query.
+            return Task.FromResult(ExitCodes.Ok);
         });
     }
 

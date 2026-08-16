@@ -2082,7 +2082,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 // file whose syntax is perfectly correct is a claim, not a description.
                 var description = error.Message
                     ?? GrammarNotes.For(error.Language)
-                    ?? $"Syntax errors — {error.SymbolCount:N0} symbol{(error.SymbolCount == 1 ? "" : "s")} still indexed";
+                    ?? DescribeStumble(error);
 
                 FileErrors.Add(new FileErrorItem(error.RelativePath, error.Language, description));
             }
@@ -2098,6 +2098,26 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             _logger.LogError(ex, "Failed to read the file error list");
         }
+    }
+
+    /// <summary>
+    /// What a recovered parse has to say for itself. "Syntax errors" on its own reads as an
+    /// accusation against the file, and it is usually wrong: the grammar met a construct
+    /// newer than itself. Naming the line and quoting the text lets the reader settle that
+    /// in one glance instead of taking the pane's word for it.
+    /// </summary>
+    private static string DescribeStumble(CodeAnalyzer.Core.Storage.FileErrorRecord error)
+    {
+        var kept = $"{error.SymbolCount:N0} symbol{(error.SymbolCount == 1 ? "" : "s")} still indexed";
+
+        if (error.Line is not { } line)
+        {
+            return $"Syntax errors — {kept}";
+        }
+
+        return error.Text is { Length: > 0 } text
+            ? $"Line {line}: the grammar stopped at “{text}” — {kept}"
+            : $"Line {line}: the grammar expected a token that is not there — {kept}";
     }
 
     private async Task OpenErrorFileAsync(FileErrorItem item)

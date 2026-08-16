@@ -8,9 +8,17 @@ namespace CodeAnalyzer.Core.Storage;
 /// a hard failure that produced nothing. <paramref name="SymbolCount"/> lets the UI say
 /// which of the two the user is looking at without implying the file was skipped.
 /// </para>
+/// <para>
+/// <paramref name="Line"/> and <paramref name="Text"/> locate and quote the first thing the
+/// grammar could not read. They are what makes an imperfect parse answerable: a file in
+/// this list is far more often written in a dialect newer than the bundled grammar than it
+/// is actually broken, and without the position the reader cannot tell which.
+/// </para>
 /// </summary>
 public sealed record FileErrorRecord(
     string RelativePath,
     string Language,
     string? Message,
-    int SymbolCount);
+    int SymbolCount,
+    int? Line = null,
+    string? Text = null);

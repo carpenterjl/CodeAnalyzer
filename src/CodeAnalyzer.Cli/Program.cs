@@ -28,6 +28,7 @@ internal static class Program
         ReadCommands.Constants,
         ReadCommands.Map,
         ReadCommands.Outline,
+        ReadCommands.Errors,
         IndexCommand.Spec,
         Mcp.McpCommand.Spec,
     ];

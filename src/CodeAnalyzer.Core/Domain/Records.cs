@@ -183,4 +183,18 @@ public sealed record ParseResult
     /// file; a skip must always state why).
     /// </summary>
     public string? ErrorMessage { get; init; }
+
+    /// <summary>
+    /// 1-based line where the parser first lost its footing, or null when nothing in the
+    /// tree was malformed. Independent of <see cref="ErrorMessage"/>: that is set when the
+    /// file produced nothing, this when an otherwise fully indexed file contains a
+    /// construct the grammar cannot read.
+    /// </summary>
+    public int? ErrorLine { get; init; }
+
+    /// <summary>
+    /// The first line of the text at <see cref="ErrorLine"/>, verbatim and capped. Null
+    /// where the parser expected a token and found none, which has a position but no text.
+    /// </summary>
+    public string? ErrorText { get; init; }
 }

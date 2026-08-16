@@ -178,6 +178,18 @@ internal sealed class CodeAnalyzerTools(McpSessionHolder holder)
                 : TerseFormatter.Outline(outline);
         });
 
+    [McpServerTool(Name = "parse_errors")]
+    [Description("Files the parser could not fully read, with the construct it stopped at and a "
+        + "tally of the most common ones. Use it to judge how much of the workspace every other "
+        + "answer is drawn from. A file listed here was still indexed — it lands here when the "
+        + "bundled grammar cannot read one construct, which is more often a language feature "
+        + "newer than the grammar than a mistake in the file.")]
+    public string ParseErrors(
+        [Description("Max files listed, default 200. The tally always covers all of them.")]
+        int limit = 200) =>
+        WithToolset(toolset =>
+            TerseFormatter.ParseErrors(toolset.ParseErrors(), Math.Clamp(limit, 1, 5000)));
+
     [McpServerTool(Name = "reindex")]
     [Description("Rebuild or refresh the workspace's index through the full pipeline. "
         + "Run this when the index is missing or the build date in results looks stale.")]

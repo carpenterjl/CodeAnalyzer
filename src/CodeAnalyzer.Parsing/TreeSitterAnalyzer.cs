@@ -70,6 +70,8 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
             // (pinned by MatchLimit_BoundsInProgressMatchesAndReportsExceeding). When it
             // does, everything extracted is kept and the incompleteness is stated.
             var matchesDropped = symbolMatchesDropped || referenceMatchesDropped;
+            (Node Site, string? Text)? firstError =
+                tree.RootNode.HasError ? FirstError(tree.RootNode) : null;
 
             return new ParseResult
             {
@@ -84,6 +86,8 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
                 ErrorMessage = matchesDropped
                     ? $"tree-sitter dropped query matches (limit {MaxMatchesInProgress:N0}) — the symbol and reference lists for this file may be incomplete"
                     : null,
+                ErrorLine = firstError is { } error ? error.Site.StartPosition.Row + 1 : null,
+                ErrorText = firstError?.Text,
             };
         }
         catch (OperationCanceledException)
@@ -104,6 +108,93 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
         Status = FileStatus.ParseError,
         ErrorMessage = message,
     };
+
+    /// <summary>
+    /// Longest error snippet kept. A snippet is meant to be recognised at a glance, and an
+    /// error node can span the rest of a file.
+    /// </summary>
+    private const int MaxErrorSnippet = 48;
+
+    /// <summary>
+    /// Where the grammar first lost its footing: the position of the innermost node still
+    /// reporting an error, and the nearest text around it worth quoting.
+    /// <para>
+    /// A count of imperfect files is not actionable on its own — it says a share of the
+    /// workspace is wrong without saying what, which invites the reader to assume the worst
+    /// about their own source. Usually the truth is narrower and duller: on this project
+    /// every one of the 53 flagged C# files trips on the same construct the bundled grammar
+    /// predates, and only a position makes that visible.
+    /// </para>
+    /// <para>
+    /// <c>HasError</c> is the only signal used, because it is the only one that holds. A
+    /// token the grammar expected and did not find arrives as an ordinary childless node —
+    /// an empty <c>identifier</c>, for a collection expression — whose <c>IsMissing</c> and
+    /// <c>IsError</c> are both false and whose <c>HasError</c> is true. Descending on those
+    /// two flags walks off the end of the tree and reports nothing, which is what the first
+    /// cut of this did. <c>MissingToken_SurfacesOnlyThroughHasError</c> pins it.
+    /// </para>
+    /// <para>
+    /// The site itself is usually empty, so the quotable text is carried down the descent:
+    /// the last ancestor with any extent is the innermost construct that contains the
+    /// failure, and it is what a reader recognises. For <c>= []</c> the site is a
+    /// zero-width node inside the brackets and the quote is <c>[]</c>.
+    /// </para>
+    /// </summary>
+    private static (Node Site, string? Text) FirstError(Node root)
+    {
+        var node = root;
+        var quotable = root;
+
+        while (true)
+        {
+            if (!string.IsNullOrWhiteSpace(node.Text))
+            {
+                quotable = node;
+            }
+
+            Node? next = null;
+            foreach (var child in node.Children)
+            {
+                if (child.HasError)
+                {
+                    next = child;
+                    break;
+                }
+            }
+
+            if (next is null)
+            {
+                return (node, Snippet(quotable));
+            }
+
+            node = next;
+        }
+    }
+
+    /// <summary>
+    /// The first line of what a node covers, trimmed and capped. Null when there is nothing
+    /// to quote, which leaves the position as the whole fact.
+    /// </summary>
+    private static string? Snippet(Node node)
+    {
+        var text = node.Text;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        var span = text.AsSpan();
+        var newline = span.IndexOfAny('\r', '\n');
+        if (newline >= 0)
+        {
+            span = span[..newline];
+        }
+
+        var trimmed = span.Trim();
+        return trimmed.Length <= MaxErrorSnippet
+            ? trimmed.ToString()
+            : string.Concat(trimmed[..MaxErrorSnippet], "…");
+    }
 
     /// <summary>A symbol plus the span of its name, which reference filtering needs.</summary>
     private sealed record ExtractedSymbol(SymbolRecord Record, int NameStartOffset, int NameEndOffset);

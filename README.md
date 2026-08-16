@@ -119,6 +119,7 @@ run rebuilds every edge from scratch, so a resolver change lands in full either 
 | `boundaries` | where data leaves/enters the workspace (I/O catalog + your marks) |
 | `value <literal>` | definitions whose literal denotes this value, in any language (`0xA5` finds `165` and `8'hA5`) |
 | `constants` | values defined in more than one language, ranked by how many agree (`--by-dir`, `--include-trivial`) |
+| `errors` | files the parser could not fully read, the construct it stopped at, and a tally of the most common ones |
 | `index [path]` | build or refresh the workspace's index (`--full` re-parses every file instead of skipping unchanged ones) |
 | `mcp` | the MCP stdio server for AI agent clients |
 
@@ -139,7 +140,7 @@ while keeping the summary.
 For AI agents, the MCP server exposes the same queries as tools
 (`search_symbols`, `get_symbol`, `get_context`, `get_callers`, `get_callees`,
 `trace_paths`, `repo_map`, `file_outline`, `io_boundaries`, `find_by_value`,
-`shared_constants`, `reindex`). This
+`shared_constants`, `parse_errors`, `reindex`). This
 repo's `.mcp.json` registers it for Claude Code; elsewhere:
 
 ```bash
@@ -211,6 +212,14 @@ samples/c-demo/             7-file C workspace for manual end-to-end testing
 rather than hand-written parsers, so adding a language is a pack plus a registry entry. A
 malformed file still yields a usable partial tree; a syntax error costs the declarations it
 sits inside, not the file.
+
+A file the parser stumbled on is usually not a broken file. `codeanalyzer errors` lists
+them with the line and the construct, and leads with a tally, because the tally is normally
+the whole story: on this repo it reads `53 × C# []` — every flagged C# file holds a C# 12
+collection expression, which the bundled grammar predates. All of them compile, and all of
+them index. The remaining four are WPF property elements (`<Grid.RowDefinitions>`), which
+the XAML grammar reads as a tag plus an error. Neither is a defect in the source, and
+neither is fixable here: 1.3.0 is the newest published TreeSitter.DotNet.
 
 A run also compares the index's **links per file** against the previous run's and says so
 when it multiplies, naming the files that account for it. The measure is deliberately not

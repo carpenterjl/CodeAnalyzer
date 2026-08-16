@@ -5,6 +5,7 @@ using CodeAnalyzer.Cli.Session;
 using CodeAnalyzer.Core.Domain;
 using CodeAnalyzer.Core.Graph;
 using CodeAnalyzer.Core.Search;
+using CodeAnalyzer.Core.Storage;
 
 namespace CodeAnalyzer.Cli.Output;
 
@@ -320,6 +321,25 @@ internal static class JsonFormatter
             line = m.Line,
         }),
     };
+
+    public static string ParseErrors(ReadOnlyIndexSession session, ParseErrorReport report) =>
+        JsonSerializer.Serialize(new
+        {
+            index = Index(session),
+            totalFiles = report.TotalFiles,
+            imperfectFiles = report.Files.Count,
+            note = "every file listed was still indexed; symbols is what survived. A null message "
+                + "means the parser recovered, and stoppedAt is where it lost its footing.",
+            files = report.Files.Select(f => new
+            {
+                path = f.RelativePath,
+                language = f.Language,
+                line = f.Line,
+                stoppedAt = f.Text,
+                symbols = f.SymbolCount,
+                message = f.Message,
+            }),
+        }, Options);
 
     public static string Boundaries(ReadOnlyIndexSession session, IReadOnlyList<IoBoundarySite> sites) =>
         JsonSerializer.Serialize(new
