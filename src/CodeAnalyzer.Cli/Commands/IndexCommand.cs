@@ -67,11 +67,27 @@ internal static class IndexCommand
             }
 
             var outcome = result.Outcome;
-            Console.WriteLine(
-                $"indexed {root}: {outcome.FilesParsed} parsed, {outcome.FilesUnchanged} unchanged, "
-                + $"{outcome.FilesFailed} failed, {outcome.FilesWithSyntaxErrors} with syntax errors, "
-                + $"{result.FilesRemoved} removed · {outcome.SymbolsFound:N0} symbols, "
-                + $"{result.EdgesCreated:N0} links in {result.Elapsed.TotalSeconds:0.0}s");
+
+            // A run that found nothing to do used to print the parse tally anyway —
+            // "0 parsed … 0 symbols" — which reads as an empty index rather than an
+            // up-to-date one (flagged in rounds seven and eight before this fix). The
+            // no-op says what it means; runs that parsed anything keep the full tally,
+            // whose counts are visibly about this run.
+            if (outcome.FilesParsed == 0 && outcome.FilesFailed == 0 && result.FilesRemoved == 0)
+            {
+                Console.WriteLine(
+                    $"indexed {root}: all {outcome.FilesUnchanged} files up to date — "
+                    + $"index holds {result.SymbolsStored:N0} symbols, {result.EdgesCreated:N0} links "
+                    + $"(checked in {result.Elapsed.TotalSeconds:0.0}s)");
+            }
+            else
+            {
+                Console.WriteLine(
+                    $"indexed {root}: {outcome.FilesParsed} parsed, {outcome.FilesUnchanged} unchanged, "
+                    + $"{outcome.FilesFailed} failed, {outcome.FilesWithSyntaxErrors} with syntax errors, "
+                    + $"{result.FilesRemoved} removed · {outcome.SymbolsFound:N0} symbols, "
+                    + $"{result.EdgesCreated:N0} links in {result.Elapsed.TotalSeconds:0.0}s");
+            }
 
             // Not suppressed by --quiet: the summary is the answer, and if the index just
             // changed shape that is part of the answer, not chatter about how it got there.

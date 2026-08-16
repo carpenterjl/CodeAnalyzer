@@ -19,7 +19,15 @@ public sealed record IndexRunResult(
     int EdgesCreated,
     int FilesRemoved,
     TimeSpan Elapsed,
-    IndexCostReport? Cost = null);
+    IndexCostReport? Cost = null,
+    /// <summary>
+    /// How many definitions the index holds after this run — the whole index, not this
+    /// run's parses. <c>Outcome.SymbolsFound</c> counts only what the parsed files
+    /// yielded, which on an incremental run that found nothing to re-parse is zero, and
+    /// "0 symbols" printed over a full index reads as an empty one. Zero only on a
+    /// cancelled run, where no after-state was measured.
+    /// </summary>
+    int SymbolsStored = 0);
 
 /// <summary>
 /// What a live update did. <paramref name="FullResolve"/> says whether the fast path was
@@ -242,7 +250,9 @@ public sealed class WorkspaceSession : IDisposable
                     return measured;
                 });
 
-                return new IndexRunResult(outcome, edges, removed, DateTimeOffset.UtcNow - startedAt, cost);
+                return new IndexRunResult(
+                    outcome, edges, removed, DateTimeOffset.UtcNow - startedAt, cost,
+                    SymbolsStored: Search.IndexedSymbolCount);
             },
             cancellationToken).ConfigureAwait(false);
     }
