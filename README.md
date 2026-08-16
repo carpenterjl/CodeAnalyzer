@@ -24,6 +24,11 @@ is inferred, defaulted in, or guessed.
   a Verilog module's ports and parameters; what a type extends and what it implements.
 - **Path tracer** — every *shortest* route between two symbols, with an explicit distinction
   between "there is no route" and "we stopped looking".
+- **Cross-language constant tracing** — a command byte written `0xA5` in the C# that sends
+  it, `165` in the C that receives it and `8'hA5` in the RTL that decodes it is one
+  agreement spelled three ways, and no reference connects them. Search `=0xA5` to find all
+  three; the detail pane lists them under SAME VALUE ELSEWHERE, and the Constants view
+  ranks every value that spans a language boundary.
 - **Dependency treemap** — folders and files sized by symbol count, coloured by how much of
   their referencing points outward.
 - **Import/include wheel** — a chord diagram over top-level directories, from either the
@@ -97,6 +102,8 @@ codeanalyzer index "C:\some\repo"
 | `map` | repo overview: definitions ranked by distinct incoming references, cut to `--budget` chars |
 | `outline <rel_path>` | one file's definitions in source order |
 | `boundaries` | where data leaves/enters the workspace (I/O catalog + your marks) |
+| `value <literal>` | definitions whose literal denotes this value, in any language (`0xA5` finds `165` and `8'hA5`) |
+| `constants` | values defined in more than one language, ranked by how many agree (`--by-dir`, `--include-trivial`) |
 | `mcp` | the MCP stdio server for AI agent clients |
 
 A `<symbol>` argument is a name, `Container.Name`, `path/to/file.c:name`, or a `#id` from
@@ -105,8 +112,8 @@ a previous result. Every command takes `--root <path>` (default: current directo
 
 For AI agents, the MCP server exposes the same queries as tools
 (`search_symbols`, `get_symbol`, `get_callers`, `get_callees`, `trace_paths`, `repo_map`,
-`file_outline`, `io_boundaries`, `reindex`). This repo's `.mcp.json` registers it for
-Claude Code; elsewhere:
+`file_outline`, `io_boundaries`, `find_by_value`, `shared_constants`, `reindex`). This
+repo's `.mcp.json` registers it for Claude Code; elsewhere:
 
 ```bash
 claude mcp add codeanalyzer -- codeanalyzer mcp --root "C:\some\repo"
@@ -171,6 +178,15 @@ worse than one that admits the gap.
   expression are fine.
 - **C++ member visibility is not captured.** `public:` is a section label, not per-declaration
   syntax, and deriving each member's visibility from it would be inference.
+- **A shared value is evidence, not proof.** Two definitions appear together because their
+  literals denote the same number or the same characters — a baud rate and a buffer size
+  that are both 9600 are numerically equal and nothing more. On a tree full of vendor
+  headers, most matches are coincidences; the useful ones still have to be recognised by
+  a reader. Only *defined* values participate: a literal passed straight to a call,
+  `Send(0xA5)`, is a reference rather than a declaration.
+- **Floats and character literals are deliberately not matched.** Cross-language float
+  equality is a claim about representation, and calling `'A'` 65 asserts an encoding the
+  source never states.
 - **Keyboard shortcuts do not fire while the graph pane holds focus** — a WebView2 hosting
   constraint. Click elsewhere in the shell first.
 - The database connection is behind a single lock, so a query and a write cannot overlap.

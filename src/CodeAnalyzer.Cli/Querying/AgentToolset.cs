@@ -72,6 +72,34 @@ internal sealed class AgentToolset(ReadOnlyIndexSession session)
         Query(() => Session.IoBoundaries.GetAllSites(
             IoCatalog.BuiltIn.Entries, Session.Settings.IoMarks, cancellationToken));
 
+    /// <summary>
+    /// Definitions whose literal denotes <paramref name="literal"/>, in any language and
+    /// any notation. Null when the text is not a literal this build can read — a value
+    /// search that quietly fell back to a name search would answer a different question.
+    /// </summary>
+    public ValueMatchSet? FindByValue(
+        string literal,
+        int limit,
+        CancellationToken cancellationToken = default) =>
+        Query(() => Session.Values.FindByValue(literal, limit, null, cancellationToken));
+
+    /// <summary>
+    /// Definitions elsewhere carrying this symbol's value. Null when it has no literal the
+    /// parser could certify, or when nothing else carries it.
+    /// </summary>
+    public ValueMatchSet? SameValue(long symbolId, CancellationToken cancellationToken = default) =>
+        Query(() => Session.Values.GetSameValue(symbolId, cancellationToken));
+
+    /// <summary>
+    /// Values carried by definitions in more than one language — or, when
+    /// <paramref name="acrossDirectories"/> is set, in more than one top-level directory.
+    /// </summary>
+    public IReadOnlyList<ValueGroup> SharedValues(
+        bool acrossDirectories,
+        bool includeTrivial,
+        CancellationToken cancellationToken = default) =>
+        Query(() => Session.Values.GetSharedValues(acrossDirectories, includeTrivial, cancellationToken));
+
     /// <summary>The ranked codebase overview an agent primes its context with.</summary>
     public RepoMap Map(CancellationToken cancellationToken = default) =>
         Query(() => RepoMapService.Build(Session, cancellationToken));

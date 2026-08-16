@@ -46,6 +46,7 @@ internal sealed class ReadOnlyIndexSession : IDisposable
         Graph = new GraphQueryService(connection);
         Paths = new PathQueryService(connection);
         IoBoundaries = new IoBoundaryService(connection);
+        Values = new ValueQueryService(connection);
         Settings = SqliteIndexStore.ReadSettings(connection);
     }
 
@@ -66,6 +67,9 @@ internal sealed class ReadOnlyIndexSession : IDisposable
     public PathQueryService Paths { get; }
 
     public IoBoundaryService IoBoundaries { get; }
+
+    /// <summary>Definitions found by what their literal denotes, across languages.</summary>
+    public ValueQueryService Values { get; }
 
     /// <summary>Crawl settings stored with the index; carries the user's I/O boundary marks.</summary>
     public WorkspaceSettings Settings { get; private set; }
@@ -188,7 +192,10 @@ internal sealed class ReadOnlyIndexSession : IDisposable
                 : LastIndexUtc;
         }
 
-        return $"index: {RootPath} ({DefinitionCount:N0} symbols, built {built} — "
+        // "definitions", not "symbols": this counts is_definition rows, while an index run
+        // reports every symbol it parsed, prototypes and declarations included. Two honest
+        // numbers that differ, so they must not share a word.
+        return $"index: {RootPath} ({DefinitionCount:N0} definitions, built {built} — "
             + "run 'codeanalyzer index' to refresh)";
     }
 

@@ -25,6 +25,7 @@
         <KeyBinding Modifiers="Control" Key="D4" Command="{Binding Graph.SelectViewCommand}" CommandParameter="Treemap" />
         <KeyBinding Modifiers="Control" Key="D5" Command="{Binding Graph.SelectViewCommand}" CommandParameter="Wheel" />
         <KeyBinding Modifiers="Control" Key="D6" Command="{Binding Graph.SelectViewCommand}" CommandParameter="Boundaries" />
+        <KeyBinding Modifiers="Control" Key="D7" Command="{Binding Graph.SelectViewCommand}" CommandParameter="Constants" />
         <KeyBinding Modifiers="Control" Key="E" Command="{Binding ExportPngCommand}" />
         <KeyBinding Modifiers="Control+Shift" Key="E" Command="{Binding ExportJsonCommand}" />
         <KeyBinding Modifiers="Control" Key="T" Command="{Binding ToggleThemeCommand}" />
@@ -182,6 +183,40 @@
             </Button>
         </DataTemplate>
 
+        <!--
+            One definition elsewhere carrying this symbol's value. The equality note is the
+            row's whole justification — it states what is written, what it denotes and what
+            is being claimed — so it is never trimmed away in favour of the name.
+        -->
+        <DataTemplate x:Key="SameValueTemplate" DataType="{x:Type vm:SameValueItem}">
+            <Button Style="{StaticResource RowButton}"
+                    Command="{Binding DataContext.FocusSymbolCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                    CommandParameter="{Binding SymbolId}"
+                    ToolTip="Open this definition">
+                <Grid Margin="0,3">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="{Binding Name}" Style="{StaticResource Mono}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding EqualityNote}" Style="{StaticResource Caption}"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Style="{StaticResource Caption}" TextTrimming="CharacterEllipsis">
+                            <Run Text="{Binding RelativePath, Mode=OneWay}" />
+                            <Run Text=":" />
+                            <Run Text="{Binding Line, Mode=OneWay}" />
+                        </TextBlock>
+                    </StackPanel>
+                    <!-- The language is the point of the row when it is not this symbol's own:
+                         a match no call graph could have found. -->
+                    <TextBlock Grid.Column="1" Text="{Binding Language}"
+                               Style="{StaticResource KindLabel}" VerticalAlignment="Top" Margin="8,0,0,0"
+                               Visibility="{Binding IsOtherLanguage, Converter={StaticResource BoolToVisibility}}" />
+                </Grid>
+            </Button>
+        </DataTemplate>
+
     </Window.Resources>
 
     <Grid>
@@ -256,6 +291,11 @@
                                      IsChecked="{Binding Graph.ViewMode, Mode=OneWay,
                                                  Converter={StaticResource ViewModeToBool}, ConverterParameter=Boundaries}"
                                      ToolTip="Where data leaves and enters the workspace" />
+                        <RadioButton Style="{StaticResource ViewTab}" Content="Constants"
+                                     Command="{Binding Graph.SelectViewCommand}" CommandParameter="Constants"
+                                     IsChecked="{Binding Graph.ViewMode, Mode=OneWay,
+                                                 Converter={StaticResource ViewModeToBool}, ConverterParameter=Constants}"
+                                     ToolTip="Values written in more than one language — the agreements no call graph can draw" />
                     </StackPanel>
 
                     <StackPanel Grid.Column="2" Orientation="Horizontal">
@@ -355,7 +395,7 @@
                                  Style="{StaticResource SearchBox}"
                                  Text="{Binding Search.Query, UpdateSourceTrigger=PropertyChanged}"
                                  PreviewKeyDown="OnSearchBoxKeyDown"
-                                 ToolTip="Fuzzy symbol search (Ctrl+F). Down moves into the results; Escape clears." />
+                                 ToolTip="Fuzzy symbol search (Ctrl+F). Down moves into the results; Escape clears.&#x0a;Start with = to search by value instead: =0xA5, =165, =8'hA5, =&quot;COM3&quot;." />
 
                         <!-- Kind filters. Nothing selected means no filter, which is why
                              there is no "All" chip to get out of step with the rest. -->
@@ -389,12 +429,25 @@
                         </Grid>
 
                         <Grid Grid.Row="3">
-                            <ListBox x:Name="SearchResults"
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+
+                            <!-- What the list cannot say for itself: which value was matched,
+                                 and whether the rows stop short of the answer. -->
+                            <TextBlock Grid.Row="0" Text="{Binding Search.Notice}"
+                                       Style="{StaticResource Caption}"
+                                       TextWrapping="Wrap"
+                                       Margin="12,0,12,6"
+                                       Visibility="{Binding Search.Notice, Converter={StaticResource NullToCollapsed}}" />
+
+                            <ListBox x:Name="SearchResults" Grid.Row="1"
                                      ItemsSource="{Binding Search.Results}"
                                      SelectedItem="{Binding Search.SelectedResult}"
                                      ItemTemplate="{StaticResource SearchResultTemplate}"
                                      Margin="8,0,8,8" />
-                            <TextBlock Text="{Binding Search.EmptyMessage}"
+                            <TextBlock Grid.Row="1" Text="{Binding Search.EmptyMessage}"
                                        Style="{StaticResource Caption}"
                                        TextWrapping="Wrap"
                                        Margin="12,4,12,12"
@@ -612,6 +665,28 @@
                                            Visibility="{Binding Detail.Overloads.Count, Converter={StaticResource NonZeroToVisibility}}" />
                                 <ItemsControl ItemsSource="{Binding Detail.Overloads}"
                                               ItemTemplate="{StaticResource OverloadTemplate}" />
+
+                                <!--
+                                    Definitions elsewhere whose literal denotes the same value.
+                                    This is the one section that can cross a language boundary
+                                    no reference does: a command byte agreed on by the C# that
+                                    sends it and the C that receives it.
+                                -->
+                                <TextBlock Text="SAME VALUE ELSEWHERE" Style="{StaticResource SectionHeaderInline}"
+                                           Visibility="{Binding Detail.SameValues.Count, Converter={StaticResource NonZeroToVisibility}}" />
+                                <TextBlock Text="{Binding Detail.SameValueSummary}"
+                                           Style="{StaticResource Caption}"
+                                           TextTrimming="CharacterEllipsis"
+                                           Visibility="{Binding Detail.SameValues.Count, Converter={StaticResource NonZeroToVisibility}}" />
+                                <ItemsControl ItemsSource="{Binding Detail.SameValues}"
+                                              ItemTemplate="{StaticResource SameValueTemplate}" />
+                                <!-- Amber means "read this, it is uncertain": the list is cut. -->
+                                <TextBlock Text="{Binding Detail.SameValueTruncationNote}"
+                                           Style="{StaticResource Caption}"
+                                           Foreground="{DynamicResource App.Warning}"
+                                           FontStyle="Italic"
+                                           TextWrapping="Wrap"
+                                           Visibility="{Binding Detail.SameValueTruncationNote, Converter={StaticResource NullToCollapsed}}" />
 
                                 <!-- Composition: struct fields, class methods, module ports -->
                                 <TextBlock Text="MEMBERS" Style="{StaticResource SectionHeaderInline}"

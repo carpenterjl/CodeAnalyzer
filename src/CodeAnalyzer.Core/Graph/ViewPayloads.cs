@@ -234,6 +234,59 @@ public sealed record BoundariesPayload
     [JsonPropertyName("totalSites")] public int TotalSites { get; init; }
 }
 
+// ---- Constants -------------------------------------------------------------
+
+public sealed record ConstantMemberPayload
+{
+    /// <summary>Symbol id as a string, so a row click can focus the graph.</summary>
+    [JsonPropertyName("id")] public required string Id { get; init; }
+
+    [JsonPropertyName("name")] public required string Name { get; init; }
+    [JsonPropertyName("kind")] public required string Kind { get; init; }
+    [JsonPropertyName("language")] public required string Language { get; init; }
+
+    /// <summary>The literal exactly as that language writes it: <c>0xA5</c>, <c>8'hA5</c>.</summary>
+    [JsonPropertyName("verbatim")] public string? Verbatim { get; init; }
+
+    [JsonPropertyName("path")] public required string Path { get; init; }
+    [JsonPropertyName("line")] public int Line { get; init; }
+}
+
+public sealed record ConstantGroupPayload
+{
+    /// <summary>The shared value in its plain form: <c>165</c> or <c>"COM3"</c>.</summary>
+    [JsonPropertyName("value")] public required string Value { get; init; }
+
+    [JsonPropertyName("languages")] public IReadOnlyList<string> Languages { get; init; } = [];
+    [JsonPropertyName("directories")] public IReadOnlyList<string> Directories { get; init; } = [];
+    [JsonPropertyName("members")] public IReadOnlyList<ConstantMemberPayload> Members { get; init; } = [];
+
+    /// <summary>Definitions carrying this value in total, which can exceed the members listed.</summary>
+    [JsonPropertyName("total")] public int Total { get; init; }
+}
+
+/// <summary>
+/// The constants view: values written in more than one place that no reference connects.
+/// <para>
+/// Both filters ride on the payload and are stated in the page's header, because a list
+/// that quietly dropped <c>0</c> would be answering a different question from the one the
+/// reader thinks they asked.
+/// </para>
+/// </summary>
+public sealed record ConstantsPayload
+{
+    [JsonPropertyName("groups")] public IReadOnlyList<ConstantGroupPayload> Groups { get; init; } = [];
+
+    /// <summary>True when groups span top-level directories rather than languages.</summary>
+    [JsonPropertyName("acrossDirectories")] public bool AcrossDirectories { get; init; }
+
+    /// <summary>True when 0 and 1 are included.</summary>
+    [JsonPropertyName("includeTrivial")] public bool IncludeTrivial { get; init; }
+
+    /// <summary>The rule that produced this list, in words, for the page to print.</summary>
+    [JsonPropertyName("criterion")] public required string Criterion { get; init; }
+}
+
 // ---- Builders --------------------------------------------------------------
 
 /// <summary>
@@ -441,6 +494,40 @@ public static class ViewPayloadBuilder
             return slash < 0 ? string.Empty : site.RelativePath[..slash];
         }
     }
+
+    public static ConstantsPayload Build(
+        IReadOnlyList<ValueGroup> groups,
+        bool acrossDirectories,
+        bool includeTrivial) => new()
+    {
+        AcrossDirectories = acrossDirectories,
+        IncludeTrivial = includeTrivial,
+        Criterion = (acrossDirectories
+                ? "values defined in at least two top-level directories"
+                : "values defined in at least two languages")
+            + (includeTrivial ? ", 0 and 1 included" : ", excluding 0 and 1"),
+        Groups = groups.Select(group => new ConstantGroupPayload
+        {
+            Value = group.Canonical,
+            Languages = group.Languages,
+            Directories = group.TopDirectories
+                .Select(dir => dir.Length == 0 ? RootGroupLabel : dir)
+                .ToList(),
+            Total = group.TotalCount,
+            Members = group.Members.Select(member => new ConstantMemberPayload
+            {
+                Id = member.SymbolId.ToString(),
+                Name = member.ContainerName is null
+                    ? member.Name
+                    : $"{member.ContainerName}.{member.Name}",
+                Kind = KindLabels.For(member.Kind),
+                Language = member.Language,
+                Verbatim = member.Verbatim,
+                Path = member.RelativePath,
+                Line = member.Line,
+            }).ToList(),
+        }).ToList(),
+    };
 
     public static WheelPayload Build(DependencyWheel wheel) => new()
     {

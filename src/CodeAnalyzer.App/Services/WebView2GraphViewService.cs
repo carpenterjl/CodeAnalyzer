@@ -52,6 +52,7 @@ public sealed class WebView2GraphViewService(IUiDispatcher dispatcher, ILogger<W
     public event EventHandler<string>? ScriptError;
     public event EventHandler<string>? DrillRequested;
     public event EventHandler<GraphExportResult>? ExportProduced;
+    public event EventHandler<ConstantsOptions>? ConstantsOptionsChanged;
 
     /// <summary>
     /// Called from the view's code-behind once the control exists. Initialisation is async
@@ -215,6 +216,12 @@ public sealed class WebView2GraphViewService(IUiDispatcher dispatcher, ILogger<W
                     }
                     break;
 
+                case "constantsOptions":
+                    ConstantsOptionsChanged?.Invoke(this, new ConstantsOptions(
+                        payload?["acrossDirectories"]?.GetValue<bool>() ?? false,
+                        payload?["includeTrivial"]?.GetValue<bool>() ?? false));
+                    break;
+
                 case "legendSizeChanged":
                     if (payload?["size"]?.GetValue<double>() is { } legendSize)
                     {
@@ -323,6 +330,9 @@ public sealed class WebView2GraphViewService(IUiDispatcher dispatcher, ILogger<W
     public Task ShowBoundariesAsync(BoundariesPayload? payload) =>
         PostAsync("setBoundaries", new BoundariesMessage(payload));
 
+    public Task ShowConstantsAsync(ConstantsPayload? payload) =>
+        PostAsync("setConstants", new ConstantsMessage(payload));
+
     public Task RequestExportAsync(GraphExportFormat format) =>
         PostAsync("exportView", new ExportMessage(format == GraphExportFormat.Json ? "json" : "png"));
 
@@ -342,6 +352,7 @@ public sealed class WebView2GraphViewService(IUiDispatcher dispatcher, ILogger<W
         GraphViewMode.Treemap => "treemap",
         GraphViewMode.Wheel => "wheel",
         GraphViewMode.Boundaries => "boundaries",
+        GraphViewMode.Constants => "constants",
         _ => "graph",
     };
 
@@ -477,4 +488,7 @@ public sealed class WebView2GraphViewService(IUiDispatcher dispatcher, ILogger<W
 
     private sealed record BoundariesMessage(
         [property: JsonPropertyName("boundaries")] BoundariesPayload? Boundaries);
+
+    private sealed record ConstantsMessage(
+        [property: JsonPropertyName("constants")] ConstantsPayload? Constants);
 }

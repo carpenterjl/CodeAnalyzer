@@ -1096,3 +1096,108 @@ button,
     font-size: 10px;
     overflow-wrap: anywhere;
 }
+
+/* ============ Constants view ============ */
+
+/* Both filters change what is queried, not just what is drawn, so they sit above the
+   list where their effect is visible rather than hidden in the toolbar. */
+.const-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding: 14px 16px 0;
+}
+
+.const-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--fg-muted);
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.const-toggle input {
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+/* Groups run in columns: a value's members are a short list, and several fit side by
+   side on a wide pane without any of them scrolling. */
+.const-groups {
+    columns: 320px;
+    column-gap: 18px;
+    padding: 4px 16px 20px;
+}
+
+.const-groups .comp-section {
+    break-inside: avoid;
+    margin-top: 14px;
+}
+
+/* The shared value is the heading, so it keeps the mono face and the constant colour. */
+.const-groups .comp-section h2 {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--kind-constant);
+}
+
+.const-spans {
+    margin-bottom: 6px;
+    color: var(--fg-faint);
+    font-size: 10px;
+}
+
+.const-row {
+    padding: 6px 8px;
+    margin-bottom: 6px;
+    border: 1px solid var(--panel-border);
+    border-left: 3px solid var(--kind-constant);
+    border-radius: var(--radius-default);
+    background: var(--panel);
+}
+
+.const-row.clickable {
+    cursor: pointer;
+}
+
+.const-row.clickable:hover {
+    background: var(--control-hover);
+}
+
+.const-row.selected {
+    border-color: var(--accent);
+    border-left-color: var(--accent);
+}
+
+.const-row-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+/* The literal in its own language's notation is the fact the row exists to show. */
+.const-verbatim {
+    margin-top: 2px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--fg-muted);
+    overflow-wrap: anywhere;
+}
+
+.const-where {
+    margin-top: 2px;
+    color: var(--fg-faint);
+    font-size: 10px;
+    overflow-wrap: anywhere;
+}
+
+.const-more {
+    padding: 2px 8px;
+    color: var(--fg-faint);
+    font-size: 10px;
+    font-style: italic;
+}

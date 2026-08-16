@@ -45,6 +45,14 @@ public sealed partial class GraphViewModel : ObservableObject
         // Forwarded for the same reason: saving a file is the shell's job.
         _service.ExportProduced += (_, result) => ExportProduced?.Invoke(this, result);
 
+        // The constants view's filters change what is queried, not just what is drawn, so
+        // the page's toggles come back here and the shell re-runs the query.
+        _service.ConstantsOptionsChanged += (_, options) =>
+        {
+            ConstantsOptions = options;
+            ConstantsOptionsChanged?.Invoke(this, options);
+        };
+
         // The page has already applied the new size; recording it here is what lets the
         // shell persist it and re-send it after a restart or a renderer crash.
         _service.LegendSizeChanged += (_, size) =>
@@ -167,6 +175,15 @@ public sealed partial class GraphViewModel : ObservableObject
 
     /// <summary>The wheel should be redrawn from the other set of facts.</summary>
     public event EventHandler? WheelSourceChanged;
+
+    /// <summary>The constants view wants a different question asked of the index.</summary>
+    public event EventHandler<ConstantsOptions>? ConstantsOptionsChanged;
+
+    /// <summary>
+    /// The constants view's current filters. Held here rather than in the page alone so a
+    /// re-render — a live update, a view switch — asks the same question again.
+    /// </summary>
+    public ConstantsOptions ConstantsOptions { get; private set; } = new(false, false);
 
     /// <summary>The page answered an export request. The shell saves it.</summary>
     public event EventHandler<GraphExportResult>? ExportProduced;
@@ -388,6 +405,16 @@ public sealed partial class GraphViewModel : ObservableObject
 
     public Task ShowBoundariesAsync(IReadOnlyList<Core.Domain.IoBoundarySite>? sites) =>
         _service.ShowBoundariesAsync(sites is null ? null : ViewPayloadBuilder.Build(sites));
+
+    /// <summary>
+    /// Replaces the constants view. The filters ride along on the payload, because the page
+    /// states the criterion it is showing rather than leaving the reader to remember it.
+    /// </summary>
+    public Task ShowConstantsAsync(IReadOnlyList<ValueGroup>? groups) =>
+        _service.ShowConstantsAsync(groups is null
+            ? null
+            : ViewPayloadBuilder.Build(
+                groups, ConstantsOptions.AcrossDirectories, ConstantsOptions.IncludeTrivial));
 
     public Task ClearAsync(string message)
     {

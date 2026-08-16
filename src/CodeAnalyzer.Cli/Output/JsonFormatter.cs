@@ -93,10 +93,14 @@ internal static class JsonFormatter
         _ => throw new InvalidOperationException(),
     };
 
-    public static string Detail(ReadOnlyIndexSession session, SymbolDetail detail) =>
+    public static string Detail(
+        ReadOnlyIndexSession session,
+        SymbolDetail detail,
+        ValueMatchSet? sameValue = null) =>
         JsonSerializer.Serialize(new
         {
             index = Index(session),
+            sameValue = sameValue is null ? null : ValueSet(sameValue),
             symbol = new
             {
                 id = detail.Id,
@@ -248,6 +252,70 @@ internal static class JsonFormatter
                 })
                 : null,
         }, Options);
+
+    /// <summary>
+    /// A value query's answer. <c>matched: false</c> is the "that was not a literal" case —
+    /// a different fact from an empty match list, and a script has to tell them apart.
+    /// </summary>
+    public static string Values(ReadOnlyIndexSession session, string literal, ValueMatchSet? set) =>
+        JsonSerializer.Serialize(new
+        {
+            index = Index(session),
+            query = literal,
+            matched = set is not null,
+            values = set is null ? null : ValueSet(set),
+        }, Options);
+
+    public static string SharedValues(
+        ReadOnlyIndexSession session,
+        IReadOnlyList<ValueGroup> groups,
+        bool acrossDirectories,
+        bool includeTrivial) =>
+        JsonSerializer.Serialize(new
+        {
+            index = Index(session),
+            acrossDirectories,
+            includeTrivial,
+            note = "a shared value is evidence of an agreement between two definitions, not proof of one",
+            values = groups.Select(g => new
+            {
+                value = g.Canonical,
+                total = g.TotalCount,
+                languages = g.Languages,
+                directories = g.TopDirectories,
+                members = g.Members.Select(m => new
+                {
+                    id = m.SymbolId,
+                    name = m.Name,
+                    container = m.ContainerName,
+                    kind = KindTokens.For(m.Kind),
+                    language = m.Language,
+                    verbatim = m.Verbatim,
+                    path = m.RelativePath,
+                    line = m.Line,
+                }),
+            }),
+        }, Options);
+
+    private static object ValueSet(ValueMatchSet set) => new
+    {
+        value = set.Canonical,
+        truncated = set.Truncated,
+        limit = set.Limit,
+        languages = set.OtherLanguages,
+        matches = set.Matches.Select(m => new
+        {
+            id = m.SymbolId,
+            name = m.Name,
+            container = m.ContainerName,
+            kind = KindTokens.For(m.Kind),
+            language = m.Language,
+            verbatim = m.Verbatim,
+            note = m.EqualityNote,
+            path = m.RelativePath,
+            line = m.Line,
+        }),
+    };
 
     public static string Boundaries(ReadOnlyIndexSession session, IReadOnlyList<IoBoundarySite> sites) =>
         JsonSerializer.Serialize(new

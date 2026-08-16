@@ -23,6 +23,8 @@ internal static class Program
         ReadCommands.Callees,
         ReadCommands.Trace,
         ReadCommands.Boundaries,
+        ReadCommands.Value,
+        ReadCommands.Constants,
         ReadCommands.Map,
         ReadCommands.Outline,
         IndexCommand.Spec,

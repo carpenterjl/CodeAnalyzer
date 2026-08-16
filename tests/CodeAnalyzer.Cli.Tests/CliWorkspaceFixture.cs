@@ -14,7 +14,8 @@ namespace CodeAnalyzer.Cli.Tests;
 /// <para>
 /// The layout bakes in the shapes the tests assert on: <c>init</c> defined in two files
 /// (ambiguity), <c>uart_write</c> called from two distinct functions (fan-in ranking),
-/// and a second <c>uart.c</c> base name (path disambiguation).
+/// a second <c>uart.c</c> base name (path disambiguation), and one command byte written
+/// <c>0xA5</c> in both C and C# with nothing linking them (value matching).
 /// </para>
 /// </summary>
 public sealed class CliWorkspaceFixture : IDisposable
@@ -57,6 +58,23 @@ public sealed class CliWorkspaceFixture : IDisposable
 
         Write("sim/uart.c", """
             int sim_uart_probe(void) { return 0; }
+            """);
+
+        // One agreement written in two languages and two notations, connected by no
+        // reference at all: the shape the value queries exist for.
+        Write("drivers/protocol.h", """
+            #define CMD_READ 0xA5
+            #define UART_BAUD 115200
+            """);
+
+        Write("app/Protocol.cs", """
+            namespace App;
+
+            public static class Protocol
+            {
+                public const byte CmdRead = 0xA5;
+                public const int Baud = 115200;
+            }
             """);
 
         using (var session = WorkspaceSession.Open(Root, new TreeSitterAnalyzerFactory()))

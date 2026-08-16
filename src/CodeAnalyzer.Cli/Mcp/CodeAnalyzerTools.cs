@@ -57,8 +57,36 @@ internal sealed class CodeAnalyzerTools(McpSessionHolder holder)
             var detail = toolset.GetDetail(focus.Id, cancellationToken);
             return detail is null
                 ? $"symbol #{focus.Id} vanished between locating and reading it — re-run search_symbols"
-                : TerseFormatter.Detail(detail);
+                : TerseFormatter.Detail(detail, toolset.SameValue(focus.Id, cancellationToken));
         });
+
+    [McpServerTool(Name = "find_by_value")]
+    [Description("Definitions whose literal denotes a given value, in any language and any "
+        + "notation: 0xA5 also finds 165 in C, 0xA5 in Python and 8'hA5 in Verilog. This is the "
+        + "one query that crosses a language boundary no call or import connects — use it to "
+        + "trace a protocol command byte, a baud rate or a port name between a sender and a "
+        + "receiver. A shared value is evidence of an agreement, not proof of one.")]
+    public string FindByValue(
+        [Description("A literal: 165, 0xA5, 0b1010, 0o755, 8'hA5, or a quoted string like \"COM3\"")]
+        string literal,
+        [Description("Max definitions, default 50")] int limit = 50,
+        CancellationToken cancellationToken = default) =>
+        WithToolset(toolset => TerseFormatter.Values(
+            literal, toolset.FindByValue(literal, Math.Clamp(limit, 1, 200), cancellationToken)));
+
+    [McpServerTool(Name = "shared_constants")]
+    [Description("Values defined in more than one language (or, with by_directory, in more than "
+        + "one top-level directory), ranked by how many languages agree on them. The overview "
+        + "form of find_by_value: use it to see a protocol's command bytes, baud rates and port "
+        + "names before reading either side's source.")]
+    public string SharedConstants(
+        [Description("Compare top-level directories instead of languages")] bool by_directory = false,
+        [Description("Include 0 and 1, which almost everything carries")] bool include_trivial = false,
+        CancellationToken cancellationToken = default) =>
+        WithToolset(toolset => TerseFormatter.SharedValues(
+            toolset.SharedValues(by_directory, include_trivial, cancellationToken),
+            by_directory,
+            include_trivial));
 
     [McpServerTool(Name = "get_callers")]
     [Description("Who references this symbol, with resolution confidence. "

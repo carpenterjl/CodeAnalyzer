@@ -53,6 +53,18 @@ internal static class ReadCommands
         "codebase overview: definitions ranked by distinct incoming references",
         (args, ct) => RunMap(args, ct));
 
+    public static CommandSpec Value { get; } = new(
+        "value",
+        "value <literal> [--limit N] [--root path] [--json]",
+        "definitions whose literal denotes this value, in any language (0xA5 finds 165 and 8'hA5)",
+        (args, ct) => RunValue(args, ct));
+
+    public static CommandSpec Constants { get; } = new(
+        "constants",
+        "constants [--by-dir] [--include-trivial] [--root path] [--json]",
+        "values defined in more than one language — the agreements no reference connects",
+        (args, ct) => RunConstants(args, ct));
+
     public static CommandSpec Outline { get; } = new(
         "outline",
         "outline <rel_path> [--root path] [--json]",
@@ -127,9 +139,61 @@ internal static class ReadCommands
                 return Task.FromResult(ExitCodes.Error);
             }
 
+            var sameValue = toolset.SameValue(focus.Id, cancellationToken);
+
             Console.WriteLine(args.Switch("json")
-                ? JsonFormatter.Detail(toolset.Session, detail)
-                : TerseFormatter.Detail(detail));
+                ? JsonFormatter.Detail(toolset.Session, detail, sameValue)
+                : TerseFormatter.Detail(detail, sameValue));
+
+            return Task.FromResult(ExitCodes.Ok);
+        });
+    }
+
+    private static Task<int> RunValue(string[] rawArgs, CancellationToken cancellationToken)
+    {
+        var args = ArgReader.Parse(rawArgs, ["root", "limit"], ["json"]);
+
+        return CommandEnvironment.WithSession(args, toolset =>
+        {
+            if (args.Positionals.Count != 1)
+            {
+                Console.Error.WriteLine("usage: codeanalyzer " + Value.Usage);
+                return Task.FromResult(ExitCodes.Error);
+            }
+
+            var limit = args.IntValue("limit", 50);
+            if (args.Error is not null)
+            {
+                Console.Error.WriteLine(args.Error);
+                return Task.FromResult(ExitCodes.Error);
+            }
+
+            var literal = args.Positionals[0];
+            var found = toolset.FindByValue(literal, limit, cancellationToken);
+
+            Console.WriteLine(args.Switch("json")
+                ? JsonFormatter.Values(toolset.Session, literal, found)
+                : TerseFormatter.Values(literal, found));
+
+            // Not a literal at all is a usage error, not an empty result: the difference
+            // matters to a script, and to an agent deciding whether to try another form.
+            return Task.FromResult(found is null ? ExitCodes.Error : ExitCodes.Ok);
+        });
+    }
+
+    private static Task<int> RunConstants(string[] rawArgs, CancellationToken cancellationToken)
+    {
+        var args = ArgReader.Parse(rawArgs, ["root"], ["json", "by-dir", "include-trivial"]);
+
+        return CommandEnvironment.WithSession(args, toolset =>
+        {
+            var byDirectory = args.Switch("by-dir");
+            var includeTrivial = args.Switch("include-trivial");
+            var groups = toolset.SharedValues(byDirectory, includeTrivial, cancellationToken);
+
+            Console.WriteLine(args.Switch("json")
+                ? JsonFormatter.SharedValues(toolset.Session, groups, byDirectory, includeTrivial)
+                : TerseFormatter.SharedValues(groups, byDirectory, includeTrivial));
 
             return Task.FromResult(ExitCodes.Ok);
         });

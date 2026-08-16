@@ -222,11 +222,13 @@ public sealed class SqliteIndexStore : IParseResultSink, IIncrementalGate, IDisp
 
         using var insertSymbol = CreateCommand(transaction, """
             INSERT INTO symbol
-                (id, file_id, name, kind, container_id, scope_path, signature, value, type_text,
+                (id, file_id, name, kind, container_id, scope_path, signature, value,
+                 value_num, value_str, type_text,
                  modifiers, language, start_line, start_col, end_line, end_col, start_offset,
                  end_offset, is_definition, param_count, param_text)
             VALUES
-                ($id, $fileId, $name, $kind, $containerId, $scopePath, $signature, $value, $typeText,
+                ($id, $fileId, $name, $kind, $containerId, $scopePath, $signature, $value,
+                 $valueNum, $valueStr, $typeText,
                  $modifiers, $language, $startLine, $startCol, $endLine, $endCol, $startOffset,
                  $endOffset, $isDefinition, $paramCount, $paramText)
             """);
@@ -303,6 +305,15 @@ public sealed class SqliteIndexStore : IParseResultSink, IIncrementalGate, IDisp
             Set(insertSymbol, "$scopePath", symbol.ScopePath);
             Set(insertSymbol, "$signature", symbol.Signature);
             Set(insertSymbol, "$value", symbol.Value);
+
+            // The verbatim slice is the fact on display; this is what its own grammar says
+            // it denotes, so 0xA5 in C# can find 165 in C. Stamped here rather than in the
+            // analyzer because it is a property of the literal's notation, not of the
+            // syntax tree — the .scm packs stay untouched.
+            var literal = LiteralValueParser.Parse(symbol.Value, symbol.Language);
+            Set(insertSymbol, "$valueNum", literal.Number);
+            Set(insertSymbol, "$valueStr", literal.Text);
+
             Set(insertSymbol, "$typeText", symbol.TypeText);
             Set(insertSymbol, "$modifiers", symbol.Modifiers);
             Set(insertSymbol, "$language", symbol.Language);

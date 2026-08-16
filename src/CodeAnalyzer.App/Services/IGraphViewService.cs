@@ -33,7 +33,16 @@ public enum GraphViewMode
 
     /// <summary>Where data leaves and enters the workspace: outputs facing inputs.</summary>
     Boundaries,
+
+    /// <summary>Values written in more than one place that no reference connects.</summary>
+    Constants,
 }
+
+/// <summary>
+/// Which crossings the constants view lists, and whether 0 and 1 are among them. Both are
+/// the page's own toggles, echoed back so the host can re-query.
+/// </summary>
+public sealed record ConstantsOptions(bool AcrossDirectories, bool IncludeTrivial);
 
 /// <summary>A request from the page to pull in more neighbours for one node.</summary>
 public sealed record GraphExpandRequest(long SymbolId, GraphDirection Direction);
@@ -174,6 +183,12 @@ public interface IGraphViewService
 
     /// <summary>Replaces the boundaries view. Null empties it.</summary>
     Task ShowBoundariesAsync(BoundariesPayload? payload);
+
+    /// <summary>Replaces the constants view. Null empties it.</summary>
+    Task ShowConstantsAsync(ConstantsPayload? payload);
+
+    /// <summary>The constants view's filters changed; the host re-queries and re-sends.</summary>
+    event EventHandler<ConstantsOptions>? ConstantsOptionsChanged;
 
     /// <summary>
     /// Asks the page to export the current graph. The answer arrives on

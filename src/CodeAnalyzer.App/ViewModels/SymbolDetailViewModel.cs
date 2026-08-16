@@ -61,6 +61,24 @@ public sealed record OverloadItem(
     bool IsCurrent);
 
 /// <summary>
+/// A definition elsewhere whose literal denotes the same value as the focused symbol's.
+/// <para>
+/// <paramref name="EqualityNote"/> is the row's justification and is worded once, in
+/// <see cref="Core.Domain.ValueFacts"/>: "8'hA5 = 165 — numerically equal". The claim is
+/// deliberately narrow — sharing a value is evidence of an agreement, not proof of one.
+/// </para>
+/// </summary>
+public sealed record SameValueItem(
+    long SymbolId,
+    string Name,
+    string KindLabel,
+    string EqualityNote,
+    string Language,
+    string RelativePath,
+    int Line,
+    bool IsOtherLanguage);
+
+/// <summary>
 /// Facts about the focused symbol. Every property here maps to a stored column;
 /// nothing is inferred, and unresolved references are listed rather than guessed at.
 /// </summary>
@@ -154,6 +172,23 @@ public sealed partial class SymbolDetailViewModel : ObservableObject
     /// <summary>Empty unless the name is overloaded — a set of one is not a set.</summary>
     public ObservableCollection<OverloadItem> Overloads { get; } = [];
 
+    // ---- same value elsewhere --------------------------------------------
+
+    /// <summary>
+    /// Definitions elsewhere carrying this symbol's value. Empty when the literal is not
+    /// one the parser can certify, or when nothing else carries it — which are different
+    /// facts from each other and both different from "not looked at".
+    /// </summary>
+    public ObservableCollection<SameValueItem> SameValues { get; } = [];
+
+    /// <summary>"165 · also in C#, Python, Verilog" — what is shared and where it reaches.</summary>
+    [ObservableProperty]
+    private string? _sameValueSummary;
+
+    /// <summary>Set when more definitions carry the value than the list shows.</summary>
+    [ObservableProperty]
+    private string? _sameValueTruncationNote;
+
     public ObservableCollection<MemberItem> Members { get; } = [];
 
     public ObservableCollection<RelatedSymbolItem> Callers { get; } = [];
@@ -191,6 +226,9 @@ public sealed partial class SymbolDetailViewModel : ObservableObject
         Line = 0;
         Language = null;
         Overloads.Clear();
+        SameValues.Clear();
+        SameValueSummary = null;
+        SameValueTruncationNote = null;
         Members.Clear();
         Callers.Clear();
         Callees.Clear();

@@ -80,6 +80,14 @@ public sealed partial class SearchViewModel : ObservableObject
     [ObservableProperty]
     private string _emptyMessage = "Open a workspace to search symbols.";
 
+    /// <summary>
+    /// Something the result list cannot say for itself — that it was cut, or which
+    /// question was actually asked. Null most of the time; shown above the rows, because
+    /// a list that silently stops short is the one thing a search must never be.
+    /// </summary>
+    [ObservableProperty]
+    private string? _notice;
+
     public ObservableCollection<SearchResultItem> Results { get; } = [];
 
     /// <summary>The kind-family toggles. Nothing selected means no filter at all.</summary>

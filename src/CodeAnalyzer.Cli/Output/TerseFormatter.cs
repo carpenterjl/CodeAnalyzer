@@ -141,7 +141,94 @@ internal static class TerseFormatter
         return builder.Finish();
     }
 
-    public static string Detail(SymbolDetail detail)
+    /// <summary>
+    /// Definitions whose literal denotes one value. Each row states the notation it is
+    /// written in plus what it denotes, because "0xA5 = 165" is the whole answer — a bare
+    /// list of names would leave the reader to trust that the match is real.
+    /// </summary>
+    public static string Values(string subject, ValueMatchSet? set)
+    {
+        if (set is null)
+        {
+            return $"'{subject}' is not a literal value this build can read "
+                + "(try 0xA5, 165, 0b1010, 0o755, 8'hA5 or \"COM3\")";
+        }
+
+        if (set.Matches.Count == 0)
+        {
+            return $"no definition carries the value {set.Canonical}";
+        }
+
+        var builder = new StringBuilder();
+        builder.AppendLine($"{set.Canonical} — {set.Matches.Count} "
+            + (set.Matches.Count == 1 ? "definition" : "definitions")
+            + " in " + string.Join(", ", set.OtherLanguages));
+
+        foreach (var match in set.Matches)
+        {
+            builder.AppendLine("  " + ValueLine(match));
+        }
+
+        if (set.Truncated)
+        {
+            builder.AppendLine($"  … list capped at {set.Limit}; more definitions carry this value");
+        }
+
+        return builder.Finish();
+    }
+
+    /// <summary>
+    /// Values written in more than one place. The criterion is printed above the list,
+    /// because a reader who does not know 0 and 1 were excluded is reading a different
+    /// answer from the one produced.
+    /// </summary>
+    public static string SharedValues(
+        IReadOnlyList<ValueGroup> groups,
+        bool acrossDirectories,
+        bool includeTrivial)
+    {
+        var criterion = (acrossDirectories
+                ? "defined in at least two top-level directories"
+                : "defined in at least two languages")
+            + (includeTrivial ? ", 0 and 1 included" : ", excluding 0 and 1");
+
+        if (groups.Count == 0)
+        {
+            return $"no values {criterion}";
+        }
+
+        var builder = new StringBuilder();
+        builder.AppendLine($"{groups.Count} value(s) {criterion}:");
+
+        foreach (var group in groups)
+        {
+            var spans = acrossDirectories ? group.TopDirectories : group.Languages;
+            builder.AppendLine($"  {group.Canonical} — {group.TotalCount} definitions in "
+                + string.Join(", ", spans));
+
+            foreach (var member in group.Members)
+            {
+                builder.AppendLine("    " + ValueLine(member));
+            }
+
+            if (group.TotalCount > group.Members.Count)
+            {
+                builder.AppendLine($"    … {group.TotalCount - group.Members.Count} more not listed");
+            }
+        }
+
+        return builder.Finish();
+    }
+
+    private static string ValueLine(ValueMatch match)
+    {
+        var name = match.ContainerName is null ? match.Name : $"{match.ContainerName}.{match.Name}";
+        var written = Clip(Flatten(match.Verbatim), 60);
+        return $"#{match.SymbolId} {name} = {written} {KindTokens.For(match.Kind)} "
+            + $"[{match.Language}] {match.RelativePath}:{match.Line}";
+    }
+
+    public static string Detail(SymbolDetail detail, ValueMatchSet? sameValue = null)
     {
         var builder = new StringBuilder();
 
@@ -178,6 +265,25 @@ internal static class TerseFormatter
                 var marker = overload.IsCurrent ? "  (this one)" : string.Empty;
                 builder.AppendLine(
                     $"  #{overload.Id} {detail.Name}{Flatten(overload.ParameterText)} :{overload.Line}{marker}");
+            }
+        }
+
+        // The one section that can cross a language boundary no reference does. Absent
+        // rather than empty when the literal is not certifiable or nothing else shares it.
+        if (sameValue is { Matches.Count: > 0 })
+        {
+            builder.AppendLine($"same value elsewhere ({sameValue.Matches.Count}"
+                + (sameValue.Truncated ? "+" : string.Empty) + $", {sameValue.Canonical}):");
+
+            foreach (var match in sameValue.Matches)
+            {
+                builder.AppendLine("  " + ValueLine(match));
+            }
+
+            if (sameValue.Truncated)
+            {
+                builder.AppendLine($"  … list capped at {sameValue.Limit}; "
+                    + $"see all with: value {sameValue.Canonical}");
             }
         }
 

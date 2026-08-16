@@ -50,6 +50,7 @@ public sealed class WorkspaceSession : IDisposable
         Paths = new PathQueryService(store.Connection);
         Structure = new StructureQueryService(store.Connection);
         IoBoundaries = new IoBoundaryService(store.Connection);
+        Values = new ValueQueryService(store.Connection);
     }
 
     public string RootPath { get; }
@@ -69,6 +70,9 @@ public sealed class WorkspaceSession : IDisposable
 
     /// <summary>Where data leaves and enters the workspace: catalog and user-marked call sites.</summary>
     public IoBoundaryService IoBoundaries { get; }
+
+    /// <summary>Definitions found by what their literal denotes, across languages.</summary>
+    public ValueQueryService Values { get; }
 
     /// <summary>
     /// Runs a query against the index under the connection lock.

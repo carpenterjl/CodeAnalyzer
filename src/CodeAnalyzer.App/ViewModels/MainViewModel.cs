@@ -24,6 +24,15 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>Debounce before a keystroke turns into a search, in milliseconds.</summary>
     private const int SearchDebounceMs = 150;
 
+    /// <summary>Asks the search box for a value rather than a name: <c>=0xA5</c>.</summary>
+    private const string ValueSearchPrefix = "=";
+
+    /// <summary>
+    /// Rows a value search returns. Higher than the fuzzy search's default because a round
+    /// number is genuinely carried by many definitions and seeing that is the answer.
+    /// </summary>
+    private const int ValueSearchLimit = 100;
+
     private readonly IDialogService _dialogService;
     private readonly IThemeService _themeService;
     private readonly IUiDispatcher _dispatcher;
@@ -98,6 +107,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         Graph.DrillRequested += (_, path) => _ = DrillTreemapAsync(path);
         Graph.PathEndpointsChanged += (_, _) => _ = TracePathsAsync();
         Graph.WheelSourceChanged += (_, _) => _ = LoadWheelAsync();
+        Graph.ConstantsOptionsChanged += (_, _) => _ = LoadConstantsAsync();
 
         // Saved as it changes rather than only on close: a reading preference the user had
         // to hunt for once should not be lost to a crash.
@@ -741,6 +751,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (_session is null || string.IsNullOrWhiteSpace(query))
         {
             Search.Results.Clear();
+            Search.Notice = null;
             return;
         }
 
@@ -750,6 +761,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             await Task.Delay(SearchDebounceMs, token).ConfigureAwait(true);
 
             Search.IsSearching = true;
+
+            // An explicit prefix, never a heuristic. "165" has to keep finding symbols
+            // *named* 165-something; only "=165" asks what a literal denotes.
+            if (query.TrimStart().StartsWith(ValueSearchPrefix))
+            {
+                await RunValueSearchAsync(query, token).ConfigureAwait(true);
+                return;
+            }
+
+            Search.Notice = null;
 
             // Read on the UI thread, where the toggles live, and handed to the worker as a
             // fixed set: the user may click another chip while this search is running.
@@ -801,6 +822,66 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 Search.IsSearching = false;
             }
         }
+    }
+
+    /// <summary>
+    /// Searches by what a literal denotes rather than by name: <c>=0xA5</c> finds the C#
+    /// constant, the C macro and the Verilog parameter that all mean 165.
+    /// <para>
+    /// Runs inside <see cref="RunSearchAsync"/>'s debounce and cancellation, so it behaves
+    /// exactly like a name search from the typist's side.
+    /// </para>
+    /// </summary>
+    private async Task RunValueSearchAsync(string query, CancellationToken token)
+    {
+        var session = _session!;
+        var typed = query.TrimStart()[ValueSearchPrefix.Length..].Trim();
+        var kinds = Search.SelectedKinds();
+
+        var found = await Task.Run(
+                () => session.Read(() => session.Values.FindByValue(typed, ValueSearchLimit, kinds, token)), token)
+            .ConfigureAwait(true);
+
+        token.ThrowIfCancellationRequested();
+
+        Search.Results.Clear();
+
+        // Not a literal at all. Saying so beats quietly falling back to a name search the
+        // user did not ask for — the prefix was explicit.
+        if (found is null)
+        {
+            Search.Notice = null;
+            Search.EmptyMessage = typed.Length == 0
+                ? "Type a value after '=' — for example =0xA5, =165 or =\"COM3\"."
+                : $"'{typed}' is not a literal value. Try =0xA5, =165, =8'hA5 or =\"COM3\".";
+            return;
+        }
+
+        foreach (var match in found.Matches)
+        {
+            Search.Results.Add(new SearchResultItem(
+                match.SymbolId,
+                match.Name,
+                KindLabels.For(match.Kind),
+                string.Empty,
+                match.RelativePath,
+                match.Line,
+                match.ContainerName,
+                null,
+                match.Descriptor));
+        }
+
+        Search.Notice = found.Truncated
+            ? $"{found.Canonical} — showing the first {found.Limit}; more definitions carry it"
+            : found.Matches.Count == 0
+                ? null
+                : $"{found.Canonical} in {string.Join(", ", found.OtherLanguages)}";
+
+        Search.EmptyMessage = found.Matches.Count == 0
+            ? Search.HasKindFilter
+                ? $"No definition carries the value {found.Canonical} in the selected kinds."
+                : $"No definition carries the value {found.Canonical}."
+            : string.Empty;
     }
 
     /// <summary>
@@ -890,8 +971,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         try
         {
             var session = _session;
-            var detail = await Task
-                .Run(() => session.Read(() => session.Graph.GetDetail(symbolId)))
+
+            // Both queries under one acquisition of the gate: they describe the same
+            // selection, and a live update landing between them would pair one symbol's
+            // facts with another's value matches.
+            var (detail, sameValues) = await Task
+                .Run(() => session.Read(() =>
+                {
+                    var found = session.Graph.GetDetail(symbolId);
+                    return (found, found is null ? null : session.Values.GetSameValue(symbolId));
+                }))
                 .ConfigureAwait(true);
 
             if (detail is null)
@@ -899,7 +988,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 return false;
             }
 
-            ApplyDetail(detail);
+            ApplyDetail(detail, sameValues);
 
             var source = await Task.Run(() => session.TryReadSource(detail.RelativePath)).ConfigureAwait(true);
             if (source is not null)
@@ -1033,8 +1122,39 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         GraphViewMode.Treemap => LoadTreemapAsync(),
         GraphViewMode.Wheel => LoadWheelAsync(),
         GraphViewMode.Boundaries => LoadBoundariesAsync(),
+        GraphViewMode.Constants => LoadConstantsAsync(),
         _ => Task.CompletedTask,
     };
+
+    /// <summary>
+    /// Loads the values written in more than one place. One aggregation over the whole
+    /// index, so it runs when the view is opened or its filters change, never kept warm.
+    /// </summary>
+    private async Task LoadConstantsAsync()
+    {
+        if (_session is null)
+        {
+            await Graph.ShowConstantsAsync(null).ConfigureAwait(true);
+            return;
+        }
+
+        try
+        {
+            var session = _session;
+            var options = Graph.ConstantsOptions;
+            var groups = await Task
+                .Run(() => session.Read(() => session.Values.GetSharedValues(
+                    options.AcrossDirectories,
+                    options.IncludeTrivial)))
+                .ConfigureAwait(true);
+
+            await Graph.ShowConstantsAsync(groups).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load the constants view");
+        }
+    }
 
     /// <summary>
     /// Loads every boundary site in the workspace for the boundaries view. Treemap-class
@@ -1211,7 +1331,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private void SetPathEnd() =>
         Graph.SetPathEndpoint(start: false, Detail.SymbolId, Detail.Name, Detail.RelativePath!, Detail.Line);
 
-    private void ApplyDetail(Core.Graph.SymbolDetail detail)
+    private void ApplyDetail(Core.Graph.SymbolDetail detail, Core.Graph.ValueMatchSet? sameValues)
     {
         // A symbol and a stub never share the pane: one thing at a time, stated plainly.
         Detail.ClearIoStub();
@@ -1245,6 +1365,39 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 overload.ParameterText ?? overload.Signature ?? detail.Name,
                 overload.Line,
                 overload.IsCurrent));
+        }
+
+        // Definitions elsewhere carrying this one's value. Null covers two different
+        // facts — the literal is not one we can certify, or nothing else carries it — and
+        // in both cases the section simply is not there rather than reading as empty.
+        Detail.SameValues.Clear();
+        Detail.SameValueSummary = null;
+        Detail.SameValueTruncationNote = null;
+
+        if (sameValues is not null)
+        {
+            foreach (var match in sameValues.Matches)
+            {
+                Detail.SameValues.Add(new SameValueItem(
+                    match.SymbolId,
+                    match.ContainerName is null ? match.Name : $"{match.ContainerName}.{match.Name}",
+                    KindLabels.For(match.Kind),
+                    match.EqualityNote,
+                    match.Language,
+                    match.RelativePath,
+                    match.Line,
+                    match.Language != detail.Language));
+            }
+
+            Detail.SameValueSummary = sameValues.OtherLanguages.Count > 0
+                ? $"{sameValues.Canonical} · also in {string.Join(", ", sameValues.OtherLanguages)}"
+                : sameValues.Canonical;
+
+            if (sameValues.Truncated)
+            {
+                Detail.SameValueTruncationNote =
+                    $"showing the first {sameValues.Limit} — more definitions carry this value";
+            }
         }
 
         Detail.Members.Clear();

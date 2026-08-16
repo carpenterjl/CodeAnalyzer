@@ -35,8 +35,15 @@ public static class Schema
     /// apart, and storing the slice is what keeps that a fact: <c>signature</c> already
     /// contains the parameters, but finding them inside it means parsing source text.
     /// </para>
+    /// <para>
+    /// Version 11 (M16) adds <c>symbol.value_num</c> and <c>symbol.value_str</c>: what the
+    /// stored verbatim <c>value</c> denotes, where the literal's own grammar settles it.
+    /// They are stamped at write time rather than derived per query because SQL cannot read
+    /// <c>0xA5</c> or <c>8'hA5</c>, and the detail pane's lookup runs on every selection —
+    /// it has to be an index seek. Both are NULL wherever the parser cannot be certain.
+    /// </para>
     /// </summary>
-    public const int Version = 10;
+    public const int Version = 11;
 
     public const string MetaSchemaVersion = "schema_version";
     public const string MetaRootPath = "root_path";
@@ -97,6 +104,12 @@ public static class Schema
             scope_path    TEXT NOT NULL DEFAULT '',
             signature     TEXT,
             value         TEXT,
+            -- What the verbatim `value` above denotes, where the literal's own grammar
+            -- settles it: 0xA5 and 8'hA5 both store 165, "COM3" stores COM3. NULL when the
+            -- slice is an expression, a float, a character, or anything else the parser
+            -- cannot certify — the verbatim text stays the displayed fact either way.
+            value_num     INTEGER,
+            value_str     TEXT,
             type_text     TEXT,
             -- Verbatim modifier keywords in source order ("public sealed override").
             -- NULL where the language pack captures none; a fact, never an inference.
@@ -184,6 +197,12 @@ public static class Schema
 
         CREATE INDEX IF NOT EXISTS ix_file_dep_target  ON file_dep(dep_file_id);
         CREATE INDEX IF NOT EXISTS ix_file_base_name   ON file(base_name);
+
+        -- Partial: only a small minority of symbols carry a certifiable literal, and the
+        -- value queries never ask about the rest. Keeps both the index and the write cost
+        -- proportional to the constants rather than to the workspace.
+        CREATE INDEX IF NOT EXISTS ix_symbol_value_num ON symbol(value_num) WHERE value_num IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS ix_symbol_value_str ON symbol(value_str) WHERE value_str IS NOT NULL;
         """;
 
     /// <summary>
