@@ -162,7 +162,10 @@ public static class MarkdownFactWriter
                     text.Append("  - line ").Append(site.Line);
                     if (site.ArgumentText is { Length: > 0 } args)
                     {
-                        text.Append(": ").Append(Code(Flatten(args)));
+                        // The receiver, where one was written, travels with the arguments:
+                        // `orchestrator.(…)` is the evidence behind a name-match marker.
+                        var receiver = site.ReceiverText is { Length: > 0 } r ? r + "." : string.Empty;
+                        text.Append(": ").Append(Code(receiver + Flatten(args)));
                     }
 
                     text.Append('\n');

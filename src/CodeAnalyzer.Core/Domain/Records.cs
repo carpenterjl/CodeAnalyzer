@@ -131,6 +131,14 @@ public sealed record ReferenceRecord
     /// </summary>
     public string? ArgumentText { get; init; }
 
+    /// <summary>
+    /// Verbatim receiver expression at a member call or member access — the
+    /// <c>orchestrator</c> in <c>orchestrator.IndexAsync(…)</c> — truncated with a trailing
+    /// ellipsis past 100 characters. Null where the reference is a bare name or the pack
+    /// captures no receiver; absence of a capture is not an assertion of bareness.
+    /// </summary>
+    public string? ReceiverText { get; init; }
+
     public required SourcePosition Position { get; init; }
 }
 

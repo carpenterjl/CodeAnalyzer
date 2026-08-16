@@ -378,4 +378,27 @@ public class CSharpAnalyzerTests() : LanguagePackFixture(LanguageRegistry.CSharp
         // And a plain class is unchanged: nothing was invented for it.
         Assert.Equal("public sealed", Symbol(result, "Plain").Modifiers);
     }
+
+    [Fact]
+    public void CallsRecordTheirReceiverVerbatimAndOnlyWhereOneWasWritten()
+    {
+        var result = Analyze("""
+            public class Session
+            {
+                private Orchestrator orchestrator;
+
+                public void Apply()
+                {
+                    orchestrator.Index(1);
+                    this.Flush();
+                    Reset();
+                }
+            }
+            """);
+
+        var calls = result.References.Where(r => r.Kind == ReferenceKind.Call).ToList();
+        Assert.Equal("orchestrator", Assert.Single(calls, c => c.Name == "Index").ReceiverText);
+        Assert.Equal("this", Assert.Single(calls, c => c.Name == "Flush").ReceiverText);
+        Assert.Null(Assert.Single(calls, c => c.Name == "Reset").ReceiverText);
+    }
 }

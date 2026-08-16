@@ -180,8 +180,17 @@ public sealed record OverloadSibling(
     int Line,
     bool IsCurrent);
 
-/// <summary>One call site behind a merged graph edge: where, and what was passed.</summary>
-public sealed record EdgeCallSite(int Line, string? ArgumentText, EdgeConfidence Confidence);
+/// <summary>
+/// One call site behind a merged graph edge: where, what was passed, and — when the call
+/// was written against a receiver — the receiver verbatim. The receiver is what lets a
+/// reader audit the confidence marker: <c>orchestrator.IndexAsync(…)</c> wears the reason
+/// its edge is a name match rather than an exact one.
+/// </summary>
+public sealed record EdgeCallSite(
+    int Line,
+    string? ArgumentText,
+    EdgeConfidence Confidence,
+    string? ReceiverText = null);
 
 public sealed record RelatedSymbol(
     long Id,

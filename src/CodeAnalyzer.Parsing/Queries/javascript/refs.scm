@@ -10,7 +10,9 @@
 ;
 ; A method call stores only the member name — `bridge.on(…)` is recorded as `on` — for the
 ; same reason the C# and Python packs do: the receiver's type is not a syntactic fact, and
-; inventing one would put a confident edge where the source states nothing.
+; inventing one would put a confident edge where the source states nothing. The receiver
+; itself is recorded verbatim, so the resolver knows the call was written against one and
+; stops treating a same-file name match as proof of locality.
 
 (call_expression
   function: (identifier) @name
@@ -18,6 +20,7 @@
 
 (call_expression
   function: (member_expression
+    object: (_) @receiver
     property: (property_identifier) @name)
   arguments: (arguments) @args) @ref.call
 
@@ -45,6 +48,7 @@
 
 ; Property access, then bare identifiers.
 (member_expression
+  object: (_) @receiver
   property: (property_identifier) @name) @ref.use
 
 (identifier) @ref.use

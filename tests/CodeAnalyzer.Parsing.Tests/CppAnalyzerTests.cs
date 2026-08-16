@@ -244,4 +244,36 @@ public class CppAnalyzerTests() : LanguagePackFixture(LanguageRegistry.Cpp, "dev
         Assert.Equal(ReferenceKind.TypeUse, construction.Kind);
         Assert.DoesNotContain(result.References, r => r is { Kind: ReferenceKind.Call, Name: "Frame" });
     }
+
+    [Fact]
+    public void CallsRecordTheirReceiverOrQualifierVerbatim()
+    {
+        var result = Analyze("""
+            void poll(Device& dev) {
+                dev.send(0);
+                Device::reset();
+                flush();
+            }
+            """);
+
+        var calls = result.References.Where(r => r.Kind == ReferenceKind.Call).ToList();
+        Assert.Equal("dev", Assert.Single(calls, c => c.Name == "send").ReceiverText);
+        // An explicit qualifier does the locating the same way a receiver does, so it is
+        // recorded in the same slot.
+        Assert.Equal("Device", Assert.Single(calls, c => c.Name == "reset").ReceiverText);
+        Assert.Null(Assert.Single(calls, c => c.Name == "flush").ReceiverText);
+    }
+
+    [Fact]
+    public void AThisPointerCallRecordsThisAsItsReceiver()
+    {
+        var result = Analyze("""
+            void Device::poll() {
+                this->send(0);
+            }
+            """);
+
+        var call = Assert.Single(result.References, r => r is { Kind: ReferenceKind.Call, Name: "send" });
+        Assert.Equal("this", call.ReceiverText);
+    }
 }

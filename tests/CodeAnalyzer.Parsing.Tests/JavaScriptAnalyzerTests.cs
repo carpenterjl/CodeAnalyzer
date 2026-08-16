@@ -172,4 +172,19 @@ public class JavaScriptAnalyzerTests()
 
         Assert.Contains("./bridge.js", ReferenceNames(result, ReferenceKind.Import));
     }
+
+    [Fact]
+    public void AMethodCallRecordsItsReceiverVerbatimAndABareCallRecordsNone()
+    {
+        var result = Analyze("""
+            function poll(bridge) {
+                bridge.on("data");
+                flush();
+            }
+            """);
+
+        var calls = result.References.Where(r => r.Kind == ReferenceKind.Call).ToList();
+        Assert.Equal("bridge", Assert.Single(calls, c => c.Name == "on").ReceiverText);
+        Assert.Null(Assert.Single(calls, c => c.Name == "flush").ReceiverText);
+    }
 }

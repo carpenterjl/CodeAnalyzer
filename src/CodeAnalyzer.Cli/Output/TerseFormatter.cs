@@ -347,7 +347,10 @@ internal static class TerseFormatter
                 foreach (var site in entrySites)
                 {
                     anyUncertain |= Uncertain(site.Confidence);
-                    builder.AppendLine($"    :{site.Line} {site.ArgumentText}{ConfidenceMark(site.Confidence)}");
+                    // The receiver, where one was written, is the evidence behind the
+                    // confidence mark: `orchestrator.(…)~` explains itself.
+                    var receiver = site.ReceiverText is null ? string.Empty : site.ReceiverText + ".";
+                    builder.AppendLine($"    :{site.Line} {receiver}{site.ArgumentText}{ConfidenceMark(site.Confidence)}");
                 }
             }
         }

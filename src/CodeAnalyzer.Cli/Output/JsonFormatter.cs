@@ -170,6 +170,7 @@ internal static class JsonFormatter
                     ? entrySites.Select(s => new
                     {
                         line = s.Line,
+                        receiver = s.ReceiverText,
                         arguments = s.ArgumentText,
                         confidence = KindLabels.TokenFor(s.Confidence),
                     })

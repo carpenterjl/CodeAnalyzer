@@ -43,6 +43,16 @@ public static class Schema
     /// it has to be an index seek. Both are NULL wherever the parser cannot be certain.
     /// </para>
     /// <para>
+    /// Version 13 (M19) adds <c>ref.receiver_text</c>: the verbatim receiver expression at
+    /// a member call or member access — the <c>orchestrator</c> in
+    /// <c>orchestrator.IndexAsync(…)</c> — NULL where the reference is a bare name or the
+    /// pack captures no receiver. Stored because its absence was producing false edges
+    /// marked exact: the same-file resolution tier's justification — a call in this file
+    /// probably means the definition in this file — is sound for <c>foo()</c> and unsound
+    /// for <c>obj.foo()</c>, and without the receiver on the row the resolver could not
+    /// tell the two apart.
+    /// </para>
+    /// <para>
     /// Version 12 changes no DDL at all. The C# pack now harvests the <c>record</c> keyword
     /// into <c>symbol.modifiers</c>, which changes what a stored row for an unchanged file
     /// should say — and the incremental gate screens on size, timestamp and content hash, so
@@ -53,7 +63,7 @@ public static class Schema
     /// files are newly discovered rather than stale.
     /// </para>
     /// </summary>
-    public const int Version = 12;
+    public const int Version = 13;
 
     public const string MetaSchemaVersion = "schema_version";
     public const string MetaRootPath = "root_path";
@@ -151,6 +161,10 @@ public static class Schema
             -- Verbatim argument list at a call site, truncated with a trailing ellipsis
             -- past 200 characters. NULL for references that carry no argument list.
             arg_text        TEXT,
+            -- Verbatim receiver expression at a member call or member access, truncated
+            -- like arg_text. NULL where the reference is a bare name or the language pack
+            -- captures no receiver — absence of a capture is not an assertion of bareness.
+            receiver_text   TEXT,
             line            INTEGER NOT NULL,
             col             INTEGER NOT NULL
         );

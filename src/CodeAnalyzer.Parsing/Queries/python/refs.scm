@@ -12,8 +12,12 @@
   function: (identifier) @name
   arguments: (argument_list) @args) @ref.call
 
+; The receiver is recorded verbatim: dev.send() carries `dev`, self.send() carries
+; `self`. The resolver treats a self-receiver as the local claim it is and any other
+; receiver as defeating same-file locality.
 (call
   function: (attribute
+    object: (_) @receiver
     attribute: (identifier) @name)
   arguments: (argument_list) @args) @ref.call
 
@@ -44,5 +48,7 @@
 (type (identifier) @name) @ref.type
 
 ; Attribute access, then bare identifiers.
-(attribute attribute: (identifier) @name) @ref.use
+(attribute
+  object: (_) @receiver
+  attribute: (identifier) @name) @ref.use
 (identifier) @ref.use

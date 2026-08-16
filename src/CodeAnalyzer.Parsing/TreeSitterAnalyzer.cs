@@ -407,6 +407,7 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
             var kind = ReferenceKind.Unknown;
             Node? nameNode = null;
             Node? argumentsNode = null;
+            Node? receiverNode = null;
 
             foreach (var capture in match.Captures)
             {
@@ -424,6 +425,9 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
                         break;
                     case CaptureNames.Arguments:
                         argumentsNode = capture.Node;
+                        break;
+                    case CaptureNames.Receiver:
+                        receiverNode = capture.Node;
                         break;
                 }
             }
@@ -471,6 +475,7 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
                     Kind = kind,
                     ArgumentCount = CountNamed(argumentsNode),
                     ArgumentText = TruncateText(argumentsNode, MaxArgumentTextLength),
+                    ReceiverText = TruncateText(receiverNode, MaxReceiverTextLength),
                     Position = new SourcePosition(position.Row + 1, position.Column),
                     FromSymbolLocalIndex = FindEnclosingCaller(
                         kind == ReferenceKind.Inherit ? typeCandidates : callerCandidates,
@@ -531,6 +536,13 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
     /// where a call was written.
     /// </summary>
     private const int MaxParameterTextLength = 120;
+
+    /// <summary>
+    /// Longest receiver slice worth storing. Shorter than the argument cap because what the
+    /// resolver reads is presence and the self-receiver keywords, and what a caller list
+    /// displays is a prefix — a chained receiver's tail says nothing either consumer needs.
+    /// </summary>
+    private const int MaxReceiverTextLength = 100;
 
     /// <summary>
     /// The node's source slice, cut to <paramref name="maxLength"/>. The ellipsis marks the

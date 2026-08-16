@@ -16,8 +16,12 @@
   function: (identifier) @name
   arguments: (argument_list) @args) @ref.call
 
+; The receiver is recorded verbatim — dev.send() carries `dev`, this->send() carries
+; `this` — so the resolver can tell a spelled-out local dispatch from a call whose
+; target lives wherever the receiver's type does.
 (call_expression
   function: (field_expression
+    argument: (_) @receiver
     field: (field_identifier) @name)
   arguments: (argument_list) @args) @ref.call
 
@@ -29,16 +33,21 @@
 
 (identifier) @ref.use
 
-(field_expression field: (field_identifier) @name) @ref.use
+(field_expression
+  argument: (_) @receiver
+  field: (field_identifier) @name) @ref.use
 
 ; ------------------------------------------------------------------- C++ only
 
 ; Base classes and implemented interfaces.
 (base_class_clause (type_identifier) @name) @ref.inherit
 
-; Device::Send(…) and std::move(…)
+; Device::Send(…) and std::move(…). The scope is recorded as the receiver: an
+; explicitly qualified call names its home, so a same-file match proves no more here
+; than it does for dev.send() — the qualifier does the locating, not the file.
 (call_expression
   function: (qualified_identifier
+    scope: (_) @receiver
     name: (identifier) @name)
   arguments: (argument_list) @args) @ref.call
 

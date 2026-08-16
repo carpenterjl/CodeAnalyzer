@@ -4,6 +4,9 @@
 ;   @ref.<kind>  the reference node
 ;   @name        the identifier being referenced (falls back to the @ref node)
 ;   @args        argument list, used to record call arity
+;   @receiver    the receiver expression of a member access, recorded verbatim so the
+;                resolver can tell obj.Foo() — whose target lives wherever obj's type
+;                does — from a bare Foo() or a this.Foo(), which really are local claims
 ;
 ; The analyzer drops any reference whose position coincides with a declaration's own
 ; name, and where two patterns land on the same position the more specific kind wins.
@@ -13,8 +16,11 @@
   function: (identifier) @name
   arguments: (argument_list) @args) @ref.call
 
+; The receiver alternation is deliberate: in the bundled grammar `this` and `base` are
+; anonymous keyword tokens, which the (_) wildcard does not match.
 (invocation_expression
   function: (member_access_expression
+    expression: [(_) "this" "base"] @receiver
     name: (identifier) @name)
   arguments: (argument_list) @args) @ref.call
 
@@ -43,5 +49,7 @@
 (using_directive (identifier) @name) @ref.import
 
 ; Member access, then bare identifiers: how a method reaches a constant or a field.
-(member_access_expression name: (identifier) @name) @ref.use
+(member_access_expression
+  expression: [(_) "this" "base"] @receiver
+  name: (identifier) @name) @ref.use
 (identifier) @ref.use

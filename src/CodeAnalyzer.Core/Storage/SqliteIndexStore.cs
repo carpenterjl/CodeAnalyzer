@@ -234,8 +234,8 @@ public sealed class SqliteIndexStore : IParseResultSink, IIncrementalGate, IDisp
             """);
 
         using var insertReference = CreateCommand(transaction, """
-            INSERT INTO ref (id, file_id, from_symbol_id, name, kind, arg_count, arg_text, line, col)
-            VALUES ($id, $fileId, $fromSymbolId, $name, $kind, $argCount, $argText, $line, $col)
+            INSERT INTO ref (id, file_id, from_symbol_id, name, kind, arg_count, arg_text, receiver_text, line, col)
+            VALUES ($id, $fileId, $fromSymbolId, $name, $kind, $argCount, $argText, $receiverText, $line, $col)
             """);
 
         using var insertDependency = CreateCommand(transaction, """
@@ -338,6 +338,7 @@ public sealed class SqliteIndexStore : IParseResultSink, IIncrementalGate, IDisp
             Set(insertReference, "$kind", (int)reference.Kind);
             Set(insertReference, "$argCount", reference.ArgumentCount);
             Set(insertReference, "$argText", reference.ArgumentText);
+            Set(insertReference, "$receiverText", reference.ReceiverText);
             Set(insertReference, "$line", reference.Position.Line);
             Set(insertReference, "$col", reference.Position.Column);
             insertReference.ExecuteNonQuery();

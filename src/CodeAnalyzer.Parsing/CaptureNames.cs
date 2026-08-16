@@ -17,6 +17,7 @@ internal static class CaptureNames
     public const string Parameters = "params";
     public const string Arguments = "args";
     public const string Modifier = "modifier";
+    public const string Receiver = "receiver";
 
     private static readonly Dictionary<string, SymbolKind> SymbolKinds = new(StringComparer.OrdinalIgnoreCase)
     {

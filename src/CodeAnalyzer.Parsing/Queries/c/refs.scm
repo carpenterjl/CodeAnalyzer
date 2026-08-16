@@ -13,9 +13,12 @@
   function: (identifier) @name
   arguments: (argument_list) @args) @ref.call
 
-; Calls through a struct member or function pointer field
+; Calls through a struct member or function pointer field. The receiver is recorded
+; verbatim — dev->send() carries `dev` — so the resolver stops reading a same-file
+; name match as proof the call means the local definition.
 (call_expression
   function: (field_expression
+    argument: (_) @receiver
     field: (field_identifier) @name)
   arguments: (argument_list) @args) @ref.call
 
@@ -31,4 +34,6 @@
 (identifier) @ref.use
 
 ; Struct member access
-(field_expression field: (field_identifier) @name) @ref.use
+(field_expression
+  argument: (_) @receiver
+  field: (field_identifier) @name) @ref.use

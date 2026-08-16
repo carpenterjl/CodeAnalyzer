@@ -488,7 +488,7 @@ public sealed class GraphQueryService(SqliteConnection connection)
 
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT r.line, r.arg_text, e.confidence
+            SELECT r.line, r.arg_text, e.confidence, r.receiver_text
             FROM ref r
             JOIN edge e ON e.ref_id = r.id
             WHERE r.from_symbol_id = $sourceId
@@ -510,7 +510,8 @@ public sealed class GraphQueryService(SqliteConnection connection)
             results.Add(new EdgeCallSite(
                 reader.GetInt32(0),
                 reader.IsDBNull(1) ? null : reader.GetString(1),
-                (EdgeConfidence)reader.GetInt32(2)));
+                (EdgeConfidence)reader.GetInt32(2),
+                reader.IsDBNull(3) ? null : reader.GetString(3)));
         }
 
         return results;

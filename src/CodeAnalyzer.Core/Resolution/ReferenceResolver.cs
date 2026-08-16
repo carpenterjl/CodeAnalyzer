@@ -306,6 +306,14 @@ public sealed class ReferenceResolver(SqliteConnection connection)
         // to_own_member uses IS, not =, deliberately: it must compute exactly what the
         // graph queries' "target.container_id IS NOT from_symbol_id" display rule reads,
         // NULL semantics included.
+        //
+        // References with a foreign receiver are excluded outright. This tier's whole
+        // justification — a call in this file probably means the definition in this file —
+        // holds for a bare foo() and for this.foo(), and does not hold for obj.foo(),
+        // whose target lives wherever obj's type does. Before the receiver was stored,
+        // one local candidate here meant Unique, and the graph carried false edges marked
+        // exact. Those references fall through to the cross-file pass, where every
+        // definition of the name competes — the local one included.
         Timed("local_candidate", () => Execute(transaction, $"""
             CREATE TEMP TABLE local_candidate AS
             SELECT r.id AS ref_id, s.id AS symbol_id, r.file_id AS file_id,
@@ -314,6 +322,7 @@ public sealed class ReferenceResolver(SqliteConnection connection)
             FROM {scope.Source}
             JOIN symbol s ON s.file_id = r.file_id AND s.name = r.name AND s.is_definition = 1
             WHERE r.kind NOT IN ({(int)ReferenceKind.Include}, {(int)ReferenceKind.Import})
+              AND NOT {ForeignReceiverSql("r")}
               AND ({KindCompatibilitySql})
             """));
 
@@ -390,6 +399,7 @@ public sealed class ReferenceResolver(SqliteConnection connection)
         Timed("pending_ref", () => Execute(transaction, $"""
             CREATE TEMP TABLE pending_ref AS
             SELECT r.id, r.file_id, r.name, r.kind, r.from_symbol_id, r.arg_count,
+                   {ForeignReceiverSql("r")} AS foreign_receiver,
                    rf.language, rf.top_dir
             FROM {scope.Source}
             JOIN file rf ON rf.id = r.file_id
@@ -421,7 +431,7 @@ public sealed class ReferenceResolver(SqliteConnection connection)
             CROSS JOIN symbol s ON s.name = p.name AND s.is_definition = 1
             JOIN file sf ON sf.id = s.file_id
             LEFT JOIN include_reach ir ON ir.file_id = p.file_id AND ir.reach_id = s.file_id
-            WHERE s.file_id <> p.file_id
+            WHERE (s.file_id <> p.file_id OR p.foreign_receiver)
               AND ({PendingKindCompatibilitySql})
             """));
 
@@ -565,6 +575,20 @@ public sealed class ReferenceResolver(SqliteConnection connection)
     private static string ArityMatchSql(string referenceAlias) =>
         $"CASE WHEN {referenceAlias}.arg_count IS NOT NULL AND s.param_count = {referenceAlias}.arg_count " +
         "THEN 1 ELSE 0 END";
+
+    /// <summary>
+    /// Whether a reference was written against a receiver other than the enclosing
+    /// instance — <c>obj.foo()</c>, but not <c>foo()</c>, <c>this.foo()</c> or
+    /// <c>self.foo()</c>. A self-receiver is spelled dispatch to the same scope a bare
+    /// name reaches, so it keeps the same-file tier's locality claim; any other receiver
+    /// defeats it — the target lives wherever the receiver's type does, and the file the
+    /// call sits in says nothing about that. NULL receiver_text stays non-foreign
+    /// deliberately: packs that capture no receiver assert nothing, and treating their
+    /// silence as evidence would demote every edge in those languages.
+    /// </summary>
+    private static string ForeignReceiverSql(string referenceAlias) =>
+        $"({referenceAlias}.receiver_text IS NOT NULL " +
+        $"AND {referenceAlias}.receiver_text NOT IN ('this', 'self'))";
 
     /// <summary>
     /// Restricts which symbol kinds a reference kind may resolve to. Without this a call

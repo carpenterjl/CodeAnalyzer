@@ -188,5 +188,23 @@ public class PythonAnalyzerTests() : LanguagePackFixture(LanguageRegistry.Python
 
         var call = Assert.Single(result.References, r => r.Kind == ReferenceKind.Call);
         Assert.Equal("send", call.Name);
+        Assert.Equal("radio", call.ReceiverText);
+    }
+
+    [Fact]
+    public void ABareCallCarriesNoReceiverAndASelfCallSaysSelf()
+    {
+        var result = Analyze("""
+            class Radio:
+                def send(self, data):
+                    pass
+                def flush(self):
+                    self.send(b"")
+                    helper()
+            """);
+
+        var calls = result.References.Where(r => r.Kind == ReferenceKind.Call).ToList();
+        Assert.Equal("self", Assert.Single(calls, c => c.Name == "send").ReceiverText);
+        Assert.Null(Assert.Single(calls, c => c.Name == "helper").ReceiverText);
     }
 }

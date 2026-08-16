@@ -258,6 +258,21 @@ public class CAnalyzerTests : IDisposable
         }
     }
 
+    [Fact]
+    public void ACallThroughAFieldRecordsItsReceiverVerbatim()
+    {
+        var result = Analyze("""
+            void poll(struct device *dev) {
+                dev->send(0);
+                flush();
+            }
+            """);
+
+        var calls = result.References.Where(r => r.Kind == ReferenceKind.Call).ToList();
+        Assert.Equal("dev", Assert.Single(calls, c => c.Name == "send").ReceiverText);
+        Assert.Null(Assert.Single(calls, c => c.Name == "flush").ReceiverText);
+    }
+
     private static string BuildNestedStructs(int depth)
     {
         var open = string.Concat(Enumerable.Range(0, depth).Select(i => $"struct S{i} {{ "));
