@@ -308,6 +308,38 @@ public class TerseFormatterTests
         Assert.Contains("one of several name matches", text);
     }
 
+    /// <summary>
+    /// The fact sheet's headline count needed the list open to be read correctly:
+    /// <c>callers: 24</c> read as twenty-four call sites when eight were a minified
+    /// JavaScript identifier spelling the same word as a C# enum member. The listing already
+    /// marked those '?'; the number did not. Silent when there are none, so the ordinary
+    /// symbol reads exactly as before — which is the half that keeps the note meaningful.
+    /// </summary>
+    [Fact]
+    public void TheCallerCountSaysHowManyOfItsCallersAreOnlyANameMatch()
+    {
+        var real = new RelatedSymbol(3, "caller", SymbolKind.Method, "a.cs", 4,
+            ReferenceKind.Use, EdgeConfidence.Unique);
+        var coincidence = real with { Id = 4, Name = "n", Confidence = EdgeConfidence.Weak };
+
+        var mixed = SomeDetail() with { Callers = [real, coincidence] };
+        var clean = SomeDetail() with { Callers = [real] };
+
+        Assert.Contains("callers: 2 (1 cross-language name match)", TerseFormatter.Detail(mixed));
+        Assert.Contains("callers: 1  callees: 0", TerseFormatter.Detail(clean));
+        Assert.DoesNotContain("cross-language", TerseFormatter.Detail(clean));
+    }
+
+    private static SymbolDetail SomeDetail() => new()
+    {
+        Id = 1,
+        Name = "alpha",
+        Kind = SymbolKind.Function,
+        RelativePath = "a.c",
+        Language = "C",
+        StartLine = 1,
+    };
+
     [Fact]
     public void TheConfidenceFooterOnlyAppearsWhenSomethingWasUncertain()
     {

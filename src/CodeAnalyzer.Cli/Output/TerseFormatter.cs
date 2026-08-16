@@ -329,7 +329,14 @@ internal static class TerseFormatter
             }
         }
 
-        builder.AppendLine($"callers: {detail.Callers.Count}  callees: {detail.Callees.Count}"
+        // The listing marks a cross-language name match '?', and the fact sheet's headline
+        // count did not — so `callers: 24` read as twenty-four call sites when eight of them
+        // were a minified JavaScript identifier that happens to spell the same word. The
+        // count is not wrong, but a number that needs the list open to be read correctly is
+        // the same defect the unresolved column had before its external share was split out.
+        builder.AppendLine(
+            $"callers: {detail.Callers.Count}{CrossLanguageNote(detail.Callers)}  "
+            + $"callees: {detail.Callees.Count}{CrossLanguageNote(detail.Callees)}"
             + "  (list with: callers/callees #" + detail.Id + ")");
 
         if (detail.UnresolvedReferences.Count > 0)
@@ -673,6 +680,17 @@ internal static class TerseFormatter
                 + $"amb {Percent(split.Ambiguous, split.Total),6}  "
                 + $"unres {Percent(split.Unresolved, split.Total),6}{external}");
         }
+    }
+
+    /// <summary>
+    /// How many of a caller or callee list are held together by nothing but a name matching
+    /// across a language boundary — the edges the listing marks '?'. Silent when there are
+    /// none, so the ordinary case reads exactly as it did.
+    /// </summary>
+    private static string CrossLanguageNote(IReadOnlyList<RelatedSymbol> related)
+    {
+        var weak = related.Count(r => r.Confidence == EdgeConfidence.Weak);
+        return weak == 0 ? string.Empty : $" ({weak} cross-language name match{(weak == 1 ? "" : "es")})";
     }
 
     private static string Tally(IReadOnlyList<NamedCount> counts) =>
