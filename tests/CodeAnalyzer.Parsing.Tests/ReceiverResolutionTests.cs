@@ -426,12 +426,23 @@ public class ReceiverResolutionTests : IDisposable
     }
 
     /// <summary>
-    /// The inference reads a constructor call and nothing else. A <c>var</c> initialised
-    /// from a method call establishes no type, and must leave the reference where the
-    /// tiers put it rather than inventing one.
+    /// This test used to assert the opposite, and the belief it recorded was a limitation
+    /// rather than a rule: "the inference reads a constructor call and nothing else", so a
+    /// <c>var</c> initialised from a method call established no type. M27.2 read the
+    /// factory's declared return type, which says exactly what the constructor's name says —
+    /// <c>Build()</c> is declared to return an Orchestrator, so <c>orchestrator</c> is one,
+    /// and the reference lands on that class's method rather than staying a coin toss
+    /// between two same-named methods.
+    /// <para>
+    /// What stays refused is a call whose return type the workspace does not know: see
+    /// <see cref="ACallThroughAnUntypedReceiverIsNotClaimedExactByTheSameFileTier"/>, whose
+    /// <c>Fetch()</c> is defined nowhere, and
+    /// <see cref="TwoDeclarationsOfOneNameDisagreeingEstablishNoType"/>, where the file
+    /// contradicts itself. The inference is still refusing; it is refusing less.
+    /// </para>
     /// </summary>
     [Fact]
-    public async Task AVarInitialisedFromACallEstablishesNoType()
+    public async Task AVarInitialisedFromACallTakesThatCallsDeclaredReturnType()
     {
         WriteFile("src/Session.cs", """
             public class Session
@@ -457,10 +468,14 @@ public class ReceiverResolutionTests : IDisposable
         var store = await IndexAsync();
         var graph = new GraphQueryService(store.Connection);
 
-        // Both same-named methods stay candidates, and both say so.
+        // Build() is declared to return an Orchestrator, so Orchestrator.Index is the answer.
         var orchestratorIndex = SymbolId(store, "Index", "src/Orchestrator.cs");
         var candidate = Assert.Single(graph.GetDetail(orchestratorIndex)!.Callers, c => c.Name == "Apply");
-        Assert.Equal(EdgeConfidence.Ambiguous, candidate.Confidence);
+        Assert.Equal(EdgeConfidence.Unique, candidate.Confidence);
+
+        // ...and Session.Index, the same-file rival that shares the name, keeps none of it.
+        var sessionIndex = SymbolId(store, "Index", "src/Session.cs");
+        Assert.DoesNotContain(graph.GetDetail(sessionIndex)!.Callers, c => c.Name == "Apply");
     }
 
     /// <summary>
@@ -768,5 +783,196 @@ public class ReceiverResolutionTests : IDisposable
         var detail = new GraphQueryService(store.Connection).GetDetail(name);
 
         Assert.DoesNotContain(detail!.Callers, c => c.Name == "Read");
+    }
+
+    /// <summary>
+    /// A factory call declares the type as surely as a constructor does. <c>var store =
+    /// SqliteIndexStore.Open(…)</c> and <c>var store = new SqliteIndexStore(…)</c> say the
+    /// same thing, and only the second was being read.
+    /// <para>
+    /// The rival is what makes this a disambiguation rather than a match by default: a
+    /// second class declares <c>Close</c> too, so a receiver that types to nothing leaves
+    /// both in the candidate set.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task AVarTypedByAFactoryCallPicksThatTypesMember()
+    {
+        WriteFile("src/Store.cs", """
+            public class Store
+            {
+                public void Close() { }
+                public static Store Open(string path) { return new Store(); }
+            }
+            """);
+        WriteFile("src/Rival.cs", """
+            public class Rival
+            {
+                public void Close() { }
+            }
+            """);
+        WriteFile("src/Caller.cs", """
+            public class Caller
+            {
+                public void Go()
+                {
+                    var store = Store.Open("x");
+                    store.Close();
+                }
+            }
+            """);
+
+        var store = await IndexAsync();
+        var wanted = SymbolId(store, "Close", "src/Store.cs");
+        var detail = new GraphQueryService(store.Connection).GetDetail(wanted);
+        var caller = Assert.Single(detail!.Callers, c => c.Name == "Go");
+        Assert.Equal(EdgeConfidence.Unique, caller.Confidence);
+
+        // ...and the rival keeps none of it, which is the half a match-by-default would fail.
+        var rival = SymbolId(store, "Close", "src/Rival.cs");
+        var rivalDetail = new GraphQueryService(store.Connection).GetDetail(rival);
+        Assert.DoesNotContain(rivalDetail!.Callers, c => c.Name == "Go");
+    }
+
+    /// <summary>
+    /// An awaited <c>Task&lt;T&gt;</c> yields a T, so the receiver is a T. This is the one
+    /// generic that is unwrapped, and only under <c>await</c>.
+    /// </summary>
+    [Fact]
+    public async Task AnAwaitedTaskIsUnwrappedToTheTypeItYields()
+    {
+        WriteFile("src/Report.cs", """
+            public class Report
+            {
+                public void Publish() { }
+            }
+            """);
+        WriteFile("src/Rival.cs", """
+            public class Rival
+            {
+                public void Publish() { }
+            }
+            """);
+        WriteFile("src/Builder.cs", """
+            public class Builder
+            {
+                public async Task Go()
+                {
+                    var report = await BuildAsync();
+                    report.Publish();
+                }
+
+                private async Task<Report> BuildAsync() { return new Report(); }
+            }
+            """);
+
+        var store = await IndexAsync();
+        var wanted = SymbolId(store, "Publish", "src/Report.cs");
+        var detail = new GraphQueryService(store.Connection).GetDetail(wanted);
+        var caller = Assert.Single(detail!.Callers, c => c.Name == "Go");
+        Assert.Equal(EdgeConfidence.Unique, caller.Confidence);
+    }
+
+    /// <summary>
+    /// The guard on the unwrapping rule. <c>var items = GetWidgets()</c> returning
+    /// <c>IReadOnlyList&lt;Widget&gt;</c> declares a list, not a Widget — unwrapping it
+    /// would type the receiver as Widget and bind <c>items.Count</c> to a member of the
+    /// element type, which is a wrong answer wearing a resolved one's clothes. The list
+    /// type names nothing in this workspace, so the receiver types to nothing and the
+    /// reference keeps the candidate set it had.
+    /// </summary>
+    [Fact]
+    public async Task AnUnawaitedGenericIsNotUnwrappedToItsElementType()
+    {
+        WriteFile("src/Widget.cs", """
+            public class Widget
+            {
+                public int Count { get; set; }
+            }
+            """);
+        WriteFile("src/Basket.cs", """
+            public class Basket
+            {
+                public int Count { get; set; }
+            }
+            """);
+        WriteFile("src/Caller.cs", """
+            public class Caller
+            {
+                public int Go()
+                {
+                    var items = GetWidgets();
+                    return items.Count;
+                }
+
+                private IReadOnlyList<Widget> GetWidgets() { return []; }
+            }
+            """);
+
+        var store = await IndexAsync();
+
+        // Widget.Count must NOT be claimed exactly — that is the false edge this guards.
+        // Asserted through Single rather than All: an All over an empty list passes without
+        // testing anything, and "the reference resolved nowhere" would be a different bug
+        // wearing this test's green tick.
+        var widgetCount = SymbolId(store, "Count", "src/Widget.cs");
+        var detail = new GraphQueryService(store.Connection).GetDetail(widgetCount);
+        var caller = Assert.Single(detail!.Callers, c => c.Name == "Go");
+        Assert.Equal(EdgeConfidence.Ambiguous, caller.Confidence);
+    }
+
+    /// <summary>
+    /// Two declarations of one name in one file, initialised from calls returning different
+    /// types. The resolver takes a receiver type only when every declaration at the winning
+    /// rank agrees, so this pair must establish nothing rather than pick the first — and the
+    /// reference keeps both candidates instead of being handed a confident wrong answer.
+    /// </summary>
+    [Fact]
+    public async Task TwoDeclarationsOfOneNameDisagreeingEstablishNoType()
+    {
+        WriteFile("src/Alpha.cs", """
+            public class Alpha
+            {
+                public void Run() { }
+                public static Alpha Make() { return new Alpha(); }
+            }
+            """);
+        WriteFile("src/Beta.cs", """
+            public class Beta
+            {
+                public void Run() { }
+                public static Beta Make2() { return new Beta(); }
+            }
+            """);
+        WriteFile("src/Caller.cs", """
+            public class Caller
+            {
+                public void First()
+                {
+                    var thing = Alpha.Make();
+                    thing.Run();
+                }
+
+                public void Second()
+                {
+                    var thing = Beta.Make2();
+                    thing.Run();
+                }
+            }
+            """);
+
+        var store = await IndexAsync();
+
+        // Neither Run may be claimed uniquely: the file disagrees about what `thing` is.
+        // Both must still be *reached* — an empty caller list would pass a NotEqual check
+        // while meaning the references resolved nowhere at all, which is not what is claimed.
+        foreach (var path in new[] { "src/Alpha.cs", "src/Beta.cs" })
+        {
+            var run = SymbolId(store, "Run", path);
+            var detail = new GraphQueryService(store.Connection).GetDetail(run);
+            var callers = detail!.Callers.Where(c => c.Name is "First" or "Second").ToList();
+            Assert.NotEmpty(callers);
+            Assert.All(callers, c => Assert.Equal(EdgeConfidence.Ambiguous, c.Confidence));
+        }
     }
 }

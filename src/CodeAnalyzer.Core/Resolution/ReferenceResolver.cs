@@ -646,10 +646,36 @@ public sealed class ReferenceResolver(SqliteConnection connection)
         // costing 86 of them (73 that had to fall back to tier and arity and landed
         // ambiguous, 13 that landed nowhere). `?` is not part of the type's name, and the
         // declaration is no less a declaration for admitting null.
+        // A `var` the constructor did not spell out. `using var store =
+        // SqliteIndexStore.Open(…)` declares the type as the word `var` exactly as
+        // `new SqliteIndexStore(…)` does, and the difference between them is nothing the
+        // language cares about — the factory's declared return type says the same thing the
+        // constructor's name does. Measured before this was written: 2,001 of the 2,428
+        // inferred-type declarations in this workspace are not `new`, and 1,712 of those are
+        // call-shaped, so reading only `new` left the larger half of `var` untyped.
+        //
+        // The unwrapping rule is narrow on purpose. An awaited `Task<ParseResult>` yields a
+        // ParseResult, so that one is unwrapped; an unawaited `IReadOnlyList<Widget>` yields
+        // a list, and unwrapping it would type the receiver as Widget and then bind
+        // `items.Count` to a member of the element type — a wrong answer dressed as a
+        // resolved one. So only Task and ValueTask, and only under `await`; every other
+        // generic survives verbatim and matches no type, which is the correct outcome.
+        BuildInferredTypes(transaction);
+
+        // The second arm is what makes an uninferable `var` contribute nothing rather than
+        // the literal string 'var'. Rank is a precedence and only the best rank present is
+        // consulted, so emitting a non-type at rank 2 could only ever suppress ranks 3 and
+        // 4 — measured at 0 references in this workspace today, which is what makes it safe
+        // to change, and it is also what lets two declarations of one name agree: a file
+        // holding `var result = Analyze(…)` beside `var result = Check(…)` must disagree on
+        // the type, while one holding an inferable and an uninferable `var` must not have
+        // the uninferable one voting 'var' against it.
         static string TypeOf(string alias) => $"""
             rtrim(
                 CASE WHEN {alias}.type_text IN ('var', 'auto') AND {alias}.value LIKE 'new %(%'
                      THEN rtrim(substr({alias}.value, 5, instr({alias}.value, '(') - 5))
+                     WHEN {alias}.type_text IN ('var', 'auto')
+                     THEN (SELECT i.type_name FROM inferred_type i WHERE i.symbol_id = {alias}.id)
                      ELSE {alias}.type_text END,
                 '?')
             """;
@@ -776,6 +802,68 @@ public sealed class ReferenceResolver(SqliteConnection connection)
     });
 
     /// <summary>
+    /// The type an inferred-type declaration takes from the call that initialises it, for the
+    /// declarations <see cref="BuildReceiverType"/>'s <c>new</c> rule cannot read.
+    /// <para>
+    /// The callee is the identifier immediately before the first open parenthesis, after a
+    /// leading <c>await</c> is dropped: <c>_session.Graph.GetNeighbourhood(id)</c> calls
+    /// <c>GetNeighbourhood</c>. SQLite has no last-index-of, so the final dotted segment is
+    /// taken by trimming from the right every character that is not a dot, which leaves the
+    /// prefix up to and including the last one, and measuring it.
+    /// </para>
+    /// <para>
+    /// One distinct return type among every workspace definition of that name, or nothing —
+    /// the same rule <c>receiver_type</c> applies one level up, and for the same reason: two
+    /// methods sharing a name and disagreeing on their return type is the index failing to
+    /// know, and saying so costs nothing. A generic or namespace-qualified return survives
+    /// verbatim and simply matches no type.
+    /// </para>
+    /// </summary>
+    private void BuildInferredTypes(SqliteTransaction transaction) =>
+        Timed("inferred_type", () => Execute(transaction, $"""
+            CREATE TEMP TABLE inferred_type AS
+            SELECT c.symbol_id,
+                   CASE
+                       WHEN c.awaited = 1 AND m.type_text LIKE 'Task<%>'
+                            THEN substr(m.type_text, 6, length(m.type_text) - 6)
+                       WHEN c.awaited = 1 AND m.type_text LIKE 'ValueTask<%>'
+                            THEN substr(m.type_text, 11, length(m.type_text) - 11)
+                       ELSE m.type_text
+                   END AS type_name
+            FROM (
+                SELECT h.symbol_id, h.awaited,
+                       substr(h.head, length(rtrim(h.head, replace(h.head, '.', ''))) + 1) AS callee
+                FROM (
+                    SELECT b.symbol_id, b.awaited,
+                           substr(b.bare, 1, instr(b.bare, '(') - 1) AS head
+                    FROM (
+                        SELECT d.id AS symbol_id,
+                               (d.value LIKE 'await %') AS awaited,
+                               CASE WHEN d.value LIKE 'await %'
+                                    THEN ltrim(substr(d.value, 7))
+                                    ELSE d.value END AS bare
+                        FROM symbol d
+                        WHERE d.is_definition = 1
+                          AND d.type_text IN ('var', 'auto')
+                          AND d.value LIKE '%(%'
+                          AND d.value NOT LIKE 'new %(%'
+                    ) b
+                    WHERE instr(b.bare, '(') > 1
+                ) h
+            ) c
+            JOIN symbol m ON m.name = c.callee
+                         AND m.is_definition = 1
+                         AND m.kind IN ({(int)SymbolKind.Method}, {(int)SymbolKind.Function})
+                         AND m.type_text IS NOT NULL
+                         AND m.type_text <> ''
+                         AND m.type_text <> 'void'
+                         -- an awaited non-generic Task yields nothing to type
+                         AND NOT (c.awaited = 1 AND m.type_text IN ('Task', 'ValueTask'))
+            GROUP BY c.symbol_id
+            HAVING COUNT(DISTINCT m.type_text) = 1
+            """));
+
+    /// <summary>
     /// Which files each file can see through its own includes and imports, followed
     /// <see cref="IncludeReachDepth"/> hops.
     /// <para>
@@ -839,7 +927,7 @@ public sealed class ReferenceResolver(SqliteConnection connection)
                  {
                      "local_candidate", "local_best_arity", "local_count", "hot_name",
                      "hot_base", "suffix_match", "pending_ref", "include_reach", "candidate",
-                     "receiver_candidate", "receiver_type", "code_behind",
+                     "receiver_candidate", "receiver_type", "inferred_type", "code_behind",
                      "best_receiver", "best_tier", "best_arity",
                      "resolved",
                      "dirty_file", "dirty_name", "work_ref", "work_name",
