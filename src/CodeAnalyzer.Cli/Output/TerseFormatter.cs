@@ -570,7 +570,10 @@ internal static class TerseFormatter
 
         builder.AppendLine();
         builder.AppendLine("an unresolved reference is one no workspace definition matched — for a workspace "
-            + "that leans on external libraries that is the normal shape, not a defect count.");
+            + "that leans on external libraries that is the normal shape, not a defect count. "
+            + "the external share says how much of a row's unresolved names nothing any workspace "
+            + "definition of a compatible kind carries — those are correct, not gaps. a lower bound: "
+            + "the residue is where a real gap would hide, not proof of one.");
 
         return builder.Finish();
     }
@@ -592,11 +595,17 @@ internal static class TerseFormatter
         var width = splits.Max(s => s.Name.Length);
         foreach (var split in splits)
         {
+            // The trailing share reads the unresolved column so "unres 70.0% · 100% external"
+            // says, in one line, that the row is describing the workspace's dependence on
+            // outside code rather than naming a resolver gap.
+            var external = split.Unresolved == 0
+                ? string.Empty
+                : $"  · {Percent(split.External, split.Unresolved),6} external";
             builder.AppendLine(
                 $"  {split.Name.PadRight(width)}  {split.Total,8:n0}  "
                 + $"uniq {Percent(split.Unique, split.Total),6}  "
                 + $"amb {Percent(split.Ambiguous, split.Total),6}  "
-                + $"unres {Percent(split.Unresolved, split.Total),6}");
+                + $"unres {Percent(split.Unresolved, split.Total),6}{external}");
         }
     }
 

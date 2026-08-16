@@ -357,6 +357,9 @@ internal static class JsonFormatter
         resolvedUniquely = split.Unique,
         ambiguous = split.Ambiguous,
         unresolved = split.Unresolved,
+        // Of the unresolved, how many name nothing any compatible workspace definition
+        // carries — the correctly-external share, as a lower bound.
+        unresolvedExternal = split.External,
     };
 
     public static string Stats(ReadOnlyIndexSession session, IndexStats stats) =>

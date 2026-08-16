@@ -153,6 +153,42 @@ public class IndexStatsQueryTests : IDisposable
     }
 
     [Fact]
+    public async Task TheExternalShareSeparatesAbsentNamesFromKindIncompatibleOnes()
+    {
+        // Three unresolved references, three different truths. absent_everywhere names
+        // nothing — external. The call to `helper` names only a variable, which a call
+        // cannot land on — still external, and the case a naive name-join gets wrong
+        // (this round's own probe read `new Map()` matching a method called Map as a
+        // workspace gap). The use of hidden_local names a real variable that the
+        // resolver rightly refuses — it is another function's local — so it stays in
+        // the residue, which is exactly where a real gap would hide too.
+        WriteFile("a.c", """
+            void caller(void) {
+                int x = hidden_local;
+                absent_everywhere();
+                helper();
+            }
+            """);
+        WriteFile("b.py", "helper = 1\n");
+        WriteFile("c.c", "void f(void) { int hidden_local; }");
+
+        var stats = await IndexAndReadAsync();
+
+        var call = Assert.Single(stats.RefsByKind, s => s.Name == nameof(ReferenceKind.Call));
+        Assert.Equal(2, call.Unresolved);
+        Assert.Equal(2, call.External);
+
+        // hidden_local is unresolved but not external: a compatible definition exists,
+        // the refusal was locality. The external column must not sweep it in.
+        var use = Assert.Single(stats.RefsByKind, s => s.Name == nameof(ReferenceKind.Use));
+        Assert.True(use.Unresolved >= 1);
+        Assert.Equal(0, use.External);
+
+        // The split slices unresolved only; a resolved row contributes nothing.
+        Assert.All(stats.RefsByKind, s => Assert.True(s.External <= s.Unresolved));
+    }
+
+    [Fact]
     public async Task APathScopeNarrowsEveryCountToItsSubtree()
     {
         WriteFile("core/a.c", """

@@ -825,6 +825,58 @@ public sealed class ReferenceResolver(SqliteConnection connection)
         $"({referenceAlias}.receiver_text IS NOT NULL " +
         $"AND {referenceAlias}.receiver_text NOT IN ('this', 'self'))";
 
+    private static string In(params SymbolKind[] kinds) =>
+        string.Join(", ", kinds.Select(k => (int)k));
+
+    // The kind sets one reference kind may land on, single-sourced here because two
+    // methods read them: BuildKindCompatibility applies them with locality refinements
+    // during resolution, and CompatibleKindSql applies them bare for the stats side.
+    // Each list's reasoning lives at its use site in BuildKindCompatibility, where the
+    // hard-won cases (Function on Constructible, Method off it) are argued in full.
+    private static readonly string CallableKinds =
+        In(SymbolKind.Function, SymbolKind.Method, SymbolKind.Macro, SymbolKind.Module);
+
+    private static readonly string TypeKinds = In(
+        SymbolKind.Class, SymbolKind.Struct, SymbolKind.Union, SymbolKind.Enum,
+        SymbolKind.Typedef, SymbolKind.Interface, SymbolKind.Module);
+
+    private static readonly string InheritableKinds =
+        In(SymbolKind.Class, SymbolKind.Interface, SymbolKind.Struct);
+
+    private static readonly string ConstructibleKinds =
+        In(SymbolKind.Class, SymbolKind.Struct, SymbolKind.Function, SymbolKind.Module);
+
+    private static readonly string ReferencableKinds = In(
+        SymbolKind.Macro, SymbolKind.Constant, SymbolKind.EnumMember,
+        SymbolKind.Field, SymbolKind.Function, SymbolKind.Variable, SymbolKind.Port,
+        SymbolKind.Property, SymbolKind.Parameter);
+
+    private static readonly string BindableKinds = In(SymbolKind.Property, SymbolKind.Field);
+
+    /// <summary>
+    /// Whether a symbol's kind could satisfy a reference's kind at all — the kind half of
+    /// <see cref="BuildKindCompatibility"/>, with every locality refinement (containers,
+    /// code-behind) deliberately left out. This looser form exists for the stats side:
+    /// an unresolved reference for which no workspace definition passes even this test
+    /// names something outside the workspace, and that is a fact about the corpus, not a
+    /// resolver gap. Kept on this class, reading the same kind-set fields resolution
+    /// reads, so the two rules cannot drift apart. Because the refinements are omitted,
+    /// a match here does not mean the resolver would have accepted the candidate — the
+    /// split this feeds reads as a lower bound on the external share, never an upper one.
+    /// </summary>
+    public static string CompatibleKindSql(string referenceAlias, string symbolAlias) => $"""
+        CASE {referenceAlias}.kind
+            WHEN {(int)ReferenceKind.Call} THEN {symbolAlias}.kind IN ({CallableKinds})
+            WHEN {(int)ReferenceKind.TypeUse} THEN {symbolAlias}.kind IN ({TypeKinds})
+            WHEN {(int)ReferenceKind.Instantiate} THEN {symbolAlias}.kind IN ({ConstructibleKinds})
+            WHEN {(int)ReferenceKind.Inherit} THEN {symbolAlias}.kind IN ({InheritableKinds})
+            WHEN {(int)ReferenceKind.Binding} THEN {symbolAlias}.kind IN ({BindableKinds})
+            WHEN {(int)ReferenceKind.Resource} THEN {symbolAlias}.kind = {(int)SymbolKind.ResourceKey}
+            WHEN {(int)ReferenceKind.Handler} THEN {symbolAlias}.kind = {(int)SymbolKind.Method}
+            ELSE {symbolAlias}.kind IN ({ReferencableKinds})
+        END
+        """;
+
     /// <summary>
     /// Restricts which symbol kinds a reference kind may resolve to. Without this a call
     /// could bind to a struct field that happens to share the callee's name.
@@ -842,14 +894,9 @@ public sealed class ReferenceResolver(SqliteConnection connection)
     /// </param>
     private static string BuildKindCompatibility(string referenceAlias, bool crossFile)
     {
-        static string In(params SymbolKind[] kinds) =>
-            string.Join(", ", kinds.Select(k => (int)k));
-
-        var callable = In(SymbolKind.Function, SymbolKind.Method, SymbolKind.Macro, SymbolKind.Module);
-        var types = In(
-            SymbolKind.Class, SymbolKind.Struct, SymbolKind.Union, SymbolKind.Enum,
-            SymbolKind.Typedef, SymbolKind.Interface, SymbolKind.Module);
-        var inheritable = In(SymbolKind.Class, SymbolKind.Interface, SymbolKind.Struct);
+        var callable = CallableKinds;
+        var types = TypeKinds;
+        var inheritable = InheritableKinds;
 
         // What `new X()` may land on. The kind was born meaning "Verilog module
         // instantiation" and the rule said so — Module and nothing else — so every one of
@@ -867,8 +914,7 @@ public sealed class ReferenceResolver(SqliteConnection connection)
         // Set; admitting Method would bind 71 references to unrelated code and score it as
         // an improvement. An unresolved reference to something the workspace does not
         // define is the correct answer, not a gap.
-        var constructible = In(
-            SymbolKind.Class, SymbolKind.Struct, SymbolKind.Function, SymbolKind.Module);
+        var constructible = ConstructibleKinds;
 
         // A bare identifier use only binds to things that can be referenced across scopes:
         // macros, constants, enum members, fields, and file-scope declarations. This is
@@ -879,10 +925,7 @@ public sealed class ReferenceResolver(SqliteConnection connection)
         // C, C++ — the languages whose parameters carry a declared type) and puts it back,
         // with the test M21.3 asked for. A parameter is admitted to its own function by the
         // container clause below and correctly refused everywhere else, exactly like a local.
-        var referencable = In(
-            SymbolKind.Macro, SymbolKind.Constant, SymbolKind.EnumMember,
-            SymbolKind.Field, SymbolKind.Function, SymbolKind.Variable, SymbolKind.Port,
-            SymbolKind.Property, SymbolKind.Parameter);
+        var referencable = ReferencableKinds;
 
         // ...but "across scopes" has to mean something. A symbol declared inside a
         // *function* is a local: unreachable by name from anywhere else, and admitting it
@@ -908,7 +951,7 @@ public sealed class ReferenceResolver(SqliteConnection connection)
         // that happened to share a kind. While they shared one,
         // Style="{StaticResource SearchBox}" written on <TextBox x:Name="SearchBox">
         // resolved to the TextBox — a self-edge, and so invisible in every listing.
-        var bindable = In(SymbolKind.Property, SymbolKind.Field);
+        var bindable = BindableKinds;
 
         var handler = crossFile
             ? $"""

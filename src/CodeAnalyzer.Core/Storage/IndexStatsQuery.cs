@@ -12,8 +12,20 @@ public sealed record NamedCount(string Name, int Count);
 /// ambiguous and unresolved. The whole-index triple is the sum of any complete set of
 /// these, which is what makes an outlier row worth reading: a subset resolving far worse
 /// than the index as a whole is a resolver gap with a name on it.
+/// <para>
+/// <see cref="External"/> splits the unresolved column one step further: how many of a
+/// row's unresolved references name something no workspace definition of a compatible
+/// kind carries at all — IDisposable, a runtime's Map, a NuGet namespace. Those are the
+/// correct answer, not a gap, and before this column every high-unresolved row read the
+/// same whether it was hiding a resolver bug or describing the workspace's honest
+/// dependence on code it does not contain. A lower bound, not an exact split: the test
+/// is kind-compatibility alone (see <c>ReferenceResolver.CompatibleKindSql</c>), so a
+/// name that matches a compatible definition the resolver would still have refused
+/// counts as possibly-internal.
+/// </para>
 /// </summary>
-public sealed record ResolutionSplit(string Name, int Total, int Unique, int Ambiguous, int Unresolved);
+public sealed record ResolutionSplit(
+    string Name, int Total, int Unique, int Ambiguous, int Unresolved, int External = 0);
 
 /// <summary>
 /// Aggregate facts about one workspace's index: what is in it, and — the part no other
@@ -196,6 +208,11 @@ public static class IndexStatsQuery
     {
         var fileScoped = $"{(int)ReferenceKind.Include}, {(int)ReferenceKind.Import}";
         using var command = connection.CreateCommand();
+
+        // The external column asks, per unresolved reference, whether any workspace
+        // definition of a kind this reference could resolve to carries its name. For an
+        // include or import the file_dep miss already IS that test — a dependency that
+        // names no workspace file is external by construction — so those count whole.
         command.CommandText = $"""
             SELECT {groupBy},
                    COUNT(*),
@@ -204,7 +221,16 @@ public static class IndexStatsQuery
                                      ELSE (CASE WHEN e.n = 1 THEN 1 ELSE 0 END) END), 0),
                    COALESCE(SUM(CASE WHEN r.kind IN ({fileScoped})
                                      THEN 0
-                                     ELSE (CASE WHEN e.n > 1 THEN 1 ELSE 0 END) END), 0)
+                                     ELSE (CASE WHEN e.n > 1 THEN 1 ELSE 0 END) END), 0),
+                   COALESCE(SUM(CASE
+                       WHEN r.kind IN ({fileScoped})
+                           THEN (CASE WHEN d.dep_file_id IS NULL THEN 1 ELSE 0 END)
+                       WHEN e.n IS NOT NULL THEN 0
+                       WHEN NOT EXISTS (SELECT 1 FROM symbol s
+                                        WHERE s.name = r.name AND s.is_definition = 1
+                                          AND {Resolution.ReferenceResolver.CompatibleKindSql("r", "s")})
+                           THEN 1
+                       ELSE 0 END), 0)
             FROM {from}
             LEFT JOIN (SELECT ref_id, COUNT(*) AS n FROM edge GROUP BY ref_id) e ON e.ref_id = r.id
             LEFT JOIN file_dep d ON d.file_id = r.file_id AND d.dep_path = r.name{scope.WhereFileIn("r.file_id")}
@@ -221,9 +247,10 @@ public static class IndexStatsQuery
             var total = reader.GetInt32(1);
             var unique = reader.GetInt32(2);
             var ambiguous = reader.GetInt32(3);
+            var external = reader.GetInt32(4);
             splits.Add(new ResolutionSplit(
                 nameOf is null ? raw : nameOf(raw),
-                total, unique, ambiguous, total - unique - ambiguous));
+                total, unique, ambiguous, total - unique - ambiguous, external));
         }
 
         return splits;
