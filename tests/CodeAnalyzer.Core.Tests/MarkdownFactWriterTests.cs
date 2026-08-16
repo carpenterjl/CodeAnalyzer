@@ -131,7 +131,31 @@ public class MarkdownFactWriterTests
 
         var text = MarkdownFactWriter.Write(report);
 
-        Assert.Contains("- `uart_configure` — call — `drivers/uart.c:5`\n  - line 10: `(UART_BAUD)`", text);
+        Assert.Contains("- `uart_configure` — call — `drivers/uart.c:5`\n  - line 10: `uart_configure(UART_BAUD)`", text);
+    }
+
+    /// <summary>
+    /// A reference with no arguments still has a site worth printing. Gating the line on
+    /// arguments dropped the receiver — the evidence behind the confidence mark — from
+    /// every use, which is most references now that a use may bind to a type's member.
+    /// </summary>
+    [Fact]
+    public void ASiteWithAReceiverAndNoArgumentsStillShowsTheReceiver()
+    {
+        var callee = new RelatedSymbol(9, "MarkupElement", SymbolKind.EnumMember,
+            "Domain/SymbolKind.cs", 34, ReferenceKind.Use, EdgeConfidence.Unique);
+        var report = Report(Detail() with { Callees = [callee] }) with
+        {
+            CalleeSites =
+            [
+                new CalleeCallSites(callee,
+                    [new EdgeCallSite(632, null, EdgeConfidence.Unique, "SymbolKind", "MarkupElement")]),
+            ],
+        };
+
+        var text = MarkdownFactWriter.Write(report);
+
+        Assert.Contains("- line 632: `SymbolKind.MarkupElement`", text);
     }
 
     [Fact]

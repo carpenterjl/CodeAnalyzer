@@ -43,6 +43,16 @@ public static class Schema
     /// it has to be an index seek. Both are NULL wherever the parser cannot be certain.
     /// </para>
     /// <para>
+    /// Version 17 (M20.1) changes no DDL. A bare-identifier use may now bind to a member of
+    /// a type — a class's constant, an enum's member — where before the rule that keeps
+    /// loop counters out of the graph excluded every one of them along with the locals it
+    /// was aimed at. Edges are derived from references, and the incremental gate re-resolves
+    /// only the dirty files' references, so a database written by an earlier build is
+    /// missing those edges permanently and no file change would ever restore them. Same
+    /// reason as version 6, one level down the pipeline: it is the resolver's output, not
+    /// the parser's, whose meaning changed.
+    /// </para>
+    /// <para>
     /// Versions 15 and 16 (M19.3) change no DDL. The XAML pack now reads markup
     /// extensions — <c>{Binding SearchQuery}</c> becomes a binding reference named by its
     /// first path segment, <c>{StaticResource PanelBrush}</c> a resource reference named
@@ -81,7 +91,7 @@ public static class Schema
     /// files are newly discovered rather than stale.
     /// </para>
     /// </summary>
-    public const int Version = 16;
+    public const int Version = 17;
 
     public const string MetaSchemaVersion = "schema_version";
     public const string MetaRootPath = "root_path";

@@ -29,6 +29,16 @@ internal static class TerseFormatter
     private const string AmbiguousMark = "~";
     private const string WeakMark = "?";
 
+    /// <summary>
+    /// The two directions <see cref="Related"/> understands. Named rather than spelled at
+    /// each call site because the string is load-bearing twice over — it is printed, and it
+    /// says which end of an edge a call site's text belongs to.
+    /// </summary>
+    public const string Callers = "callers";
+
+    /// <inheritdoc cref="Callers"/>
+    public const string Callees = "callees";
+
     private const string ConfidenceFooter =
         $"({AmbiguousMark} = one of several name matches, {WeakMark} = cross-language name match)";
 
@@ -328,6 +338,10 @@ internal static class TerseFormatter
         int listCap,
         IReadOnlyDictionary<long, List<EdgeCallSite>>? sites)
     {
+        // Which end of the edge the site text is written against: asking for callers, every
+        // site names the focus; asking for callees, each site names that entry.
+        var siteNamesFocus = direction == Callers;
+
         if (related.Count == 0)
         {
             return $"{focus.Name} has no {direction} in the index";
@@ -347,10 +361,17 @@ internal static class TerseFormatter
                 foreach (var site in entrySites)
                 {
                     anyUncertain |= Uncertain(site.Confidence);
-                    // The receiver, where one was written, is the evidence behind the
-                    // confidence mark: `orchestrator.(…)~` explains itself.
+                    // Rebuild what the source says, in the order it says it: the receiver
+                    // where one was written, the name the reference is against, then the
+                    // arguments. The receiver is the evidence behind the confidence mark —
+                    // `orchestrator.IndexAsync(…)~` explains itself — and the name is what
+                    // keeps the dot attached to something. Uses carry no arguments, so
+                    // before the name was printed a site read `:632 SymbolKind.` with the
+                    // dot dangling, or `:454` with nothing after it at all.
                     var receiver = site.ReceiverText is null ? string.Empty : site.ReceiverText + ".";
-                    builder.AppendLine($"    :{site.Line} {receiver}{site.ArgumentText}{ConfidenceMark(site.Confidence)}");
+                    var name = site.Name ?? (siteNamesFocus ? focus.Name : entry.Name);
+                    builder.AppendLine(
+                        $"    :{site.Line} {receiver}{name}{site.ArgumentText}{ConfidenceMark(site.Confidence)}");
                 }
             }
         }

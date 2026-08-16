@@ -185,12 +185,21 @@ public sealed record OverloadSibling(
 /// was written against a receiver — the receiver verbatim. The receiver is what lets a
 /// reader audit the confidence marker: <c>orchestrator.IndexAsync(…)</c> wears the reason
 /// its edge is a name match rather than an exact one.
+/// <para>
+/// <see cref="Name"/> is the name as <em>written</em> at the site, which is not always the
+/// matched symbol's: a XAML <c>x:Class</c> reference is written short and resolves to a
+/// qualified declaration. Carrying it here rather than letting each consumer substitute the
+/// symbol's name keeps every rendering of a site the source text and nothing else — and
+/// gives the receiver's dot something to attach to, which a reference with no arguments
+/// otherwise lacks.
+/// </para>
 /// </summary>
 public sealed record EdgeCallSite(
     int Line,
     string? ArgumentText,
     EdgeConfidence Confidence,
-    string? ReceiverText = null);
+    string? ReceiverText = null,
+    string? Name = null);
 
 public sealed record RelatedSymbol(
     long Id,

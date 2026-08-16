@@ -171,6 +171,9 @@ internal static class JsonFormatter
                     {
                         line = s.Line,
                         receiver = s.ReceiverText,
+                        // The name as written at the site, which a x:Class reference
+                        // spells shorter than the declaration it resolves to.
+                        name = s.Name,
                         arguments = s.ArgumentText,
                         confidence = KindLabels.TokenFor(s.Confidence),
                     })

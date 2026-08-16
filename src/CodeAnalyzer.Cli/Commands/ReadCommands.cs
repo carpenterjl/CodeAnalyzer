@@ -277,7 +277,7 @@ internal static class ReadCommands
                 }
             }
 
-            var direction = callers ? "callers" : "callees";
+            var direction = callers ? TerseFormatter.Callers : TerseFormatter.Callees;
             var listCap = toolset.Session.Graph.RelatedLimit;
 
             Console.WriteLine(args.Switch("json")

@@ -243,7 +243,7 @@ internal sealed class CodeAnalyzerTools(McpSessionHolder holder)
             return TerseFormatter.Related(
                 focus,
                 related,
-                callers ? "callers" : "callees",
+                callers ? TerseFormatter.Callers : TerseFormatter.Callees,
                 toolset.Session.Graph.RelatedLimit,
                 sites);
         });

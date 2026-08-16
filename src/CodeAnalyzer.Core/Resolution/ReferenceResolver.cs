@@ -618,6 +618,19 @@ public sealed class ReferenceResolver(SqliteConnection connection)
             SymbolKind.Field, SymbolKind.Function, SymbolKind.Variable, SymbolKind.Port,
             SymbolKind.Parameter, SymbolKind.Property);
 
+        // ...but "across scopes" has to mean something. A symbol declared inside a
+        // *function* is a local: unreachable by name from anywhere else, and admitting it
+        // is what would make every `i` in the workspace a candidate for every other `i`.
+        // A symbol declared inside a *type* is the opposite — a class's constant, an
+        // enum's member, an element's named child exist precisely to be named elsewhere,
+        // and `Container.Name` is how. Restricting both alike was one rule doing two jobs:
+        // it kept the loop counters out and took every type member with them, so
+        // `callers SymbolKind.MarkupElement` answered "none" while six call sites read it.
+        var scopes = In(
+            SymbolKind.Class, SymbolKind.Struct, SymbolKind.Union, SymbolKind.Enum,
+            SymbolKind.Interface, SymbolKind.Namespace, SymbolKind.Module,
+            SymbolKind.MarkupElement);
+
         // A binding path names a property or field on a type the markup never states; a
         // resource key names a markup element. Kept apart deliberately — one rule for
         // both let a binding land on an element name and a resource on a property. No
@@ -633,7 +646,10 @@ public sealed class ReferenceResolver(SqliteConnection connection)
             OR ({referenceAlias}.kind = {(int)ReferenceKind.Binding} AND s.kind IN ({bindable}))
             OR ({referenceAlias}.kind = {(int)ReferenceKind.Resource} AND s.kind = {(int)SymbolKind.MarkupElement})
             OR ({referenceAlias}.kind = {(int)ReferenceKind.Use} AND s.kind IN ({referencable})
-                AND (s.container_id IS NULL OR s.container_id = {referenceAlias}.from_symbol_id))
+                AND (s.container_id IS NULL
+                     OR s.container_id = {referenceAlias}.from_symbol_id
+                     OR EXISTS (SELECT 1 FROM symbol c
+                                WHERE c.id = s.container_id AND c.kind IN ({scopes}))))
             """;
     }
 

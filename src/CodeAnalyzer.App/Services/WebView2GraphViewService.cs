@@ -352,10 +352,11 @@ public sealed class WebView2GraphViewService(IUiDispatcher dispatcher, ILogger<W
             edgeId,
             sites.Select(site => new EdgeSiteWire(
                 site.Line,
-                // Receiver folded into the displayed text rather than a new wire field:
-                // the popover shows one verbatim slice, and `orchestrator.(…)` is the
-                // evidence behind a name-match confidence label.
-                site.ReceiverText is null ? site.ArgumentText : $"{site.ReceiverText}.{site.ArgumentText}",
+                // Receiver and name folded into the displayed text rather than new wire
+                // fields: the popover shows one verbatim slice, and
+                // `orchestrator.IndexAsync(…)` is the evidence behind a name-match label.
+                (site.ReceiverText is null ? string.Empty : site.ReceiverText + ".")
+                    + site.Name + site.ArgumentText,
                 KindLabels.For(site.Confidence))).ToList()));
 
     /// <summary>Wire names for the view modes. The page keys its sections off these.</summary>

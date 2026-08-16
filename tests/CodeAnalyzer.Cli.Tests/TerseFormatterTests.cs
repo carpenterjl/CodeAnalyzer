@@ -99,6 +99,64 @@ public class TerseFormatterTests
         Assert.Contains("~ = one of several name matches", uncertainText);
     }
 
+    /// <summary>
+    /// A call site line rebuilds the source in source order. The name is what keeps the
+    /// receiver's dot attached to something: a use carries no arguments, so without it a
+    /// site read <c>:632 SymbolKind.</c> — and a bare use read <c>:454</c> and nothing.
+    /// </summary>
+    [Fact]
+    public void ASiteLineReadsLikeTheSourceItCameFrom()
+    {
+        var entry = new RelatedSymbol(3, "reader", SymbolKind.Method, "c.cs", 4,
+            ReferenceKind.Use, EdgeConfidence.Unique);
+        var sites = new Dictionary<long, List<EdgeCallSite>>
+        {
+            [3] = [new EdgeCallSite(632, null, EdgeConfidence.Unique, "SymbolKind")],
+        };
+
+        var text = TerseFormatter.Related(From, [entry], TerseFormatter.Callers, 100, sites);
+
+        // Asking for callers, every site names the focus symbol.
+        Assert.Contains(":632 SymbolKind.alpha", text);
+        Assert.DoesNotContain("SymbolKind.\n", text);
+    }
+
+    /// <summary>
+    /// The other direction names the other end: a callee site is written against the
+    /// entry, not against the symbol being asked about.
+    /// </summary>
+    [Fact]
+    public void ACalleeSiteNamesTheCalleeAndCarriesItsArguments()
+    {
+        var entry = new RelatedSymbol(3, "IndexAsync", SymbolKind.Method, "c.cs", 4,
+            ReferenceKind.Call, EdgeConfidence.Ambiguous);
+        var sites = new Dictionary<long, List<EdgeCallSite>>
+        {
+            [3] = [new EdgeCallSite(88, "(selection, store)", EdgeConfidence.Ambiguous, "orchestrator")],
+        };
+
+        var text = TerseFormatter.Related(From, [entry], TerseFormatter.Callees, 100, sites);
+
+        Assert.Contains(":88 orchestrator.IndexAsync(selection, store)~", text);
+    }
+
+    /// <summary>A bare reference has no receiver, and must not grow a stray separator.</summary>
+    [Fact]
+    public void ASiteWithNoReceiverPrintsTheNameAlone()
+    {
+        var entry = new RelatedSymbol(3, "reader", SymbolKind.Method, "c.cs", 4,
+            ReferenceKind.Use, EdgeConfidence.Unique);
+        var sites = new Dictionary<long, List<EdgeCallSite>>
+        {
+            [3] = [new EdgeCallSite(454, null, EdgeConfidence.Unique)],
+        };
+
+        var text = TerseFormatter.Related(From, [entry], TerseFormatter.Callers, 100, sites);
+
+        Assert.Contains(":454 alpha", text);
+        Assert.DoesNotContain(".alpha", text);
+    }
+
     [Fact]
     public void AMultiLineParameterListStaysOnOneLine()
     {

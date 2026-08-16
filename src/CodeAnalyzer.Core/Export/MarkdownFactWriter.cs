@@ -160,13 +160,15 @@ public static class MarkdownFactWriter
                 foreach (var site in sites)
                 {
                     text.Append("  - line ").Append(site.Line);
-                    if (site.ArgumentText is { Length: > 0 } args)
-                    {
-                        // The receiver, where one was written, travels with the arguments:
-                        // `orchestrator.(…)` is the evidence behind a name-match marker.
-                        var receiver = site.ReceiverText is { Length: > 0 } r ? r + "." : string.Empty;
-                        text.Append(": ").Append(Code(receiver + Flatten(args)));
-                    }
+
+                    // Rebuild the source in source order: receiver, name, arguments. Sites
+                    // arrive only for callees, so the name is this entry's. Gating the whole
+                    // line on arguments used to drop the receiver from every reference that
+                    // has none — which, since a use may now bind to a member of a type, is
+                    // most of them: `SymbolKind.MarkupElement` would have printed bare.
+                    var receiver = site.ReceiverText is { Length: > 0 } r ? r + "." : string.Empty;
+                    var args = site.ArgumentText is { Length: > 0 } a ? Flatten(a) : string.Empty;
+                    text.Append(": ").Append(Code(receiver + (site.Name ?? entry.Name) + args));
 
                     text.Append('\n');
                 }
