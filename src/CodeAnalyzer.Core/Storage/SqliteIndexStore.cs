@@ -588,9 +588,16 @@ public sealed class SqliteIndexStore : IParseResultSink, IIncrementalGate, IDisp
     /// Loads the workspace's crawl settings, or the defaults when none were saved or the
     /// stored blob no longer parses — settings are a convenience, never a reason to fail.
     /// </summary>
-    public Crawling.WorkspaceSettings LoadSettings() => Gate.Read(() =>
+    public Crawling.WorkspaceSettings LoadSettings() => Gate.Read(() => ReadSettings(_connection));
+
+    /// <summary>
+    /// The settings read shared with read-only consumers (the CLI opens its own connection
+    /// and has no store). Static so the key and the fallback rule cannot fork; the caller
+    /// owns whatever locking its connection needs.
+    /// </summary>
+    public static Crawling.WorkspaceSettings ReadSettings(SqliteConnection connection)
     {
-        var json = Schema.ReadMeta(_connection, MetaSettingsJson);
+        var json = Schema.ReadMeta(connection, MetaSettingsJson);
         if (string.IsNullOrEmpty(json))
         {
             return Crawling.WorkspaceSettings.Default;
@@ -605,7 +612,7 @@ public sealed class SqliteIndexStore : IParseResultSink, IIncrementalGate, IDisp
         {
             return Crawling.WorkspaceSettings.Default;
         }
-    });
+    }
 
     /// <summary>
     /// Files whose last parse was imperfect. A null message is a routine syntax error —

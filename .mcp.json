@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "codeanalyzer": {
+      "command": "src/CodeAnalyzer.Cli/bin/Release/net8.0/win-x64/codeanalyzer.exe",
+      "args": ["mcp", "--root", "."]
+    }
+  }
+}

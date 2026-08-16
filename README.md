@@ -75,6 +75,43 @@ dotnet run --project tools/CodeAnalyzer.Bench -c Release -- --generate 20000 --d
 dotnet run --project tools/CodeAnalyzer.Bench -c Release -- "C:\some\repo" --db
 ```
 
+## Headless use: the `codeanalyzer` CLI and MCP server
+
+The same index answers questions without the GUI. `codeanalyzer`
+(`src/CodeAnalyzer.Cli`, built by the solution) opens the workspace's cache through its
+own read-only connection, so it runs happily beside an open GUI — and it carries the same
+honesty rules: every answer states when the index was built, ambiguous names come back as
+a candidate list to pick from rather than a guess, and resolution confidence rides on
+every edge (`~` = one of several name matches, `?` = cross-language).
+
+```bash
+codeanalyzer index "C:\some\repo"
+```
+
+| Command | Answers |
+|---|---|
+| `search <query>` | fuzzy symbol search (`--kinds fn,type,…`, `--limit N`) |
+| `detail <symbol>` | one symbol's fact sheet — signature, members, overloads, unresolved refs |
+| `callers <symbol>` / `callees <symbol>` | who references it / what it references (`--sites` adds each call's line and verbatim arguments) |
+| `trace <from> <to>` | all shortest routes between two symbols, with "no route" kept distinct from "search budget hit" |
+| `map` | repo overview: definitions ranked by distinct incoming references, cut to `--budget` chars |
+| `outline <rel_path>` | one file's definitions in source order |
+| `boundaries` | where data leaves/enters the workspace (I/O catalog + your marks) |
+| `mcp` | the MCP stdio server for AI agent clients |
+
+A `<symbol>` argument is a name, `Container.Name`, `path/to/file.c:name`, or a `#id` from
+a previous result. Every command takes `--root <path>` (default: current directory) and
+`--json`. Reads never index implicitly — `index` is the only writer.
+
+For AI agents, the MCP server exposes the same queries as tools
+(`search_symbols`, `get_symbol`, `get_callers`, `get_callees`, `trace_paths`, `repo_map`,
+`file_outline`, `io_boundaries`, `reindex`). This repo's `.mcp.json` registers it for
+Claude Code; elsewhere:
+
+```bash
+claude mcp add codeanalyzer -- codeanalyzer mcp --root "C:\some\repo"
+```
+
 ## Layout
 
 ```
@@ -83,7 +120,9 @@ src/CodeAnalyzer.Core/      Domain, crawling, indexing, storage, resolution, sea
                             queries, file watching, session state. No WPF or WebView types.
 src/CodeAnalyzer.Parsing/   The only project that references tree-sitter. One analyzer plus
                             a Queries/<language>/{symbols,refs}.scm pack per language.
-tests/                      Core.Tests and Parsing.Tests
+src/CodeAnalyzer.Cli/       The codeanalyzer exe: subcommands + MCP stdio server over the
+                            same cache, read-only.
+tests/                      Core.Tests, Parsing.Tests and Cli.Tests
 tools/CodeAnalyzer.Bench/   Throughput harness
 samples/c-demo/             7-file C workspace for manual end-to-end testing
 ```

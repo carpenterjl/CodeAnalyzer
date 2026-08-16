@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <!-- Same pin as Bench and the test projects: tree-sitter's native DLLs only deploy
+         next to the exe when the RID is fixed. -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <RootNamespace>CodeAnalyzer.Cli</RootNamespace>
+    <!-- The verb on the command line, not the project name. -->
+    <AssemblyName>codeanalyzer</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Parsing (not just Core) because `index` and the MCP `reindex` tool run the full
+         pipeline; every read-only command touches only Core types underneath. -->
+    <ProjectReference Include="..\CodeAnalyzer.Parsing\CodeAnalyzer.Parsing.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+    <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The types stay internal — nothing consumes this exe as a library — but the
+         locator, map, formatters and MCP tools are unit-tested directly. -->
+    <InternalsVisibleTo Include="CodeAnalyzer.Cli.Tests" />
+  </ItemGroup>
+
+</Project>
