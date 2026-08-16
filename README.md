@@ -295,10 +295,16 @@ worse than one that admits the gap.
   segment is what the code-behind class matches — markup and code-behind share a graph. A
   key is its own symbol kind (M20.2): `x:Key` and `x:Name` are two namespaces rather than
   two spellings, so a `{StaticResource SearchBox}` can only reach a keyed resource and never
-  the element that happens to share the word. One honest limit remains: a member the MVVM
-  source generator invents (`[ObservableProperty] string _query` → `Query`) exists in no
-  source file, so bindings to it are listed as unresolved rather than resolved — the binding
-  checker below remains the tool that can see those.
+  the element that happens to share the word. Event handlers resolve too (M20.5), and they
+  are the one place this pack guesses: XAML marks an event attribute with no syntax at all,
+  so an attribute whose name reads like a routed event and whose value is a bare identifier
+  is *nominated*, and the resolver then requires the target be a method on that file's own
+  `x:Class`. A wrong nomination therefore finds nothing and is not reported — the trade is
+  that a misspelled handler is silent, which the compiler already catches and a misspelled
+  binding path does not. One honest limit remains: a member the MVVM source generator
+  invents (`[ObservableProperty] string _query` → `Query`) exists in no source file, so
+  bindings to it are listed as unresolved rather than resolved — the binding checker below
+  remains the tool that can see those.
 - **The drift count covers indexed files only.** It compares what the index already holds
   against disk, so it reports edits and deletions but never notices a file created since the
   last run; finding those means a full crawl, which is too much to spend before answering a
