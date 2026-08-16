@@ -9,6 +9,7 @@ namespace CodeAnalyzer.Core.Tests;
 /// directory cannot prove it is safe to delete; only a cache whose recorded root is gone
 /// is the tool's own garbage to collect.
 /// </summary>
+[Collection(CacheRootCollection.Name)]
 public class CacheInventoryTests : IDisposable
 {
     private readonly string _sandbox =

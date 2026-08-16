@@ -7,6 +7,7 @@ namespace CodeAnalyzer.Core.Tests;
 /// Where index databases land, and the override that keeps a test suite from filling up
 /// local app data one forgotten fixture at a time.
 /// </summary>
+[Collection(CacheRootCollection.Name)]
 public class WorkspacePathsTests
 {
     /// <summary>

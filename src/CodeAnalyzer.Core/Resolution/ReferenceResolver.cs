@@ -797,6 +797,25 @@ public sealed class ReferenceResolver(SqliteConnection connection)
             SymbolKind.Typedef, SymbolKind.Interface, SymbolKind.Module);
         var inheritable = In(SymbolKind.Class, SymbolKind.Interface, SymbolKind.Struct);
 
+        // What `new X()` may land on. The kind was born meaning "Verilog module
+        // instantiation" and the rule said so — Module and nothing else — so every one of
+        // the JavaScript sources' `new Foo()` references resolved to nothing at all. The
+        // by-kind table added in M23.1 showed it as a flat 100% unresolved row and that is
+        // how it was found; before that table there was no view that would have said so.
+        //
+        // Function is on this list because it is what the JavaScript actually is. These
+        // sources are ES5 constructor style — `function CoSENode(...) { }`, invoked as
+        // `new CoSENode(...)` — so the definition is a Function, and a set of Class and
+        // Struct alone would have measured as fixing nothing.
+        //
+        // Method is deliberately NOT on the list. `new Map()` and `new Set()` name the
+        // runtime's built-ins, and this workspace happens to define methods called Map and
+        // Set; admitting Method would bind 71 references to unrelated code and score it as
+        // an improvement. An unresolved reference to something the workspace does not
+        // define is the correct answer, not a gap.
+        var constructible = In(
+            SymbolKind.Class, SymbolKind.Struct, SymbolKind.Function, SymbolKind.Module);
+
         // A bare identifier use only binds to things that can be referenced across scopes:
         // macros, constants, enum members, fields, and file-scope declarations. This is
         // what keeps every loop counter named `i` out of the graph.
@@ -851,7 +870,7 @@ public sealed class ReferenceResolver(SqliteConnection connection)
         return $"""
             ({referenceAlias}.kind = {(int)ReferenceKind.Call} AND s.kind IN ({callable}))
             OR ({referenceAlias}.kind = {(int)ReferenceKind.TypeUse} AND s.kind IN ({types}))
-            OR ({referenceAlias}.kind = {(int)ReferenceKind.Instantiate} AND s.kind = {(int)SymbolKind.Module})
+            OR ({referenceAlias}.kind = {(int)ReferenceKind.Instantiate} AND s.kind IN ({constructible}))
             OR ({referenceAlias}.kind = {(int)ReferenceKind.Inherit} AND s.kind IN ({inheritable}))
             OR ({referenceAlias}.kind = {(int)ReferenceKind.Binding} AND s.kind IN ({bindable}))
             OR ({referenceAlias}.kind = {(int)ReferenceKind.Resource} AND s.kind = {(int)SymbolKind.ResourceKey})
