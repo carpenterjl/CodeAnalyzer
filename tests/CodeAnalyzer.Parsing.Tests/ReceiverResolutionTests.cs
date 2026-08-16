@@ -167,6 +167,108 @@ public class ReceiverResolutionTests : IDisposable
     }
 
     /// <summary>
+    /// A receiver written as two steps — <c>session.Graph.Index(…)</c>. The head is typed
+    /// exactly as a one-step receiver is, and the tail is then read as a member of that
+    /// type, so the receiver's type is the member's declared type.
+    /// <para>
+    /// The measured effect on this workspace is narrowing, not rescuing: receiver type is
+    /// a preference over the candidate set, never a filter that adds to it, so a reference
+    /// with nothing to bind to stays unresolved. 56 ambiguous references became unique and
+    /// the unresolved count did not move by one.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task ATwoStepReceiverIsTypedThroughTheMemberItNames()
+    {
+        WriteFile("src/Session.cs", """
+            public class Session
+            {
+                private Holder holder = new Holder();
+
+                public void Index(int a) { }
+
+                public void Apply()
+                {
+                    holder.Graph.Index(1);
+                }
+            }
+            """);
+        WriteFile("src/Holder.cs", """
+            public class Holder
+            {
+                public Engine Graph = new Engine();
+            }
+            """);
+        WriteFile("src/Engine.cs", """
+            public class Engine
+            {
+                public void Index(int a) { }
+            }
+            """);
+
+        var store = await IndexAsync();
+        var graph = new GraphQueryService(store.Connection);
+
+        // Three classes declare Index. Only the walk holder -> Holder.Graph -> Engine says
+        // which one, and it says it exactly.
+        var engineIndex = SymbolId(store, "Index", "src/Engine.cs");
+        var real = Assert.Single(graph.GetDetail(engineIndex)!.Callers, c => c.Name == "Apply");
+        Assert.Equal(EdgeConfidence.Unique, real.Confidence);
+
+        Assert.DoesNotContain(
+            graph.GetDetail(SymbolId(store, "Index", "src/Session.cs"))!.Callers,
+            c => c.Name == "Apply");
+    }
+
+    /// <summary>
+    /// The guard on the two-step walk. <c>a.b.c</c> needs the walk run twice and
+    /// <c>foo().bar</c> needs a return type nothing in the index knows, so neither is read
+    /// at all — the reference keeps whatever candidate set the tiers gave it rather than
+    /// being narrowed by a type that was half-guessed.
+    /// </summary>
+    [Fact]
+    public async Task AReceiverTooDeepOrCalledIsLeftAloneRatherThanHalfRead()
+    {
+        // Two definitions of Index, so that "Unique" can only come from the receiver. With
+        // a single definition every edge is unique for lack of competition and the guard
+        // would look like it worked no matter what it did.
+        WriteFile("src/Deep.cs", """
+            public class Deep
+            {
+                private Holder holder = new Holder();
+
+                public void Apply()
+                {
+                    holder.Graph.Inner.Index(1);
+                    Fetch().Index(2);
+                }
+            }
+            """);
+        WriteFile("src/Engine.cs", """
+            public class Engine
+            {
+                public void Index(int a) { }
+            }
+            """);
+        WriteFile("src/Rival.cs", """
+            public class Rival
+            {
+                public void Index(int a) { }
+            }
+            """);
+
+        var store = await IndexAsync();
+        var graph = new GraphQueryService(store.Connection);
+
+        // Nothing claims these exactly. The point is the absence of a Unique edge, not the
+        // absence of candidates: the tiers may still offer Engine.Index by name.
+        var callers = graph.GetDetail(SymbolId(store, "Index", "src/Engine.cs"))!.Callers;
+        Assert.All(
+            callers.Where(c => c.Name == "Apply"),
+            c => Assert.NotEqual(EdgeConfidence.Unique, c.Confidence));
+    }
+
+    /// <summary>
     /// The widening that measurement chose. A receiver that <em>is</em> a type name needs no
     /// declaration anywhere — it is a static or enum member access, and the type is the
     /// receiver. On this workspace that is 1,589 references against 4 the old same-file rule

@@ -594,10 +594,24 @@ public sealed class ReferenceResolver(SqliteConnection connection)
         // substr(value, 5, instr(value, '(') - 5) is the text between "new " and the first
         // open paren. The LIKE guard is what makes the arithmetic safe: no match means no
         // row, rather than a negative length.
-        const string DeclaredType = """
-            CASE WHEN d.type_text IN ('var', 'auto') AND d.value LIKE 'new %(%'
-                 THEN rtrim(substr(d.value, 5, instr(d.value, '(') - 5))
-                 ELSE d.type_text END
+        static string TypeOf(string alias) => $"""
+            CASE WHEN {alias}.type_text IN ('var', 'auto') AND {alias}.value LIKE 'new %(%'
+                 THEN rtrim(substr({alias}.value, 5, instr({alias}.value, '(') - 5))
+                 ELSE {alias}.type_text END
+            """;
+
+        var declaredType = TypeOf("d");
+
+        // The pieces of a two-step receiver `a.b`, and the guard that keeps the arithmetic
+        // honest. Exactly one dot and no parenthesis: `a.b.c` would need the same walk run
+        // twice and `foo().bar` needs a return type nothing here knows, so both are left
+        // alone rather than half-read.
+        const string Head = "substr(p.receiver_text, 1, instr(p.receiver_text, '.') - 1)";
+        const string Tail = "substr(p.receiver_text, instr(p.receiver_text, '.') + 1)";
+        const string DottedReceiver = """
+            p.receiver_text LIKE '%.%'
+              AND p.receiver_text NOT LIKE '%(%'
+              AND instr(substr(p.receiver_text, instr(p.receiver_text, '.') + 1), '.') = 0
             """;
 
         var typeKinds =
@@ -609,7 +623,7 @@ public sealed class ReferenceResolver(SqliteConnection connection)
             + $"{(int)SymbolKind.Variable}, {(int)SymbolKind.Constant}, "
             + $"{(int)SymbolKind.Parameter}";
 
-        // Three ways a receiver's type is knowable, in order of how much the language
+        // Four ways a receiver's type is knowable, in order of how much the language
         // guarantees. Rank is a precedence, not a score: only the best rank present for a
         // reference is consulted, so a shadowing local is never outvoted by the type whose
         // name it borrowed.
@@ -627,14 +641,14 @@ public sealed class ReferenceResolver(SqliteConnection connection)
             UNION ALL
 
             -- 2. A declaration of that name in this file, and the type it was declared with.
-            SELECT p.id, 2, {DeclaredType}
+            SELECT p.id, 2, {declaredType}
             FROM pending_ref p
             JOIN symbol d ON d.file_id = p.file_id
                          AND d.name = p.receiver_text
                          AND d.is_definition = 1
                          AND d.kind IN ({variableKinds})
             WHERE p.receiver_text IS NOT NULL
-              AND {DeclaredType} <> ''
+              AND {declaredType} <> ''
 
             UNION ALL
 
@@ -647,6 +661,46 @@ public sealed class ReferenceResolver(SqliteConnection connection)
                          AND t.is_definition = 1
                          AND t.kind IN ({typeKinds})
             WHERE p.receiver_text IS NOT NULL
+
+            UNION ALL
+
+            -- 4. A two-step receiver: `session.Graph.GetDetail(…)`. Tier 2 types the head
+            -- `session`, then the tail `Graph` is looked up as a member of that type and
+            -- the type *it* was declared with is the receiver's. Ranked last because every
+            -- earlier tier reads a single name the source wrote, while this one walks a
+            -- step and can only be as right as the declaration it walked through.
+            SELECT p.id, 4, {TypeOf("m")}
+            FROM pending_ref p
+            JOIN symbol head ON head.file_id = p.file_id
+                            AND head.name = {Head}
+                            AND head.is_definition = 1
+                            AND head.kind IN ({variableKinds})
+            JOIN symbol ht ON ht.name = {TypeOf("head")}
+                          AND ht.is_definition = 1
+                          AND ht.kind IN ({typeKinds})
+            JOIN symbol m ON m.container_id = ht.id
+                         AND m.name = {Tail}
+                         AND m.is_definition = 1
+                         AND m.kind IN ({variableKinds})
+            WHERE {DottedReceiver}
+              AND {TypeOf("m")} <> ''
+
+            UNION ALL
+
+            -- 4b. The same walk with `this` as the head, which needs no declaration lookup
+            -- because the containing type is already known.
+            SELECT p.id, 4, {TypeOf("m")}
+            FROM pending_ref p
+            JOIN symbol source ON source.id = p.from_symbol_id
+            JOIN symbol ht ON ht.id = source.container_id
+                          AND ht.kind IN ({typeKinds})
+            JOIN symbol m ON m.container_id = ht.id
+                         AND m.name = {Tail}
+                         AND m.is_definition = 1
+                         AND m.kind IN ({variableKinds})
+            WHERE {DottedReceiver}
+              AND {Head} IN ('this', 'self')
+              AND {TypeOf("m")} <> ''
             """);
 
         Execute(transaction, "CREATE INDEX temp.ix_receiver_candidate ON receiver_candidate(ref_id, rank)");
