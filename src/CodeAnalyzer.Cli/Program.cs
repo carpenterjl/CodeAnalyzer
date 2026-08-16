@@ -19,6 +19,7 @@ internal static class Program
     [
         ReadCommands.Search,
         ReadCommands.Detail,
+        ReadCommands.Report,
         ReadCommands.Callers,
         ReadCommands.Callees,
         ReadCommands.Trace,

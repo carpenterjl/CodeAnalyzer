@@ -1,5 +1,6 @@
 using CodeAnalyzer.Cli.Session;
 using CodeAnalyzer.Core.Domain;
+using CodeAnalyzer.Core.Export;
 using CodeAnalyzer.Core.Graph;
 using CodeAnalyzer.Core.Search;
 using Microsoft.Data.Sqlite;
@@ -99,6 +100,26 @@ internal sealed class AgentToolset(ReadOnlyIndexSession session)
         bool includeTrivial,
         CancellationToken cancellationToken = default) =>
         Query(() => Session.Values.GetSharedValues(acrossDirectories, includeTrivial, cancellationToken));
+
+    /// <summary>
+    /// Everything the index can say about one symbol, assembled for the markdown fact
+    /// report — the same Core builder the GUI's "copy facts" uses, so the two documents
+    /// cannot drift. Null when the symbol has gone from the index.
+    /// </summary>
+    public SymbolContextReport? Report(long symbolId, CancellationToken cancellationToken = default) =>
+        Query(() =>
+        {
+            var ioSites = Session.IoBoundaries.GetSitesForCallers(
+                [symbolId], IoCatalog.BuiltIn.Entries, Session.Settings.IoMarks, cancellationToken);
+            return SymbolContextReportBuilder.Build(
+                Session.Graph,
+                Session.Values,
+                ioSites,
+                Session.RootPath,
+                symbolId,
+                provenance: $"index built {Session.LastIndexUtc ?? "unknown"}",
+                cancellationToken);
+        });
 
     /// <summary>The ranked codebase overview an agent primes its context with.</summary>
     public RepoMap Map(CancellationToken cancellationToken = default) =>

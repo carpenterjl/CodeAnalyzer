@@ -242,9 +242,12 @@ public sealed class WebView2GraphViewService(IUiDispatcher dispatcher, ILogger<W
                     break;
 
                 case "exportResult":
-                    var format = payload?["format"]?.GetValue<string>() == "json"
-                        ? GraphExportFormat.Json
-                        : GraphExportFormat.Png;
+                    var format = payload?["format"]?.GetValue<string>() switch
+                    {
+                        "json" => GraphExportFormat.Json,
+                        "mermaid" => GraphExportFormat.Mermaid,
+                        _ => GraphExportFormat.Png,
+                    };
                     var data = payload?["data"]?.GetValue<string>();
                     ExportProduced?.Invoke(this, new GraphExportResult(format, data));
                     break;
@@ -334,7 +337,15 @@ public sealed class WebView2GraphViewService(IUiDispatcher dispatcher, ILogger<W
         PostAsync("setConstants", new ConstantsMessage(payload));
 
     public Task RequestExportAsync(GraphExportFormat format) =>
-        PostAsync("exportView", new ExportMessage(format == GraphExportFormat.Json ? "json" : "png"));
+        PostAsync("exportView", new ExportMessage(ExportFormatName(format)));
+
+    /// <summary>Wire names for the export formats — must round-trip with the exportResult case.</summary>
+    private static string ExportFormatName(GraphExportFormat format) => format switch
+    {
+        GraphExportFormat.Json => "json",
+        GraphExportFormat.Mermaid => "mermaid",
+        _ => "png",
+    };
 
     public Task ShowEdgeDetailsAsync(string edgeId, IReadOnlyList<EdgeCallSite> sites) =>
         PostAsync("edgeDetails", new EdgeDetailsMessage(

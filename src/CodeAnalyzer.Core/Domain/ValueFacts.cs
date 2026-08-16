@@ -19,6 +19,14 @@ namespace CodeAnalyzer.Core.Domain;
 /// </summary>
 public static class ValueFacts
 {
+    /// <summary>
+    /// The claim every same-value surface must repeat. Promoted to a constant in M18 when
+    /// a fourth surface (the markdown report) needed it — the wording was already living
+    /// in three places, worded three slightly different ways.
+    /// </summary>
+    public const string EvidenceSentence =
+        "A shared value is evidence of an agreement, not proof of one.";
+
     /// <summary>Two literals denote the same integer, however each is written.</summary>
     public const string NumericallyEqual = "numerically equal";
 

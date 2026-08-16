@@ -1490,31 +1490,15 @@
       layout positions and labels are presentation, not facts, and are deliberately left
       out.
     */
-    bridge.on("exportView", function (payload) {
-        var format = payload.format === "json" ? "json" : "png";
-
-        if (cy.nodes(":visible").length === 0) {
-            bridge.post("exportResult", { format: format, data: null });
-            return;
-        }
-
-        if (format === "png") {
-            bridge.post("exportResult", {
-                format: "png",
-                // full:true renders the whole graph regardless of pan/zoom; scale 2 keeps
-                // node text readable when the image is pasted somewhere larger.
-                data: cy.png({ full: true, scale: 2, bg: cssVar("--bg") })
-            });
-            return;
-        }
-
-        var doc = {
+    function buildExportDoc() {
+        return {
             nodes: cy.nodes(":visible").map(function (node) {
                 var d = node.data();
                 var entry = {
                     id: d.id,
                     name: d.name,
                     kind: d.kind,
+                    group: d.group,
                     path: d.path,
                     line: d.line
                 };
@@ -1530,6 +1514,7 @@
                     if (d.argText) { entry.argText = d.argText; }
                     delete entry.path;
                     delete entry.line;
+                    delete entry.group;
                 }
                 return entry;
             }),
@@ -1547,9 +1532,32 @@
                 return entry;
             })
         };
+    }
 
-        bridge.post("exportResult", { format: "json", data: JSON.stringify(doc, null, 2) });
-    });
+    // Called by the views.js dispatcher when this view is the visible one. "json" and
+    // "mermaid" both answer with the same document — the host renders Mermaid from it,
+    // while visibility stays decided here, the only place that knows what is on screen.
+    function exportView(format) {
+        if (cy.nodes(":visible").length === 0) {
+            bridge.post("exportResult", { format: format, data: null });
+            return;
+        }
+
+        if (format === "png") {
+            bridge.post("exportResult", {
+                format: "png",
+                // full:true renders the whole graph regardless of pan/zoom; scale 2 keeps
+                // node text readable when the image is pasted somewhere larger.
+                data: cy.png({ full: true, scale: 2, bg: cssVar("--bg") })
+            });
+            return;
+        }
+
+        bridge.post("exportResult", {
+            format: format,
+            data: JSON.stringify(buildExportDoc(), null, 2)
+        });
+    }
 
     bridge.on("clear", function (payload) {
         cy.elements().remove();
@@ -1581,6 +1589,7 @@
             cy.resize();
             refreshPopover();
         },
-        onTheme: applyTheme
+        onTheme: applyTheme,
+        onExport: exportView
     });
 })();

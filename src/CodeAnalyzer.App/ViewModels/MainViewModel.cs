@@ -1,10 +1,13 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Text.Json;
 using CodeAnalyzer.App.Services;
 using CodeAnalyzer.Core.Analysis;
 using CodeAnalyzer.Core.Crawling;
 using CodeAnalyzer.Core.Domain;
+using CodeAnalyzer.Core.Export;
 using CodeAnalyzer.Core.Indexing;
 using CodeAnalyzer.Core.Search;
 using CodeAnalyzer.Core.Watching;
@@ -97,11 +100,23 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         Graph.RendererReady += (_, _) => _ = RepaintRendererAsync();
         Graph.ViewModeChanged += (_, _) =>
         {
-            // Export only means anything over the neighbourhood graph, so its buttons
-            // follow the visible view.
+            // Each export speaks for one view's canvas, so the commands follow the
+            // visible view: PNG/Mermaid for the two graph pictures, JSON for the
+            // neighbourhood graph, the markdown table for the boundaries list.
             ExportPngCommand.NotifyCanExecuteChanged();
             ExportJsonCommand.NotifyCanExecuteChanged();
+            CopyMermaidCommand.NotifyCanExecuteChanged();
+            CopyBoundariesMarkdownCommand.NotifyCanExecuteChanged();
             _ = RefreshCurrentViewAsync();
+        };
+
+        Detail.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(SymbolDetailViewModel.HasSymbol))
+            {
+                CopySymbolReportCommand.NotifyCanExecuteChanged();
+                SaveSymbolReportCommand.NotifyCanExecuteChanged();
+            }
         };
         Graph.ExportProduced += (_, result) => _ = SaveExportAsync(result);
         Graph.DrillRequested += (_, path) => _ = DrillTreemapAsync(path);
@@ -135,6 +150,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [NotifyCanExecuteChangedFor(nameof(OpenSettingsCommand))]
     [NotifyCanExecuteChangedFor(nameof(ExportPngCommand))]
     [NotifyCanExecuteChangedFor(nameof(ExportJsonCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CopyMermaidCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CopyBoundariesMarkdownCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CopySymbolReportCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SaveSymbolReportCommand))]
     private string? _workspaceRoot;
 
     [ObservableProperty]
@@ -1753,22 +1772,53 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     private bool CanExport() => _session is not null && Graph.IsGraphView;
 
-    [RelayCommand(CanExecute = nameof(CanExport))]
+    /// <summary>PNG and Mermaid work for both canvas pictures: the graph and the paths.</summary>
+    private bool CanExportPicture() => _session is not null
+        && (Graph.IsGraphView || Graph.ViewMode == GraphViewMode.Paths);
+
+    private bool CanCopyBoundaries() =>
+        _session is not null && Graph.ViewMode == GraphViewMode.Boundaries;
+
+    private bool CanCopyReport() => _session is not null && Detail.HasSymbol;
+
+    [RelayCommand(CanExecute = nameof(CanExportPicture))]
     private Task ExportPngAsync() => Graph.RequestExportAsync(GraphExportFormat.Png);
 
     [RelayCommand(CanExecute = nameof(CanExport))]
     private Task ExportJsonAsync() => Graph.RequestExportAsync(GraphExportFormat.Json);
 
+    [RelayCommand(CanExecute = nameof(CanExportPicture))]
+    private Task CopyMermaidAsync() => Graph.RequestExportAsync(GraphExportFormat.Mermaid);
+
     /// <summary>
     /// Saves what the page produced. The page answers with what is actually on the canvas —
     /// including expansions — which the host cannot reconstruct, so the data crosses the
-    /// bridge rather than being rebuilt here.
+    /// bridge rather than being rebuilt here. Mermaid goes to the clipboard instead of a
+    /// file dialog: its destination is a PR comment or a markdown document.
     /// </summary>
     private async Task SaveExportAsync(GraphExportResult result)
     {
         if (result.Data is null)
         {
             Status.Message = "Nothing to export — the graph is empty.";
+            return;
+        }
+
+        if (result.Format == GraphExportFormat.Mermaid)
+        {
+            string mermaid;
+            try
+            {
+                mermaid = MermaidGraphWriter.Write(ExportedGraphDocument.Parse(result.Data));
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogError(ex, "The page's export document did not parse");
+                Status.Message = "Export failed — the page sent a malformed document.";
+                return;
+            }
+
+            CopyToClipboard(mermaid, "Mermaid diagram copied — paste it into a PR comment or markdown.");
             return;
         }
 
@@ -1814,6 +1864,153 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var chars = name.Select(c => invalid.Contains(c) ? '_' : c).ToArray();
         var cleaned = new string(chars).Trim('_', '.', ' ');
         return cleaned.Length == 0 ? "graph" : cleaned;
+    }
+
+    /// <summary>
+    /// The boundaries view as markdown tables, built entirely host-side — the payload
+    /// builder that feeds the view feeds the writer, so the tables cannot disagree with
+    /// the picture.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanCopyBoundaries))]
+    private async Task CopyBoundariesMarkdownAsync()
+    {
+        if (_session is not { } session || WorkspaceRoot is not { } root)
+        {
+            return;
+        }
+
+        try
+        {
+            var payload = await Task
+                .Run(() => session.Read(() => Core.Graph.ViewPayloadBuilder.Build(
+                    session.IoBoundaries.GetAllSites(
+                        Core.Graph.IoCatalog.BuiltIn.Entries,
+                        session.Settings.IoMarks))))
+                .ConfigureAwait(true);
+
+            CopyToClipboard(
+                BoundariesMarkdownWriter.Write(payload, Path.GetFileName(root)),
+                "Boundaries table copied as markdown.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to build the boundaries markdown");
+            Status.Message = "Could not build the boundaries table.";
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanCopyReport))]
+    private async Task CopySymbolReportAsync()
+    {
+        var report = await BuildSymbolReportAsync().ConfigureAwait(true);
+        if (report is not null)
+        {
+            CopyToClipboard(report, "Symbol facts copied as markdown.");
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanCopyReport))]
+    private async Task SaveSymbolReportAsync()
+    {
+        var report = await BuildSymbolReportAsync().ConfigureAwait(true);
+        if (report is null)
+        {
+            return;
+        }
+
+        var path = _dialogService.PickSaveFile(
+            "Save symbol facts as markdown",
+            "Markdown (*.md)|*.md",
+            SanitizeFileName(Detail.Name) + ".md");
+        if (path is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await Task.Run(() => File.WriteAllText(path, report)).ConfigureAwait(true);
+            Status.Message = $"Saved {Path.GetFileName(path)}.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save the symbol report to {Path}", path);
+            _dialogService.ShowError("Save report", $"Could not write '{path}':\n\n{ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// One symbol's facts as markdown — detail, call sites, I/O boundaries, same-value
+    /// matches and a source excerpt, assembled by the Core builder the CLI also uses.
+    /// </summary>
+    private async Task<string?> BuildSymbolReportAsync()
+    {
+        if (_session is not { } session || !Detail.HasSymbol)
+        {
+            return null;
+        }
+
+        var symbolId = Detail.SymbolId;
+        try
+        {
+            var report = await Task
+                .Run(() => session.Read(() =>
+                {
+                    var ioSites = session.IoBoundaries.GetSitesForCallers(
+                        [symbolId],
+                        Core.Graph.IoCatalog.BuiltIn.Entries,
+                        session.Settings.IoMarks);
+                    return SymbolContextReportBuilder.Build(
+                        session.Graph,
+                        session.Values,
+                        ioSites,
+                        session.RootPath,
+                        symbolId,
+                        provenance: $"workspace {Path.GetFileName(session.RootPath)}");
+                }))
+                .ConfigureAwait(true);
+
+            if (report is null)
+            {
+                Status.Message = "That symbol is no longer in the index — re-run the search.";
+                return null;
+            }
+
+            return MarkdownFactWriter.Write(report);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to build the symbol report");
+            Status.Message = "Could not build the symbol report.";
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Clipboard writes fail transiently when another process holds the clipboard open,
+    /// so one retry, then a status message — never a modal for a copy.
+    /// </summary>
+    private void CopyToClipboard(string text, string successMessage)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                System.Windows.Clipboard.SetDataObject(text, copy: true);
+                Status.Message = successMessage;
+                return;
+            }
+            catch (COMException ex) when (attempt == 0)
+            {
+                _logger.LogWarning(ex, "Clipboard busy; retrying once");
+            }
+            catch (COMException ex)
+            {
+                _logger.LogError(ex, "Clipboard copy failed");
+                Status.Message = "Could not copy — another application holds the clipboard. Try again.";
+                return;
+            }
+        }
     }
 
     // ---- Error list ---------------------------------------------------------

@@ -34,6 +34,11 @@ is inferred, defaulted in, or guessed.
 - **Import/include wheel** — a chord diagram over top-level directories, from either the
   include/import graph or resolved symbol references.
 - **Source preview** with syntax highlighting, jumping to the line of any symbol or call site.
+- **Export & sharing** — the graph or paths canvas as PNG, JSON facts, or **Mermaid
+  flowchart text** for a PR comment (solid = exact, dashed with the doubt in the label);
+  any symbol's facts as a **markdown report** ("copy as LLM context": signature, callers
+  and callees with confidence, call sites, I/O boundaries, same-value matches, source
+  excerpt); the boundaries view as markdown tables.
 - **Live updates** — a file watcher re-indexes and re-resolves as you edit, in tens of
   milliseconds, without touching the rest of the workspace.
 
@@ -97,6 +102,7 @@ codeanalyzer index "C:\some\repo"
 |---|---|
 | `search <query>` | fuzzy symbol search (`--kinds fn,type,…`, `--limit N`) |
 | `detail <symbol>` | one symbol's fact sheet — signature, members, overloads, unresolved refs |
+| `report <symbol>` | the fact sheet as a markdown document — callers/callees with call sites, I/O boundaries, same-value matches, source excerpt |
 | `callers <symbol>` / `callees <symbol>` | who references it / what it references (`--sites` adds each call's line and verbatim arguments) |
 | `trace <from> <to>` | all shortest routes between two symbols, with "no route" kept distinct from "search budget hit" |
 | `map` | repo overview: definitions ranked by distinct incoming references, cut to `--budget` chars |
@@ -111,8 +117,9 @@ a previous result. Every command takes `--root <path>` (default: current directo
 `--json`. Reads never index implicitly — `index` is the only writer.
 
 For AI agents, the MCP server exposes the same queries as tools
-(`search_symbols`, `get_symbol`, `get_callers`, `get_callees`, `trace_paths`, `repo_map`,
-`file_outline`, `io_boundaries`, `find_by_value`, `shared_constants`, `reindex`). This
+(`search_symbols`, `get_symbol`, `get_context`, `get_callers`, `get_callees`,
+`trace_paths`, `repo_map`, `file_outline`, `io_boundaries`, `find_by_value`,
+`shared_constants`, `reindex`). This
 repo's `.mcp.json` registers it for Claude Code; elsewhere:
 
 ```bash

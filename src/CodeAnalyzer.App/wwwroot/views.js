@@ -72,6 +72,25 @@
         show(payload.mode || "graph");
     });
 
+    /*
+      One export handler for the whole page. bridge.on keys handlers by message type and
+      the last registration silently wins, so two views must never both claim
+      "exportView" — each exposes an onExport hook instead, and the request goes to
+      whichever view is visible. A view without the hook answers data:null, which the
+      host already reads as "nothing to export".
+    */
+    bridge.on("exportView", function (payload) {
+        var format = (payload && payload.format) || "png";
+        var active = current ? views[current] : null;
+
+        if (active && typeof active.onExport === "function") {
+            active.onExport(format);
+            return;
+        }
+
+        bridge.post("exportResult", { format: format, data: null });
+    });
+
     bridge.on("setTheme", function (payload) {
         var theme = payload.theme === "light" ? "light" : "dark";
         document.documentElement.setAttribute("data-theme", theme);

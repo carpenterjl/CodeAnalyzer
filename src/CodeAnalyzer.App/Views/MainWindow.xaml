@@ -28,6 +28,8 @@
         <KeyBinding Modifiers="Control" Key="D7" Command="{Binding Graph.SelectViewCommand}" CommandParameter="Constants" />
         <KeyBinding Modifiers="Control" Key="E" Command="{Binding ExportPngCommand}" />
         <KeyBinding Modifiers="Control+Shift" Key="E" Command="{Binding ExportJsonCommand}" />
+        <KeyBinding Modifiers="Control" Key="M" Command="{Binding CopyMermaidCommand}" />
+        <KeyBinding Modifiers="Control+Shift" Key="C" Command="{Binding CopySymbolReportCommand}" />
         <KeyBinding Modifiers="Control" Key="T" Command="{Binding ToggleThemeCommand}" />
         <KeyBinding Modifiers="Control" Key="L" Command="{Binding ToggleLiveUpdatesCommand}" />
         <KeyBinding Modifiers="Control" Key="OemComma" Command="{Binding OpenSettingsCommand}" />
@@ -309,12 +311,20 @@
 
                         <Button Style="{StaticResource ToolbarButton}"
                                 Content="PNG" Command="{Binding ExportPngCommand}" Margin="0,0,6,0"
-                                Visibility="{Binding Graph.IsGraphView, Converter={StaticResource BoolToVisibility}}"
-                                ToolTip="Export the graph as a PNG image (Ctrl+E)" />
+                                Visibility="{Binding Graph.IsCanvasView, Converter={StaticResource BoolToVisibility}}"
+                                ToolTip="Export the picture as a PNG image (Ctrl+E)" />
                         <Button Style="{StaticResource ToolbarButton}"
                                 Content="JSON" Command="{Binding ExportJsonCommand}" Margin="0,0,6,0"
                                 Visibility="{Binding Graph.IsGraphView, Converter={StaticResource BoolToVisibility}}"
                                 ToolTip="Export the graph's facts as JSON (Ctrl+Shift+E)" />
+                        <Button Style="{StaticResource ToolbarButton}"
+                                Content="Mermaid" Command="{Binding CopyMermaidCommand}" Margin="0,0,6,0"
+                                Visibility="{Binding Graph.IsCanvasView, Converter={StaticResource BoolToVisibility}}"
+                                ToolTip="Copy the picture as Mermaid flowchart text for a PR comment or markdown (Ctrl+M)" />
+                        <Button Style="{StaticResource ToolbarButton}"
+                                Content="Copy table" Command="{Binding CopyBoundariesMarkdownCommand}" Margin="0,0,6,0"
+                                Visibility="{Binding Graph.IsBoundariesView, Converter={StaticResource BoolToVisibility}}"
+                                ToolTip="Copy the boundaries as markdown tables — outputs and inputs, grouped by directory" />
 
                         <Button Style="{StaticResource ToolbarButton}"
                                 Content="{Binding Graph.WheelSourceLabel}"
@@ -606,6 +616,11 @@
                                             <MenuItem Header="Clear I/O mark"
                                                       Command="{Binding PlacementTarget.Tag.ClearIoMarkCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                                       CommandParameter="{Binding Detail.Name}" />
+                                            <Separator />
+                                            <MenuItem Header="Copy facts as markdown"
+                                                      Command="{Binding PlacementTarget.Tag.CopySymbolReportCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                            <MenuItem Header="Save facts as markdown…"
+                                                      Command="{Binding PlacementTarget.Tag.SaveSymbolReportCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
                                         </ContextMenu>
                                     </TextBlock.ContextMenu>
                                 </TextBlock>
@@ -627,6 +642,18 @@
                                     <Run Text=":" />
                                     <Run Text="{Binding Detail.Line, Mode=OneWay}" />
                                 </TextBlock>
+
+                                <!-- Everything this pane shows, as markdown for a chat, a PR
+                                     or a design note — the "copy as LLM context" button. -->
+                                <StackPanel Orientation="Horizontal" Margin="0,7,0,0">
+                                    <Button Style="{StaticResource ToolbarButton}"
+                                            Content="Copy facts" Command="{Binding CopySymbolReportCommand}"
+                                            Margin="0,0,6,0"
+                                            ToolTip="Copy this symbol's facts as markdown (Ctrl+Shift+C)" />
+                                    <Button Style="{StaticResource ToolbarButton}"
+                                            Content="Save…" Command="{Binding SaveSymbolReportCommand}"
+                                            ToolTip="Save this symbol's facts as a markdown file" />
+                                </StackPanel>
 
                                 <!-- The signature is code, so it sits in a code box. -->
                                 <Border Style="{StaticResource CardBorder}" Margin="0,10,0,0"

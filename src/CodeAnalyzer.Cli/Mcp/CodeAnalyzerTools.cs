@@ -2,6 +2,7 @@ using System.ComponentModel;
 using CodeAnalyzer.Cli.Output;
 using CodeAnalyzer.Cli.Querying;
 using CodeAnalyzer.Core.Domain;
+using CodeAnalyzer.Core.Export;
 using CodeAnalyzer.Core.Graph;
 using CodeAnalyzer.Core.Workspaces;
 using CodeAnalyzer.Parsing;
@@ -58,6 +59,24 @@ internal sealed class CodeAnalyzerTools(McpSessionHolder holder)
             return detail is null
                 ? $"symbol #{focus.Id} vanished between locating and reading it — re-run search_symbols"
                 : TerseFormatter.Detail(detail, toolset.SameValue(focus.Id, cancellationToken));
+        });
+
+    [McpServerTool(Name = "get_context")]
+    [Description("One symbol's full context as a markdown document: signature, members, "
+        + "callers and callees with per-site verbatim arguments, I/O boundaries, same-value "
+        + "matches and a capped source excerpt. Richer than get_symbol and costs more "
+        + "tokens — reach for it when you are about to work on the symbol, not merely "
+        + "checking a fact.")]
+    public string GetContext(
+        [Description("Symbol name, path/to/file.c:name, Container.Name, or #id from a previous result")]
+        string symbol,
+        CancellationToken cancellationToken = default) =>
+        WithLocated(symbol, cancellationToken, (toolset, focus) =>
+        {
+            var report = toolset.Report(focus.Id, cancellationToken);
+            return report is null
+                ? $"symbol #{focus.Id} vanished between locating and reading it — re-run search_symbols"
+                : MarkdownFactWriter.Write(report);
         });
 
     [McpServerTool(Name = "find_by_value")]
@@ -220,7 +239,7 @@ internal sealed class CodeAnalyzerTools(McpSessionHolder holder)
                 focus,
                 related,
                 callers ? "callers" : "callees",
-                toolset.Session.Graph.NeighboursPerDirection * 4,
+                toolset.Session.Graph.RelatedLimit,
                 sites);
         });
 

@@ -23,6 +23,12 @@ internal static class ReadCommands
         "one symbol's fact sheet (symbol = name, path:name, or #id)",
         (args, ct) => RunDetail(args, ct));
 
+    public static CommandSpec Report { get; } = new(
+        "report",
+        "report <symbol> [--root path]",
+        "one symbol's facts as a markdown document, ready for a chat, a PR or a note",
+        (args, ct) => RunReport(args, ct));
+
     public static CommandSpec Callers { get; } = new(
         "callers",
         "callers <symbol> [--sites] [--root path] [--json]",
@@ -149,6 +155,37 @@ internal static class ReadCommands
         });
     }
 
+    private static Task<int> RunReport(string[] rawArgs, CancellationToken cancellationToken)
+    {
+        // No --json: the report is itself the document, and wrapping markdown in JSON
+        // would only make the paste worse.
+        var args = ArgReader.Parse(rawArgs, ["root"], []);
+
+        return CommandEnvironment.WithSession(args, toolset =>
+        {
+            if (args.Positionals.Count != 1)
+            {
+                Console.Error.WriteLine("usage: codeanalyzer " + Report.Usage);
+                return Task.FromResult(ExitCodes.Error);
+            }
+
+            if (!TryLocate(toolset, args.Positionals[0], json: false, cancellationToken, out var focus))
+            {
+                return Task.FromResult(ExitCodes.Error);
+            }
+
+            var report = toolset.Report(focus.Id, cancellationToken);
+            if (report is null)
+            {
+                Console.Error.WriteLine($"symbol #{focus.Id} vanished between locating and reading it — re-run search");
+                return Task.FromResult(ExitCodes.Error);
+            }
+
+            Console.WriteLine(Core.Export.MarkdownFactWriter.Write(report));
+            return Task.FromResult(ExitCodes.Ok);
+        });
+    }
+
     private static Task<int> RunValue(string[] rawArgs, CancellationToken cancellationToken)
     {
         var args = ArgReader.Parse(rawArgs, ["root", "limit"], ["json"]);
@@ -240,7 +277,7 @@ internal static class ReadCommands
             }
 
             var direction = callers ? "callers" : "callees";
-            var listCap = toolset.Session.Graph.NeighboursPerDirection * 4;
+            var listCap = toolset.Session.Graph.RelatedLimit;
 
             Console.WriteLine(args.Switch("json")
                 ? JsonFormatter.RelatedList(toolset.Session, focus, related, direction, listCap, sites)

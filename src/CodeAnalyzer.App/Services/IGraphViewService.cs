@@ -77,6 +77,14 @@ public enum GraphExportFormat
 
     /// <summary>The indexed facts on the canvas, as a JSON document.</summary>
     Json,
+
+    /// <summary>
+    /// The canvas as Mermaid flowchart text, bound for a PR comment or a markdown
+    /// document. The page answers with the same fact document as <see cref="Json"/>;
+    /// the host renders the Mermaid, so the page keeps visibility authority and the
+    /// writer stays testable.
+    /// </summary>
+    Mermaid,
 }
 
 /// <summary>

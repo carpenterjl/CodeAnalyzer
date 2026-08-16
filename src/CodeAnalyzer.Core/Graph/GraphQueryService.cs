@@ -21,6 +21,13 @@ public sealed class GraphQueryService(SqliteConnection connection)
     public int MaxNodes { get; init; } = 300;
 
     /// <summary>
+    /// Cap on the callers/callees lists in <see cref="GetDetail"/>. Exposed so surfaces
+    /// that render those lists (the CLI, the markdown report) can word the cap instead
+    /// of presenting a capped list as complete.
+    /// </summary>
+    public int RelatedLimit => NeighboursPerDirection * 4;
+
+    /// <summary>
     /// Returns the focus symbol together with its neighbours out to <paramref name="depth"/>.
     /// </summary>
     public GraphFragment GetNeighbourhood(
@@ -432,7 +439,7 @@ public sealed class GraphQueryService(SqliteConnection connection)
         using var command = connection.CreateCommand();
         command.CommandText = sql;
         command.Parameters.AddWithValue("$symbolId", symbolId);
-        command.Parameters.AddWithValue("$limit", NeighboursPerDirection * 4);
+        command.Parameters.AddWithValue("$limit", RelatedLimit);
 
         var results = new List<RelatedSymbol>();
         var seen = new HashSet<(long, int)>();

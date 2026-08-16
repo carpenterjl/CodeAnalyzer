@@ -346,6 +346,63 @@
         }
     });
 
+    // ---- Export ------------------------------------------------------------
+
+    /*
+      The traced routes as an export document — the same shape the graph view emits, so
+      one host-side writer serves both. Built from lastPayload rather than the canvas:
+      this view has no hiding, so the payload IS what is drawn, endpoints marked as the
+      focus the way the trace treats them.
+    */
+    function buildExportDoc() {
+        return {
+            nodes: (lastPayload.nodes || []).map(function (node) {
+                var entry = {
+                    id: node.id,
+                    name: node.name,
+                    kind: node.kind,
+                    group: node.group,
+                    path: node.path,
+                    line: node.line
+                };
+                if (node.id === lastPayload.fromId || node.id === lastPayload.toId) {
+                    entry.isFocus = true;
+                }
+                return entry;
+            }),
+            edges: (lastPayload.links || []).map(function (link) {
+                return {
+                    source: link.source,
+                    target: link.target,
+                    kind: link.kind,
+                    confidence: link.confidence,
+                    line: link.line
+                };
+            })
+        };
+    }
+
+    function exportView(format) {
+        var hasRoutes = lastPayload && lastPayload.routes && lastPayload.routes.length > 0;
+        if (!hasRoutes) {
+            bridge.post("exportResult", { format: format, data: null });
+            return;
+        }
+
+        if (format === "png") {
+            bridge.post("exportResult", {
+                format: "png",
+                data: cy.png({ full: true, scale: 2, bg: util.cssVar("--bg") })
+            });
+            return;
+        }
+
+        bridge.post("exportResult", {
+            format: format,
+            data: JSON.stringify(buildExportDoc(), null, 2)
+        });
+    }
+
     // ---- Host messages -----------------------------------------------------
 
     bridge.on("setPaths", function (payload) {
@@ -365,6 +422,7 @@
         },
         onTheme: function () {
             cy.style().fromJson(buildStyle()).update();
-        }
+        },
+        onExport: exportView
     });
 })();

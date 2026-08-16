@@ -212,6 +212,8 @@ public sealed partial class GraphViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsGraphView))]
     [NotifyPropertyChangedFor(nameof(IsPathsView))]
     [NotifyPropertyChangedFor(nameof(IsWheelView))]
+    [NotifyPropertyChangedFor(nameof(IsBoundariesView))]
+    [NotifyPropertyChangedFor(nameof(IsCanvasView))]
     private GraphViewMode _viewMode = GraphViewMode.Graph;
 
     /// <summary>Drives the toolbar controls that only make sense over one of the views.</summary>
@@ -220,6 +222,11 @@ public sealed partial class GraphViewModel : ObservableObject
     public bool IsPathsView => ViewMode == GraphViewMode.Paths;
 
     public bool IsWheelView => ViewMode == GraphViewMode.Wheel;
+
+    public bool IsBoundariesView => ViewMode == GraphViewMode.Boundaries;
+
+    /// <summary>The two cytoscape pictures — the views PNG and Mermaid exports speak for.</summary>
+    public bool IsCanvasView => ViewMode is GraphViewMode.Graph or GraphViewMode.Paths;
 
     partial void OnViewModeChanged(GraphViewMode value)
     {
