@@ -33,17 +33,28 @@ internal sealed class AgentToolset(ReadOnlyIndexSession session)
             return SymbolLocator.Locate(Session, symbolText, cancellationToken);
         });
 
+    /// <summary>
+    /// Fuzzy by default. <paramref name="exact"/> switches to verbatim containment, for
+    /// the case where fuzzy's subsequence reach is the problem rather than the feature —
+    /// a short common word matches letter-by-letter across half the test names in a repo.
+    /// </summary>
     public List<SymbolSearchHit> Search(
         string query,
         IReadOnlySet<SymbolKind>? kinds,
         int limit,
+        bool exact = false,
         CancellationToken cancellationToken = default) =>
         Query(() =>
         {
             Session.EnsureSearchCurrent();
             return Session.Search.Search(
                 query,
-                new SymbolSearchOptions { Limit = limit, Kinds = kinds },
+                new SymbolSearchOptions
+                {
+                    Limit = limit,
+                    Kinds = kinds,
+                    Match = exact ? SymbolMatchMode.Substring : SymbolMatchMode.Fuzzy,
+                },
                 cancellationToken);
         });
 

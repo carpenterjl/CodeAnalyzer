@@ -1,5 +1,6 @@
 using CodeAnalyzer.Core.Crawling;
 using CodeAnalyzer.Core.Graph;
+using CodeAnalyzer.Core.Indexing;
 using CodeAnalyzer.Core.Search;
 using CodeAnalyzer.Core.Storage;
 using Microsoft.Data.Sqlite;
@@ -181,7 +182,45 @@ internal sealed class ReadOnlyIndexSession : IDisposable
         DefinitionCount = Convert.ToInt32(command.ExecuteScalar() ?? 0);
     }
 
-    /// <summary>The one-line provenance every command prints: what index, how big, how old.</summary>
+    /// <summary>
+    /// How long one staleness answer is reused. A long-lived MCP session prints provenance
+    /// on every tool call, and re-statting every indexed file that often would cost more
+    /// than the queries themselves.
+    /// </summary>
+    private static readonly TimeSpan StalenessCacheFor = TimeSpan.FromSeconds(10);
+
+    private IndexStaleness? _staleness;
+    private long _stalenessAt;
+
+    private IndexStaleness? CurrentStaleness()
+    {
+        var now = Environment.TickCount64;
+        if (_staleness is not null && now - _stalenessAt < StalenessCacheFor.TotalMilliseconds)
+        {
+            return _staleness;
+        }
+
+        try
+        {
+            IndexStaleness? measured = null;
+            Gate.Run(() => measured = IndexStalenessProbe.Compare(Connection, RootPath));
+            _staleness = measured;
+            _stalenessAt = now;
+        }
+        catch (Exception e) when (e is SqliteException or IOException)
+        {
+            // Unknown is a state of its own: the line below then says only what it knows.
+            return null;
+        }
+
+        return _staleness;
+    }
+
+    /// <summary>
+    /// The one-line provenance every command prints: what index, how big, how old — and how
+    /// far it has drifted since, because a build date is a fact the reader has to interpret
+    /// while a count of moved files is one they can act on.
+    /// </summary>
     public string DescribeIndex()
     {
         var built = "never completed";
@@ -192,11 +231,40 @@ internal sealed class ReadOnlyIndexSession : IDisposable
                 : LastIndexUtc;
         }
 
+        // The word "indexed" is load-bearing in both branches: this probe compares the files
+        // already in the index and does not go looking for new ones, so neither sentence may
+        // claim anything about the workspace as a whole.
+        var drift = CurrentStaleness() switch
+        {
+            // Nothing measurable: say only what is known rather than implying a clean disk.
+            null => string.Empty,
+            { IsStale: false } clean => $", {clean.Examined:N0} indexed files unchanged on disk",
+            var stale => $", {Describe(stale)}",
+        };
+
         // "definitions", not "symbols": this counts is_definition rows, while an index run
         // reports every symbol it parsed, prototypes and declarations included. Two honest
         // numbers that differ, so they must not share a word.
-        return $"index: {RootPath} ({DefinitionCount:N0} definitions, built {built} — "
+        return $"index: {RootPath} ({DefinitionCount:N0} definitions, built {built}{drift} — "
             + "run 'codeanalyzer index' to refresh)";
+    }
+
+    private static string Describe(IndexStaleness stale)
+    {
+        var more = stale.Complete ? string.Empty : "+";
+        var parts = new List<string>(2);
+
+        if (stale.Changed > 0)
+        {
+            parts.Add($"{stale.Changed:N0}{more} of {stale.Examined:N0} indexed files changed on disk");
+        }
+
+        if (stale.Removed > 0)
+        {
+            parts.Add($"{stale.Removed:N0}{more} gone");
+        }
+
+        return string.Join(", ", parts);
     }
 
     private static SqliteConnection Open(string databasePath, SqliteOpenMode mode)

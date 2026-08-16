@@ -53,6 +53,28 @@ public static class IgnoreRules
         IgnoredFileExtensions.Contains(extension);
 
     /// <summary>
+    /// True for a minified bundle: <c>cytoscape.min.js</c> and friends.
+    /// <para>
+    /// A minifier rewrites every local name to one or two letters, so the symbols such a
+    /// file yields are <c>t</c>, <c>e</c> and <c>n</c> — nobody can search for them and no
+    /// caller list built from them means anything. It is not a marginal call: adding the
+    /// JavaScript pack to this repo took its index from 5,000 definitions to 21,827 and
+    /// its links from 11,236 to 306,922, almost all of it three vendored <c>.min.js</c>
+    /// files, and a re-index from 0.6 s to 138 s. The readable source those were built
+    /// from is what belongs in an index; the build output of it never is.
+    /// </para>
+    /// <para>
+    /// Deliberately narrow. It matches the <c>.min.js</c> naming convention and nothing
+    /// else — no line-length heuristic, which would eventually refuse a real file someone
+    /// wrote long lines in.
+    /// </para>
+    /// </summary>
+    public static bool IsMinifiedBundle(string fileName) =>
+        fileName.EndsWith(".min.js", StringComparison.OrdinalIgnoreCase)
+        || fileName.EndsWith(".min.mjs", StringComparison.OrdinalIgnoreCase)
+        || fileName.EndsWith(".min.cjs", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// True when a directory is the root of a Python environment, whatever it is named.
     /// A venv declares itself with its own pyvenv.cfg (conda with conda-meta); the
     /// name list above catches .venv/venv/env, but a checked-in environment called

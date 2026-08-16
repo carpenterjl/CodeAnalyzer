@@ -207,17 +207,20 @@ public class FileDependencyTests : IDisposable
             <script src="https://cdn.example.com/lib.js"></script>
             </body></html>
             """);
-        WriteFile("site/js/app.js", "// not indexed, but it is a file\n");
-        WriteFile("site/js/app.html", "<p id=\"stand-in\">so the crawler sees the folder</p>\n");
+        WriteFile("site/js/app.js", "var loaded = 1;\n");
 
         var store = await IndexAsync();
 
         var dependencies = DependenciesOf(store.Connection, "site/index.html");
 
-        // .js is not an indexed language, so the target is not in the file table and the
-        // dependency stays unresolved rather than pointing at something else.
+        // An absolute URL names no file in this workspace, so it stays unresolved rather
+        // than being matched to something that merely shares its last segment.
         Assert.Contains(("https://cdn.example.com/lib.js", (string?)null), dependencies);
-        Assert.Contains(("js/app.js", (string?)null), dependencies);
+
+        // The relative one resolves. It did not before the JavaScript pack existed — .js
+        // was not an indexed language, so the script a page loads was a dependency on a
+        // file the index had never heard of. This assertion used to expect that null.
+        Assert.Contains(("js/app.js", (string?)"site/js/app.js"), dependencies);
     }
 
     [Fact]

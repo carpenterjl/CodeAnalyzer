@@ -173,6 +173,11 @@ public sealed class FileCrawler : IFileCrawler
             return null;
         }
 
+        if (IgnoreRules.IsMinifiedBundle(Path.GetFileName(fullPath)))
+        {
+            return null;
+        }
+
         // Ancestors were already pruned on the way down; only the file itself is asked.
         if (_gitIgnore?.IsFileIgnored(fullPath) == true)
         {

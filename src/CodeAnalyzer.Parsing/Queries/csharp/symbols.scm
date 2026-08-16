@@ -149,6 +149,20 @@
   (modifier) @modifier
   name: (identifier) @name) @def.class
 
+; The `record` keyword itself. The grammar models it as an anonymous node rather than a
+; (modifier), so without this a record and a class are indistinguishable in the index —
+; and in C# that difference decides whether `with` expressions and value equality exist.
+; The keyword is verbatim source text, so it belongs in the modifiers column beside
+; `sealed`, rather than inventing a kind the vocabulary does not have.
+(record_declaration
+  "record" @modifier
+  name: (identifier) @name) @def.class
+
+; `record struct` is a value type, and the second keyword is the only thing that says so.
+(record_declaration
+  "struct" @modifier
+  name: (identifier) @name) @def.class
+
 (interface_declaration
   (modifier) @modifier
   name: (identifier) @name) @def.interface

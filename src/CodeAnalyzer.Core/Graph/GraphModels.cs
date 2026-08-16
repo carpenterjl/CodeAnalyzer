@@ -166,7 +166,8 @@ public sealed record SymbolMember(
     string? TypeText,
     string? Value,
     int Line,
-    string? Modifiers = null);
+    string? Modifiers = null,
+    string? ParameterText = null);
 
 /// <summary>
 /// One member of an overload set: what it takes, where it is, and whether it is the

@@ -42,8 +42,18 @@ public static class Schema
     /// <c>0xA5</c> or <c>8'hA5</c>, and the detail pane's lookup runs on every selection —
     /// it has to be an index seek. Both are NULL wherever the parser cannot be certain.
     /// </para>
+    /// <para>
+    /// Version 12 changes no DDL at all. The C# pack now harvests the <c>record</c> keyword
+    /// into <c>symbol.modifiers</c>, which changes what a stored row for an unchanged file
+    /// should say — and the incremental gate screens on size, timestamp and content hash, so
+    /// it would never revisit that file to find out. Same reason as the version 6 bump: when
+    /// the meaning of a stored value changes, only a rebuild makes the index agree with the
+    /// analyzer that is now running. A query-pack change that alters existing rows needs one
+    /// of these; a pack for a language that was not indexed before does not, because those
+    /// files are newly discovered rather than stale.
+    /// </para>
     /// </summary>
-    public const int Version = 11;
+    public const int Version = 12;
 
     public const string MetaSchemaVersion = "schema_version";
     public const string MetaRootPath = "root_path";

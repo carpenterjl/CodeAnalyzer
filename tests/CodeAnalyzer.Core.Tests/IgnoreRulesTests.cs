@@ -90,4 +90,21 @@ public class IgnoreRulesTests
     [Fact]
     public void LooksBinary_AcceptsPlainText() =>
         Assert.False(IgnoreRules.LooksBinary(Encoding.UTF8.GetBytes("int main(void) { return 0; }")));
+
+    [Theory]
+    [InlineData("cytoscape.min.js")]
+    [InlineData("d3.min.js")]
+    [InlineData("bundle.min.mjs")]
+    public void IsMinifiedBundle_SkipsGeneratedBundles(string fileName) =>
+        Assert.True(IgnoreRules.IsMinifiedBundle(fileName));
+
+    [Theory]
+    [InlineData("graph.js")]
+    [InlineData("cose-base.js")]
+    // The rule is the naming convention and nothing else: a file that merely has "min" in
+    // its name is someone's source, and refusing it would lose real code silently.
+    [InlineData("minify.js")]
+    [InlineData("admin.js")]
+    public void IsMinifiedBundle_KeepsHandWrittenSource(string fileName) =>
+        Assert.False(IgnoreRules.IsMinifiedBundle(fileName));
 }

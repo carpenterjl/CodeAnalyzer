@@ -40,6 +40,12 @@ coverage*.info
 .claude/
 *.log
 
+# The published copy of the CLI that .mcp.json launches as the MCP server. It IS a build
+# output, and it is deliberately not under bin/: a running server holds its binaries open,
+# so anything under bin/ would block `dotnet build` of this solution. Recreate it with
+# tools/publish-mcp-server.ps1.
+.mcp/
+
 # OS noise
 Thumbs.db
 Desktop.ini

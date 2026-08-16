@@ -13,8 +13,8 @@ internal static class ReadCommands
 {
     public static CommandSpec Search { get; } = new(
         "search",
-        "search <query> [--kinds fn,type,…] [--limit N] [--root path] [--json]",
-        "fuzzy symbol search over the index",
+        "search <query> [--exact] [--kinds fn,type,…] [--limit N] [--root path] [--json]",
+        "fuzzy symbol search over the index; --exact matches the text verbatim instead",
         (args, ct) => RunSearch(args, ct));
 
     public static CommandSpec Detail { get; } = new(
@@ -81,7 +81,7 @@ internal static class ReadCommands
 
     private static Task<int> RunSearch(string[] rawArgs, CancellationToken cancellationToken)
     {
-        var args = ArgReader.Parse(rawArgs, ["root", "kinds", "limit"], ["json"]);
+        var args = ArgReader.Parse(rawArgs, ["root", "kinds", "limit"], ["json", "exact"]);
 
         return CommandEnvironment.WithSession(args, toolset =>
         {
@@ -111,11 +111,12 @@ internal static class ReadCommands
             }
 
             var query = args.Positionals[0];
-            var hits = toolset.Search(query, kinds, limit, cancellationToken);
+            var exact = args.Switch("exact");
+            var hits = toolset.Search(query, kinds, limit, exact, cancellationToken);
 
             Console.WriteLine(args.Switch("json")
                 ? JsonFormatter.Search(toolset.Session, query, hits)
-                : TerseFormatter.Search(query, hits, kindFilter));
+                : TerseFormatter.Search(query, hits, kindFilter, exact));
 
             return Task.FromResult(ExitCodes.Ok);
         });

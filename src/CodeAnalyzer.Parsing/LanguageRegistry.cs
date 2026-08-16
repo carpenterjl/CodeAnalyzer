@@ -14,6 +14,7 @@ public static class LanguageRegistry
     public const string Python = LanguageNames.Python;
     public const string Verilog = LanguageNames.Verilog;
     public const string Html = LanguageNames.Html;
+    public const string JavaScript = LanguageNames.JavaScript;
 
     private static readonly LanguageDefinition[] Definitions =
     [
@@ -59,6 +60,16 @@ public static class LanguageRegistry
             GrammarId = "HTML",
             Extensions = [".html", ".htm", ".xhtml"],
             QueryPackName = "html",
+        },
+        new()
+        {
+            Name = JavaScript,
+            GrammarId = "JavaScript",
+            // .jsx is deliberately absent: the grammar parses JSX, but nothing here has
+            // been tested against it, and a language claimed but unverified is worse than
+            // one left out.
+            Extensions = [".js", ".mjs", ".cjs"],
+            QueryPackName = "javascript",
         },
     ];
 

@@ -356,4 +356,26 @@ public class CSharpAnalyzerTests() : LanguagePackFixture(LanguageRegistry.CSharp
         Assert.EndsWith("…", text);
         Assert.Equal(121, text.Length);
     }
+
+    [Fact]
+    public void TheRecordKeywordRidesInTheModifiers()
+    {
+        var result = Analyze("""
+            public sealed record Frame(int Length);
+            public record struct Point(int X);
+            public sealed class Plain { }
+            """);
+
+        // A record indexes as a class — the kind vocabulary has no separate record — so
+        // without the keyword nothing in the index says whether `with` and value equality
+        // exist here. The keyword is verbatim source, which is why it can be stated at all.
+        Assert.Equal(SymbolKind.Class, Symbol(result, "Frame").Kind);
+        Assert.Equal("public sealed record", Symbol(result, "Frame").Modifiers);
+
+        // `record struct` is a value type, and the second keyword is the only thing saying so.
+        Assert.Equal("public record struct", Symbol(result, "Point").Modifiers);
+
+        // And a plain class is unchanged: nothing was invented for it.
+        Assert.Equal("public sealed", Symbol(result, "Plain").Modifiers);
+    }
 }

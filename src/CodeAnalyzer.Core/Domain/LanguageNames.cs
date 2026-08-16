@@ -15,4 +15,5 @@ public static class LanguageNames
     public const string Python = "Python";
     public const string Verilog = "Verilog";
     public const string Html = "HTML";
+    public const string JavaScript = "JavaScript";
 }

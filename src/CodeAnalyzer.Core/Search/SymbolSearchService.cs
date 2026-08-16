@@ -28,6 +28,16 @@ public sealed record SymbolSearchHit(
         Kind, Modifiers, TypeText, ParameterText is not null, OverloadCount, OverloadOrdinal);
 }
 
+/// <summary>How a query is matched against a symbol name.</summary>
+public enum SymbolMatchMode
+{
+    /// <summary>VS Code style subsequence matching: <c>uwr</c> finds <c>uart_write</c>.</summary>
+    Fuzzy = 0,
+
+    /// <summary>The name must contain the query verbatim, case-insensitively.</summary>
+    Substring = 1,
+}
+
 public sealed record SymbolSearchOptions
 {
     public int Limit { get; init; } = 50;
@@ -40,6 +50,15 @@ public sealed record SymbolSearchOptions
 
     /// <summary>Restricts results to these kinds when non-empty.</summary>
     public IReadOnlySet<SymbolKind>? Kinds { get; init; }
+
+    /// <summary>
+    /// How the query is matched. Fuzzy is the default because it is what a search box
+    /// should do. Substring exists because subsequence matching turns a common word into a
+    /// list of accidents — <c>export</c> fits inside
+    /// <c>AnExtraIgnoredDirectoryIsNotReported</c>, letter by letter — and someone who
+    /// already knows the name they want should be able to say so.
+    /// </summary>
+    public SymbolMatchMode Match { get; init; } = SymbolMatchMode.Fuzzy;
 }
 
 /// <summary>
@@ -164,7 +183,10 @@ public sealed class SymbolSearchService
                 continue;
             }
 
-            var score = FuzzyMatcher.Score(query, _names[i]);
+            var score = options.Match == SymbolMatchMode.Substring
+                ? SubstringScore(query, _names[i])
+                : FuzzyMatcher.Score(query, _names[i]);
+
             if (score is null)
             {
                 continue;
@@ -186,6 +208,28 @@ public sealed class SymbolSearchService
 
         var top = scored.Take(options.Limit).ToList();
         return Hydrate(top, cancellationToken);
+    }
+
+    /// <summary>
+    /// Ranks a verbatim, case-insensitive containment match: the whole name first, then a
+    /// prefix, then an interior hit scored by how early it starts — the same bias as the
+    /// fuzzy ranker, without its subsequence reach. Null means the query is not in there
+    /// at all, which is the entire point of asking for this mode.
+    /// </summary>
+    private static int? SubstringScore(string query, string name)
+    {
+        var at = name.IndexOf(query, StringComparison.OrdinalIgnoreCase);
+        if (at < 0)
+        {
+            return null;
+        }
+
+        if (name.Length == query.Length)
+        {
+            return 1000;
+        }
+
+        return at == 0 ? 800 : Math.Max(100, 700 - at);
     }
 
     /// <summary>Fetches display rows for the winning ids, preserving their ranked order.</summary>

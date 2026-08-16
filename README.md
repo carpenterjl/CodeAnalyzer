@@ -5,7 +5,8 @@ subdirectories you care about, and it indexes every symbol it can find — funct
 types, struct and class members, constants, macros, Verilog modules and ports — then lets you
 search them and walk the graph of what calls what.
 
-It works on C, C++, C#, Python, Verilog/SystemVerilog and HTML, in one uniform pipeline.
+It works on C, C++, C#, Python, JavaScript, Verilog/SystemVerilog and HTML, in one uniform
+pipeline.
 
 **Everything it shows is a fact taken from the source.** Where the syntax is not enough to be
 certain — a call whose name matches several definitions, a reference into a library that is
@@ -90,9 +91,10 @@ dotnet run --project tools/CodeAnalyzer.Bench -c Release -- "C:\some\repo" --db
 The same index answers questions without the GUI. `codeanalyzer`
 (`src/CodeAnalyzer.Cli`, built by the solution) opens the workspace's cache through its
 own read-only connection, so it runs happily beside an open GUI — and it carries the same
-honesty rules: every answer states when the index was built, ambiguous names come back as
-a candidate list to pick from rather than a guess, and resolution confidence rides on
-every edge (`~` = one of several name matches, `?` = cross-language).
+honesty rules: every answer states when the index was built **and how many indexed files
+have changed on disk since** ("3 of 177 indexed files changed on disk"), ambiguous names
+come back as a candidate list to pick from rather than a guess, and resolution confidence
+rides on every edge (`~` = one of several name matches, `?` = cross-language).
 
 ```bash
 codeanalyzer index "C:\some\repo"
@@ -100,7 +102,7 @@ codeanalyzer index "C:\some\repo"
 
 | Command | Answers |
 |---|---|
-| `search <query>` | fuzzy symbol search (`--kinds fn,type,…`, `--limit N`) |
+| `search <query>` | fuzzy symbol search (`--kinds fn,type,…`, `--limit N`, `--exact` for verbatim containment instead of subsequence) |
 | `detail <symbol>` | one symbol's fact sheet — signature, members, overloads, unresolved refs |
 | `report <symbol>` | the fact sheet as a markdown document — callers/callees with call sites, I/O boundaries, same-value matches, source excerpt |
 | `callers <symbol>` / `callees <symbol>` | who references it / what it references (`--sites` adds each call's line and verbatim arguments) |
@@ -125,6 +127,20 @@ repo's `.mcp.json` registers it for Claude Code; elsewhere:
 ```bash
 claude mcp add codeanalyzer -- codeanalyzer mcp --root "C:\some\repo"
 ```
+
+**Point the server at a published copy, never at `bin/`.** A running server holds its own
+binaries open, so if it launches out of a build directory you cannot rebuild the project
+that produced it — `dotnet build` fails with MSB3021 while the server is alive. That bites
+hardest in exactly the case this tool is for: an agent reading a codebase it is also
+editing. This repo's `.mcp.json` therefore launches `.mcp/server/codeanalyzer.exe`, a
+published copy that no build writes to:
+
+```bash
+powershell -ExecutionPolicy Bypass -File tools\publish-mcp-server.ps1
+```
+
+Re-run that when you want the server to see your latest changes — building the solution
+deliberately does not refresh it — then reconnect the server in your client.
 
 ## Layout
 
@@ -194,6 +210,22 @@ worse than one that admits the gap.
 - **Floats and character literals are deliberately not matched.** Cross-language float
   equality is a claim about representation, and calling `'A'` 65 asserts an encoding the
   source never states.
+- **JavaScript declarations state no types**, so nothing here does. An object literal is the
+  language's record, namespace and configuration blob at once and the syntax cannot tell
+  those apart, so a function-valued key is recorded as a method and every other key as a
+  field with its verbatim value; keys written as strings are not captured at all. An import
+  written without its extension (`from "./util"`) names no file the index can find and is
+  left unresolved rather than having `.js` guessed onto it.
+- **Minified bundles are not indexed.** A file named `*.min.js` is skipped: minification
+  rewrites every local name to one or two letters, so the symbols are `t` and `e` and no
+  caller list built from them means anything. Adding the JavaScript pack to this repo
+  without that rule took it from 11,236 links to 306,922 and a re-index from 0.6 s to
+  138 s, essentially all of it three vendored bundles. The rule is the naming convention
+  only — no line-length heuristic, which would eventually refuse a real file.
+- **The drift count covers indexed files only.** It compares what the index already holds
+  against disk, so it reports edits and deletions but never notices a file created since the
+  last run; finding those means a full crawl, which is too much to spend before answering a
+  query. Both wordings say "indexed files" for that reason.
 - **Keyboard shortcuts do not fire while the graph pane holds focus** — a WebView2 hosting
   constraint. Click elsewhere in the shell first.
 - The database connection is behind a single lock, so a query and a write cannot overlap.

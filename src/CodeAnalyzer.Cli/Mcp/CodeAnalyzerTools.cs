@@ -29,6 +29,10 @@ internal sealed class CodeAnalyzerTools(McpSessionHolder holder)
             + "constant, macro, module, variable) or kind tokens (fn, method, class, struct, …)")]
         string? kinds = null,
         [Description("Max hits, default 20")] int limit = 20,
+        [Description("Match the query verbatim instead of fuzzily. Use it when a short or common "
+            + "word returns hits that merely contain its letters in order — 'export' fuzzily "
+            + "matches 'AnExtraIgnoredDirectoryIsNotReported'.")]
+        bool exact = false,
         CancellationToken cancellationToken = default) =>
         WithToolset(toolset =>
         {
@@ -42,8 +46,9 @@ internal sealed class CodeAnalyzerTools(McpSessionHolder holder)
                 }
             }
 
-            var hits = toolset.Search(query, kindSet, Math.Clamp(limit, 1, 200), cancellationToken);
-            return TerseFormatter.Search(query, hits, kinds);
+            var hits = toolset.Search(
+                query, kindSet, Math.Clamp(limit, 1, 200), exact, cancellationToken);
+            return TerseFormatter.Search(query, hits, kinds, exact);
         });
 
     [McpServerTool(Name = "get_symbol")]

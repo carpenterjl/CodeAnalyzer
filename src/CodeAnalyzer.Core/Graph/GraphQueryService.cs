@@ -381,7 +381,7 @@ public sealed class GraphQueryService(SqliteConnection connection)
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT id, name, kind, type_text, value, start_line, modifiers
+            SELECT id, name, kind, type_text, value, start_line, modifiers, param_text
             FROM symbol
             WHERE container_id = $symbolId
             ORDER BY start_offset
@@ -399,7 +399,8 @@ public sealed class GraphQueryService(SqliteConnection connection)
                 reader.IsDBNull(3) ? null : reader.GetString(3),
                 reader.IsDBNull(4) ? null : reader.GetString(4),
                 reader.GetInt32(5),
-                reader.IsDBNull(6) ? null : reader.GetString(6)));
+                reader.IsDBNull(6) ? null : reader.GetString(6),
+                reader.IsDBNull(7) ? null : reader.GetString(7)));
         }
 
         return results;

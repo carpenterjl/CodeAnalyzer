@@ -123,13 +123,22 @@ internal static class TerseFormatter
 
     // ---- per-command bodies -------------------------------------------------
 
-    public static string Search(string query, IReadOnlyList<SymbolSearchHit> hits, string? kindFilter)
+    public static string Search(
+        string query,
+        IReadOnlyList<SymbolSearchHit> hits,
+        string? kindFilter,
+        bool exact = false)
     {
         if (hits.Count == 0)
         {
-            return kindFilter is null
-                ? $"no symbols match '{query}'"
-                : $"no symbols match '{query}' with kinds {kindFilter}";
+            // Every narrowing that was applied gets named. An active filter is the likeliest
+            // reason a query that ought to match does not, and exact matching is the newest
+            // way to get an empty list from a query that fuzzily found plenty.
+            var subject = exact
+                ? $"no symbols contain '{query}' verbatim (exact match)"
+                : $"no symbols match '{query}'";
+
+            return kindFilter is null ? subject : $"{subject} with kinds {kindFilter}";
         }
 
         var builder = new StringBuilder();
@@ -250,10 +259,15 @@ internal static class TerseFormatter
             builder.AppendLine($"members ({detail.Members.Count}):");
             foreach (var member in detail.Members)
             {
-                var type = member.TypeText is null ? string.Empty : $" {Flatten(member.TypeText)}";
-                var value = member.Value is null ? string.Empty : $" = {Clip(Flatten(member.Value), 80)}";
-                builder.AppendLine(
-                    $"  #{member.Id} {member.Name}{type}{value} {KindTokens.For(member.Kind)} :{member.Line}");
+                builder.AppendLine("  " + MemberLine(
+                    member.Id,
+                    member.Name,
+                    member.ParameterText,
+                    member.TypeText,
+                    member.Value,
+                    member.Kind,
+                    member.Modifiers,
+                    member.Line));
             }
         }
 
@@ -558,15 +572,46 @@ internal static class TerseFormatter
         foreach (var entry in outline.Entries)
         {
             var indent = new string(' ', 2 + entry.Depth * 2);
-            var type = entry.TypeText is null ? string.Empty : $" {Flatten(entry.TypeText)}";
-            var value = entry.Value is null ? string.Empty : $" = {Clip(Flatten(entry.Value), 80)}";
-            var modifiers = entry.Modifiers is null ? string.Empty : $" {entry.Modifiers}";
-
-            output.AppendLine($"{indent}#{entry.Id} {entry.Name}{Flatten(entry.ParameterText)}{type}{value} "
-                + $"{KindTokens.For(entry.Kind)}{modifiers} :{entry.Line}");
+            output.AppendLine(indent + MemberLine(
+                entry.Id,
+                entry.Name,
+                entry.ParameterText,
+                entry.TypeText,
+                entry.Value,
+                entry.Kind,
+                entry.Modifiers,
+                entry.Line));
         }
 
         return output.Finish();
+    }
+
+    /// <summary>
+    /// One definition row, in the single grammar every listing uses: id, name, parameters,
+    /// declared type, value, kind, modifiers, line.
+    /// <para>
+    /// It exists because <c>detail</c> and <c>outline</c> used to print the same member two
+    /// different ways — the outline stated modifiers and parameters, the fact sheet stated
+    /// the value — so which facts you got depended on which command you happened to ask,
+    /// and neither told you it was holding something back.
+    /// </para>
+    /// </summary>
+    private static string MemberLine(
+        long id,
+        string name,
+        string? parameterText,
+        string? typeText,
+        string? value,
+        SymbolKind kind,
+        string? modifiers,
+        int line)
+    {
+        var type = typeText is null ? string.Empty : $" {Flatten(typeText)}";
+        var literal = value is null ? string.Empty : $" = {Clip(Flatten(value), 80)}";
+        var mods = string.IsNullOrEmpty(modifiers) ? string.Empty : $" {modifiers}";
+
+        return $"#{id} {name}{Flatten(parameterText)}{type}{literal} "
+            + $"{KindTokens.For(kind)}{mods} :{line}";
     }
 
     private static void AppendFact(StringBuilder builder, string label, string? value)
