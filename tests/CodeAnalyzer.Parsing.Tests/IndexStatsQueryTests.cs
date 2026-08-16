@@ -1,4 +1,5 @@
 using CodeAnalyzer.Core.Crawling;
+using CodeAnalyzer.Core.Domain;
 using CodeAnalyzer.Core.Indexing;
 using CodeAnalyzer.Core.Resolution;
 using CodeAnalyzer.Core.Storage;
@@ -114,6 +115,41 @@ public class IndexStatsQueryTests : IDisposable
         // Unresolved must actually be populated, or the sums above pass on all-zero columns.
         Assert.True(stats.RefsUnresolved > 0);
         Assert.Contains(stats.RefsByLanguage, s => s.Name == "C");
+    }
+
+    [Fact]
+    public async Task AnIncludeCountsResolvedAgainstItsFileNotItsAbsentEdge()
+    {
+        // An #include and a using name a file or a namespace, never a symbol, so the resolver
+        // gives them no edge at all — and counting edges reported every one of them
+        // unresolved. That read the truth backwards for a header sitting right next to its
+        // includer: it resolves, in file_dep, to util.h. A Python import that names nothing
+        // is here as the control — the fix must still leave a genuinely unresolved dependency
+        // unresolved, not credit every include-or-import kind wholesale.
+        WriteFile("main.c", """
+            #include "util.h"
+            void go(void) { helper(); }
+            """);
+        WriteFile("util.h", "void helper(void);");
+        WriteFile("app.py", "import nonexistent_pkg\n");
+
+        var stats = await IndexAndReadAsync();
+
+        var include = Assert.Single(stats.RefsByKind, s => s.Name == nameof(ReferenceKind.Include));
+        Assert.Equal(1, include.Total);
+        Assert.Equal(1, include.Unique);      // resolved via file_dep, no longer a false gap
+        Assert.Equal(0, include.Ambiguous);   // a dependency is unique-or-nothing by construction
+        Assert.Equal(0, include.Unresolved);
+
+        var import = Assert.Single(stats.RefsByKind, s => s.Name == nameof(ReferenceKind.Import));
+        Assert.Equal(1, import.Total);
+        Assert.Equal(0, import.Unique);        // nonexistent_pkg names no workspace file
+        Assert.Equal(1, import.Unresolved);
+
+        // The headline triple credits the resolved include exactly as the split does, or the
+        // two would drift apart by that one reference.
+        Assert.Equal(stats.RefsResolvedUniquely, stats.RefsByKind.Sum(s => s.Unique));
+        Assert.Equal(stats.RefsUnresolved, stats.RefsByKind.Sum(s => s.Unresolved));
     }
 
     [Fact]

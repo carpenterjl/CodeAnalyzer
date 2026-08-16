@@ -51,6 +51,13 @@ public sealed record IndexStats(
 /// Edge-level confidence is tallied separately — the two disagree by design, because an
 /// ambiguous reference contributes every candidate to the edge table.
 /// </para>
+/// <para>
+/// The one exception is an include or an import, which the resolver settles against a file
+/// rather than a symbol: those count as resolved when their <c>file_dep</c> row found a
+/// workspace file, not when they carry an edge — which they never do. See
+/// <see cref="Read"/> and the splits query for why counting their edges reported the truth
+/// backwards.
+/// </para>
 /// </summary>
 public static class IndexStatsQuery
 {
@@ -100,6 +107,22 @@ public static class IndexStatsQuery
             ambiguousEdges = reader.GetInt64(2);
         }
 
+        // Include and Import carry no edge — they resolve in file_dep (see ReadSplits) — so a
+        // resolved dependency has to be added to the unique count here as well, or the
+        // headline triple and the by-kind rows that are meant to sum to it would disagree by
+        // exactly these references. Never ambiguous: a dependency resolves to one file or none.
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = $"""
+                SELECT COUNT(*)
+                FROM ref r
+                JOIN file_dep d ON d.file_id = r.file_id AND d.dep_path = r.name
+                WHERE r.kind IN ({(int)ReferenceKind.Include}, {(int)ReferenceKind.Import})
+                  AND d.dep_file_id IS NOT NULL
+                """;
+            unique += Convert.ToInt32(command.ExecuteScalar());
+        }
+
         var refsByKind = ReadSplits(connection,
             "r.kind", "ref r", name => ((ReferenceKind)int.Parse(name)).ToString());
 
@@ -133,18 +156,37 @@ public static class IndexStatsQuery
     /// The resolution triple, grouped by any single column. The LEFT JOIN is what makes the
     /// unresolved column possible: a reference with no edge has no row in the fan-out
     /// subquery, so it survives the join with a NULL count rather than dropping out.
+    /// <para>
+    /// Include and Import are measured against a different table on purpose. The resolver
+    /// excludes them from edge resolution outright — an <c>#include</c> or a <c>using</c>
+    /// names a file or a namespace, not a symbol — and settles them in <c>file_dep</c>
+    /// instead. Counting their edges (always none) reported every one of them as unresolved,
+    /// which inverted the truth for C's includes: all five resolve to a workspace header, so
+    /// the row that read 100% unresolved was in fact 100% resolved. Here each such reference
+    /// is joined to its own <c>file_dep</c> row — the key <c>(file_id, dep_path)</c> matches
+    /// the reference's <c>(file_id, name)</c> exactly — and counts as resolved when that row
+    /// found a workspace file. A file dependency is unique-or-nothing by construction (the
+    /// resolver takes a target only when exactly one file matches), so these kinds never
+    /// contribute to the ambiguous column.
+    /// </para>
     /// </summary>
     private static List<ResolutionSplit> ReadSplits(
         SqliteConnection connection, string groupBy, string from, Func<string, string>? nameOf = null)
     {
+        var fileScoped = $"{(int)ReferenceKind.Include}, {(int)ReferenceKind.Import}";
         using var command = connection.CreateCommand();
         command.CommandText = $"""
             SELECT {groupBy},
                    COUNT(*),
-                   COALESCE(SUM(CASE WHEN e.n = 1 THEN 1 ELSE 0 END), 0),
-                   COALESCE(SUM(CASE WHEN e.n > 1 THEN 1 ELSE 0 END), 0)
+                   COALESCE(SUM(CASE WHEN r.kind IN ({fileScoped})
+                                     THEN (CASE WHEN d.dep_file_id IS NOT NULL THEN 1 ELSE 0 END)
+                                     ELSE (CASE WHEN e.n = 1 THEN 1 ELSE 0 END) END), 0),
+                   COALESCE(SUM(CASE WHEN r.kind IN ({fileScoped})
+                                     THEN 0
+                                     ELSE (CASE WHEN e.n > 1 THEN 1 ELSE 0 END) END), 0)
             FROM {from}
             LEFT JOIN (SELECT ref_id, COUNT(*) AS n FROM edge GROUP BY ref_id) e ON e.ref_id = r.id
+            LEFT JOIN file_dep d ON d.file_id = r.file_id AND d.dep_path = r.name
             GROUP BY {groupBy}
             ORDER BY COUNT(*) DESC
             """;
