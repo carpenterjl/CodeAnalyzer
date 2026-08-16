@@ -51,6 +51,32 @@
         (attribute_value) @name)))
   (#match? @attribute "^(x:Name|Name|x:Key)$")) @def.markup_element
 
+; The root element of a compiled file is a declaration too: x:Class says, verbatim, which
+; class this markup is part of, and that qualified string is the name the element is
+; recorded under. Deliberately the full dotted form, not the last segment — a markup
+; element and a C# class under the same short name would make every exact lookup of the
+; class ambiguous again, which is the regression the round-three template-folder deletion
+; existed to fix. The x:Class *reference* (see refs.scm) is what carries the short name,
+; and it anchors on the last segment so the two never collide. The element's tag rides
+; along as @type, same as above, so the result reads "….MainWindow Window".
+(element
+  (start_tag
+    (tag_name) @type
+    (attribute
+      (attribute_name) @attribute
+      (quoted_attribute_value
+        (attribute_value) @name)))
+  (#eq? @attribute "x:Class")) @def.markup_element
+
+(element
+  (self_closing_tag
+    (tag_name) @type
+    (attribute
+      (attribute_name) @attribute
+      (quoted_attribute_value
+        (attribute_value) @name)))
+  (#eq? @attribute "x:Class")) @def.markup_element
+
 ; A <Style x:Key="…"> lands here rather than in the rules above: the grammar routes it to
 ; style_element because HTML's <style> is CSS. Its key is still the name a StaticResource
 ; reference is written against, so it is still a declaration.

@@ -87,6 +87,9 @@ public static class LanguageRegistry
             GrammarId = "HTML",
             Extensions = [".xaml"],
             QueryPackName = "xaml",
+            // The only thing in a XAML file that can own a reference is a markup element:
+            // the root element owns the x:Class reference to its code-behind class.
+            CallerKinds = new HashSet<SymbolKind> { SymbolKind.MarkupElement },
         },
     ];
 

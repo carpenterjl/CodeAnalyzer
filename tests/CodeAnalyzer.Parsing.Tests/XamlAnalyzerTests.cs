@@ -76,15 +76,48 @@ public class XamlAnalyzerTests() : LanguagePackFixture(LanguageRegistry.Xaml, "V
     }
 
     [Fact]
-    public void XClassIsRecordedVerbatimAndFullyQualified()
+    public void XClassSplitsIntoASegmentNameAndAQualifierReceiver()
     {
-        // Recorded, not resolved. It is kept fully qualified because that is what the file
-        // says; shortening it here to make it match a definition would be the pack
-        // inventing a link the source does not state. The refs pack header sets out why it
-        // resolves to nothing today.
+        // The last segment is what a C# class definition can match; the qualifier is the
+        // receiver, meaning what it means everywhere else — the locating was done in the
+        // source, not by the file the reference sits in. Nothing is shortened away: the
+        // two halves together are the verbatim attribute value.
         var result = Analyze(Source);
 
-        Assert.Contains("CodeAnalyzer.App.Views.MainWindow", ReferenceNames(result, ReferenceKind.TypeUse));
+        var reference = Assert.Single(result.References, r => r.Kind == ReferenceKind.TypeUse);
+        Assert.Equal("MainWindow", reference.Name);
+        Assert.Equal("CodeAnalyzer.App.Views", reference.ReceiverText);
+    }
+
+    [Fact]
+    public void TheRootElementIsADeclarationUnderItsVerbatimQualifiedName()
+    {
+        // Deliberately the full dotted form: a markup element sharing the class's short
+        // name would make every exact lookup of the class ambiguous again — the exact
+        // regression deleting the stale template folder fixed.
+        var result = Analyze(Source);
+
+        var root = Symbol(result, "CodeAnalyzer.App.Views.MainWindow");
+        Assert.Equal(SymbolKind.MarkupElement, root.Kind);
+        Assert.Equal("Window", root.TypeText);
+
+        // The root spans the file, so the named elements become its members and the
+        // outline shows the markup tree rooted at the class it compiles into.
+        Assert.Contains("SearchBox", MembersOf(result, "CodeAnalyzer.App.Views.MainWindow"));
+    }
+
+    [Fact]
+    public void TheXClassReferenceIsOwnedByTheRootElement()
+    {
+        // Without an owner the reference resolves but appears in no caller list — the
+        // round-three report's word for that state was "inert".
+        var result = Analyze(Source);
+
+        var reference = Assert.Single(result.References, r => r.Kind == ReferenceKind.TypeUse);
+        Assert.NotNull(reference.FromSymbolLocalIndex);
+
+        var owner = result.Symbols[reference.FromSymbolLocalIndex!.Value];
+        Assert.Equal("CodeAnalyzer.App.Views.MainWindow", owner.Name);
     }
 
     [Fact]

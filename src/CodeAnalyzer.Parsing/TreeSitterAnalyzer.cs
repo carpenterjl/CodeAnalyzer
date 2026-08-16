@@ -446,15 +446,38 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
                 continue;
             }
             var nameStart = nameNode.StartIndex;
+            var name = kind == ReferenceKind.Include
+                ? TrimIncludePath(nameNode.Text)
+                : nameNode.Text;
+            var startPosition = nameNode.StartPosition;
+            var position = new SourcePosition(startPosition.Row + 1, startPosition.Column);
+            var receiverText = TruncateText(receiverNode, MaxReceiverTextLength);
+
+            // A dotted type reference is a qualified one — XAML's
+            // x:Class="CodeAnalyzer.App.Views.MainWindow" — and resolution matches names
+            // whole, so left intact it matches nothing. The last segment is what a
+            // definition can carry as its name; the qualifier goes in the receiver slot,
+            // where it means what a receiver means everywhere else: the locating was done
+            // in the source, not by the file the reference sits in. The offset moves to
+            // the segment too, which is both the truer position and what keeps this
+            // reference from being dropped as a declaration naming itself when the same
+            // attribute also declares the markup root below.
+            if (kind == ReferenceKind.TypeUse && !name.Contains('\n'))
+            {
+                var lastDot = name.LastIndexOf('.');
+                if (lastDot > 0 && lastDot < name.Length - 1)
+                {
+                    receiverText = TruncateForStorage(name[..lastDot], MaxReceiverTextLength);
+                    name = name[(lastDot + 1)..];
+                    nameStart += lastDot + 1;
+                    position = position with { Column = position.Column + lastDot + 1 };
+                }
+            }
 
             if (declarationNameOffsets.Contains(nameStart))
             {
                 continue;
             }
-
-            var name = kind == ReferenceKind.Include
-                ? TrimIncludePath(nameNode.Text)
-                : nameNode.Text;
 
             if (string.IsNullOrWhiteSpace(name))
             {
@@ -467,7 +490,6 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
                 continue;
             }
 
-            var position = nameNode.StartPosition;
             byOffset[nameStart] = (
                 new ReferenceRecord
                 {
@@ -475,8 +497,8 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
                     Kind = kind,
                     ArgumentCount = CountNamed(argumentsNode),
                     ArgumentText = TruncateText(argumentsNode, MaxArgumentTextLength),
-                    ReceiverText = TruncateText(receiverNode, MaxReceiverTextLength),
-                    Position = new SourcePosition(position.Row + 1, position.Column),
+                    ReceiverText = receiverText,
+                    Position = position,
                     FromSymbolLocalIndex = FindEnclosingCaller(
                         kind == ReferenceKind.Inherit ? typeCandidates : callerCandidates,
                         nameStart),
@@ -548,19 +570,13 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
     /// The node's source slice, cut to <paramref name="maxLength"/>. The ellipsis marks the
     /// cut, so a truncated slice is never mistaken for a complete one.
     /// </summary>
-    private static string? TruncateText(Node? node, int maxLength)
-    {
-        if (node is null)
-        {
-            return null;
-        }
+    private static string? TruncateText(Node? node, int maxLength) =>
+        node is null ? null : TruncateForStorage(node.Text, maxLength);
 
-        var text = node.Text;
-
-        return text.Length <= maxLength
+    private static string TruncateForStorage(string text, int maxLength) =>
+        text.Length <= maxLength
             ? text
             : text[..maxLength] + "…";
-    }
 
     private static string? BuildSignature(Node? typeNode, string name, Node? parametersNode)
     {

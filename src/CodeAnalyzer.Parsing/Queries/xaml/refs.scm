@@ -5,25 +5,24 @@
 ;   @name        the identifier being referenced (falls back to the @ref node)
 ;
 ; One attribute in a XAML file names something in another language unambiguously:
-; x:Class, which names the code-behind type this markup is compiled into. It is recorded
-; verbatim, exactly as written.
+; x:Class, which names the code-behind type this markup is compiled into.
 ;
-; It does NOT currently resolve to that type, and the honest thing is to say so here
-; rather than let the rule read like a working link. Two separate reasons, both checked
-; against the real repo rather than assumed:
+; It resolves (M19.2). The two things that used to stand between it and a real edge —
+; both named in this header when they were still true — each fell to a stored fact:
 ;
 ;   - The value is fully qualified (CodeAnalyzer.App.Views.MainWindow) while the C# class
-;     is defined under its short name. Resolution matches a reference name against a
-;     definition name whole, so this one matches nothing. That is the same position a C#
-;     `using` is in — it names something the index cannot turn into a target — and it is
-;     handled the same way: recorded, unmatched, never guessed at.
-;   - x:Class sits on the root element, which carries no x:Name and is therefore not a
-;     symbol. The reference has no enclosing definition to be attributed to, so it does
-;     not appear in a caller list either.
+;     is defined under its short name, and resolution matches names whole. A dotted type
+;     reference is now split at its last dot by the analyzer: the segment is the name a
+;     definition can match, the qualifier is recorded as the reference's receiver — where
+;     it means what a receiver means everywhere else, that the locating was done in the
+;     source rather than by the file the reference sits in.
+;   - x:Class sits on the root element, which carries no x:Name and was therefore not a
+;     symbol, leaving the reference with no owner. The root element is now a declaration
+;     in its own right (see symbols.scm), named by the same verbatim qualified string, and
+;     it owns this reference.
 ;
-; It is kept because it is true and cheap, and because the two things standing between it
-; and a real markup-to-code-behind edge are both nameable pieces of work rather than
-; unknowns. It is not kept because it currently does anything.
+; The edge lands as a cross-language name match and wears the ? marker, which is the
+; honest confidence: the index never checked a namespace against a folder.
 ;
 ; Nothing else here is a reference. TargetType="Button" names a type but so does every
 ; other bare word in an attribute, and there is no syntax separating them; a markup

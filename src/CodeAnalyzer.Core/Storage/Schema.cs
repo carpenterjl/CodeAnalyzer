@@ -43,6 +43,14 @@ public static class Schema
     /// it has to be an index seek. Both are NULL wherever the parser cannot be certain.
     /// </para>
     /// <para>
+    /// Version 14 (M19.2) changes no DDL. The XAML pack now declares a compiled file's
+    /// root element under its verbatim <c>x:Class</c> value, owns the <c>x:Class</c>
+    /// reference with it, and the analyzer splits dotted type references at their last
+    /// segment — so rows stored for an unchanged <c>.xaml</c> file by an earlier build
+    /// say something different from what this build would store. Same reason as
+    /// version 12: only a rebuild makes the index agree with the analyzer now running.
+    /// </para>
+    /// <para>
     /// Version 13 (M19) adds <c>ref.receiver_text</c>: the verbatim receiver expression at
     /// a member call or member access — the <c>orchestrator</c> in
     /// <c>orchestrator.IndexAsync(…)</c> — NULL where the reference is a bare name or the
@@ -63,7 +71,7 @@ public static class Schema
     /// files are newly discovered rather than stale.
     /// </para>
     /// </summary>
-    public const int Version = 13;
+    public const int Version = 14;
 
     public const string MetaSchemaVersion = "schema_version";
     public const string MetaRootPath = "root_path";
