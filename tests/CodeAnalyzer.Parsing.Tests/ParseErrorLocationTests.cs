@@ -135,6 +135,13 @@ public class ParseErrorLocationTests : IDisposable
         // And the file is still indexed around the construct, which is what the errors
         // report promises about everything it lists.
         Assert.Contains(result.Symbols, s => s.Name == "Run");
+
+        // The quote used to be `.` — the member-access dot was the descent's last
+        // non-empty node. One punctuation character identifies nothing; the construct
+        // around it is what a reader recognises.
+        Assert.NotNull(result.ErrorText);
+        Assert.NotEqual(".", result.ErrorText);
+        Assert.Contains("required", result.ErrorText);
     }
 
     [Fact]

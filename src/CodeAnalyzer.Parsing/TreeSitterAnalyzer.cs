@@ -148,7 +148,14 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
 
         while (true)
         {
-            if (!string.IsNullOrWhiteSpace(node.Text))
+            // A quote of one punctuation character carries nothing — `var required = …`
+            // used to report `.`, because the descent's last non-empty node was the member
+            // access dot. Such a node never becomes the quotable, so the quote stays with
+            // the construct around it, which is what a reader recognises. Measured before
+            // shipping: zero one-punctuation quotes across 1,214 real files, so this is
+            // for the reproducible-on-demand case, not a live population.
+            if (node.Text is { } text && !string.IsNullOrWhiteSpace(text)
+                && !(text.Trim() is { Length: 1 } lone && !char.IsLetterOrDigit(lone[0])))
             {
                 quotable = node;
             }
