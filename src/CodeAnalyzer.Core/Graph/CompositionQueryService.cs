@@ -125,8 +125,15 @@ public sealed class CompositionQueryService(SqliteConnection connection)
     private List<CompositionLink> LoadOutgoing(long symbolId, ReferenceKind kind)
     {
         using var command = connection.CreateCommand();
+        // The located line pairs with rel_path, which is the TARGET's file — so it has to
+        // be the target's declaration, not r.line, which is a line in the focus symbol's
+        // own file (the exact pairing the callee list shipped for six rounds). A resolved
+        // row locates the target; an unresolved one has no path, and its line is where the
+        // reference was written. r.line rides along as the last column because the site is
+        // still what deduplicates and orders the rows.
         command.CommandText = """
-            SELECT e.target_symbol_id, r.name, t.kind, f.rel_path, r.line, r.kind, e.confidence
+            SELECT e.target_symbol_id, r.name, t.kind, f.rel_path,
+                   COALESCE(t.start_line, r.line), r.kind, e.confidence, r.line
             FROM ref r
             LEFT JOIN edge e ON e.ref_id = r.id
             LEFT JOIN symbol t ON t.id = e.target_symbol_id
@@ -149,7 +156,7 @@ public sealed class CompositionQueryService(SqliteConnection connection)
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT s.id, s.name, s.kind, f.rel_path, r.line, r.kind, e.confidence
+            SELECT s.id, s.name, s.kind, f.rel_path, r.line, r.kind, e.confidence, r.line
             FROM edge e
             JOIN ref r ON r.id = e.ref_id
             JOIN symbol s ON s.id = r.from_symbol_id
@@ -177,10 +184,12 @@ public sealed class CompositionQueryService(SqliteConnection connection)
         {
             long? targetId = reader.IsDBNull(targetIdColumn) ? null : reader.GetInt64(targetIdColumn);
             var name = reader.GetString(nameColumn);
-            var line = reader.GetInt32(4);
 
-            // The same instantiation written twice on one line is one fact.
-            if (!seen.Add((targetId, name, line)))
+            // The same instantiation written twice on one line is one fact — judged by the
+            // SITE line (last column), so a class built from two places still lists twice
+            // even though both rows now locate the same declaration.
+            var siteLine = reader.GetInt32(7);
+            if (!seen.Add((targetId, name, siteLine)))
             {
                 continue;
             }
@@ -190,7 +199,7 @@ public sealed class CompositionQueryService(SqliteConnection connection)
                 name,
                 reader.IsDBNull(2) ? null : (SymbolKind)reader.GetInt32(2),
                 reader.IsDBNull(3) ? null : reader.GetString(3),
-                line,
+                reader.GetInt32(4),
                 (ReferenceKind)reader.GetInt32(5),
                 reader.IsDBNull(6) ? null : (EdgeConfidence)reader.GetInt32(6)));
         }

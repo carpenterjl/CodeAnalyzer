@@ -30,6 +30,12 @@ public sealed record CompositionMember(
 /// here" is a fact and dropping it would quietly shrink the picture.
 /// </para>
 /// </summary>
+/// <param name="Line">
+/// A line in <paramref name="RelativePath"/>: the target's declaration. When
+/// <paramref name="RelativePath"/> is null there is no target, and the line is where the
+/// reference was written in the focus symbol's own file. Outgoing links used to pair the
+/// target's path with the reference's line — the same mispairing the callee list carried.
+/// </param>
 public sealed record CompositionLink(
     long? TargetId,
     string Name,

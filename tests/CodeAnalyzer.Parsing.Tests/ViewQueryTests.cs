@@ -203,6 +203,19 @@ public class ViewQueryTests : IAsyncLifetime
 
         var fifo = _session.Composition.GetComposition(Find("fifo", "rtl/fifo.sv"))!;
         Assert.Contains(fifo.InstantiatedBy, link => link.Name == "top");
+
+        // The link's line pairs with its path, and the path is fifo's file — so the line
+        // is fifo's declaration, not the instantiation site inside top.sv. Pairing the
+        // target's path with the reference's line is the exact shape the callee list
+        // carried for six rounds.
+        Assert.Equal("rtl/fifo.sv", instance.RelativePath);
+        Assert.Equal(fifo.StartLine, instance.Line);
+
+        // From the other end the link names the referencing symbol, so path and line are
+        // both top's: its file, its declaration site untouched — an incoming row was
+        // always coherent and should stay that way.
+        var by = Assert.Single(fifo.InstantiatedBy, link => link.Name == "top");
+        Assert.Equal("rtl/top.sv", by.RelativePath);
     }
 
     [Fact]
