@@ -564,7 +564,15 @@ internal static class TerseFormatter
                     ? $"  {Flatten(message)}"
                     : $"  {file.SymbolCount} indexed";
 
-                builder.AppendLine($"  {file.RelativePath}{where}{what}");
+                // "N indexed" alone is the gap that hid a swallow for nine rounds: the
+                // count says what survived and nothing about reach. The construct's extent
+                // is the honest proxy for what may not have — a span to the last line
+                // means everything after the error was consumed as its body.
+                var reach = file is { Line: { } from, EndLine: { } to } && to > from
+                    ? $" — the construct it stopped in runs to line {to}"
+                    : string.Empty;
+
+                builder.AppendLine($"  {file.RelativePath}{where}{what}{reach}");
             }
         }
 

@@ -26,7 +26,7 @@ public static class FileErrorQuery
         command.CommandText = """
             SELECT rel_path, language, error,
                    (SELECT COUNT(*) FROM symbol s WHERE s.file_id = file.id),
-                   error_line, error_text
+                   error_line, error_text, error_end_line
             FROM file
             WHERE status <> 0
             ORDER BY rel_path
@@ -43,7 +43,8 @@ public static class FileErrorQuery
                     reader.IsDBNull(2) ? null : reader.GetString(2),
                     reader.GetInt32(3),
                     reader.IsDBNull(4) ? null : reader.GetInt32(4),
-                    reader.IsDBNull(5) ? null : reader.GetString(5)));
+                    reader.IsDBNull(5) ? null : reader.GetString(5),
+                    reader.IsDBNull(6) ? null : reader.GetInt32(6)));
             }
         }
 

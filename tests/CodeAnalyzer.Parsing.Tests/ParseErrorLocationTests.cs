@@ -42,6 +42,28 @@ public class ParseErrorLocationTests : IDisposable
     }
 
     [Fact]
+    public void ABrokenStatementDoesNotClaimTheRestOfTheFile()
+    {
+        // The extent says how far the stopped construct reaches, and it must be able to
+        // say "not far": a broken initializer on line 3 is a one-line fact, and stamping
+        // the whole file's span onto it would turn every error into a false swallow.
+        var result = Analyze("""
+            class A
+            {
+                private int _x = ;
+
+                public int Y() => 1;
+            }
+            """);
+
+        Assert.Equal(FileStatus.ParseError, result.Status);
+        Assert.Equal(3, result.ErrorLine);
+        Assert.NotNull(result.ErrorEndLine);
+        Assert.Equal(3, result.ErrorEndLine);
+        Assert.Contains(result.Symbols, s => s.Name == "Y");
+    }
+
+    [Fact]
     public void AnEmptyCollectionExpressionIsReadWithoutComplaint()
     {
         // This test used to assert the opposite, and its inversion is the whole point of

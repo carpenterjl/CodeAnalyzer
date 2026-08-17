@@ -117,5 +117,11 @@ public class HtmlAnalyzerTests() : LanguagePackFixture(LanguageRegistry.Html, "i
         // unclosed <script> is script text.
         Assert.Equal(new[] { "reached" }, result.Symbols.Select(s => s.Name));
         Assert.Equal("<script>", result.ErrorText);
+
+        // What the report could never say before: the construct the parse stopped in
+        // runs to the last line — everything after the error was consumed as its body.
+        // "1 indexed" alone is the exact gap that hid the XAML swallow for nine rounds.
+        Assert.Equal(2, result.ErrorLine);
+        Assert.Equal(4, result.ErrorEndLine);
     }
 }

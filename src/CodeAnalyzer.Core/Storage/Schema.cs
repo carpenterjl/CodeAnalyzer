@@ -43,6 +43,13 @@ public static class Schema
     /// it has to be an index seek. Both are NULL wherever the parser cannot be certain.
     /// </para>
     /// <para>
+    /// Version 28 (M31.4) adds <c>file.error_end_line</c>: the last line of the construct
+    /// the parse stopped inside. The declarations a broken construct swallowed are not in
+    /// the index, so "N of M lost" cannot be stated honestly — but the construct's extent
+    /// can, and an extent reaching the end of the file is the exact shape that hid 33 XAML
+    /// declarations for nine rounds behind an error label naming only a position.
+    /// </para>
+    /// <para>
     /// Version 22 (M21.1) adds <c>file.error_line</c> and <c>file.error_text</c>: where the
     /// parser first lost its footing and the text it could not read. Needed by the rule
     /// below — the parser now writes a value it never wrote before, and an unchanged file
@@ -180,7 +187,7 @@ public static class Schema
     /// as 12 and 26 — the source did not change, the analyzer did, and the incremental gate
     /// reads the file rather than the analyzer.
     /// </para>
-    public const int Version = 27;
+    public const int Version = 28;
 
     public const string MetaSchemaVersion = "schema_version";
     public const string MetaRootPath = "root_path";
@@ -236,7 +243,11 @@ public static class Schema
             -- construct the bundled grammar predates. NULL text with a line set is a token
             -- the grammar expected and did not find, which has a position and no extent.
             error_line   INTEGER,
-            error_text   TEXT
+            error_text   TEXT,
+            -- Last line of the construct the parse stopped inside. What a broken construct
+            -- swallowed is not in the index and cannot be counted, but its extent can be
+            -- stated, and a span reaching the end of the file is the shape of a swallow.
+            error_end_line INTEGER
         );
 
         CREATE TABLE IF NOT EXISTS symbol (

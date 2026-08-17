@@ -70,7 +70,7 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
             // (pinned by MatchLimit_BoundsInProgressMatchesAndReportsExceeding). When it
             // does, everything extracted is kept and the incompleteness is stated.
             var matchesDropped = symbolMatchesDropped || referenceMatchesDropped;
-            (Node Site, string? Text)? firstError =
+            (Node Site, string? Text, int EndLine)? firstError =
                 tree.RootNode.HasError ? FirstError(tree.RootNode) : null;
 
             return new ParseResult
@@ -88,6 +88,7 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
                     : null,
                 ErrorLine = firstError is { } error ? error.Site.StartPosition.Row + 1 : null,
                 ErrorText = firstError?.Text,
+                ErrorEndLine = firstError?.EndLine,
             };
         }
         catch (OperationCanceledException)
@@ -140,7 +141,7 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
     /// zero-width node inside the brackets and the quote is <c>[]</c>.
     /// </para>
     /// </summary>
-    private static (Node Site, string? Text) FirstError(Node root)
+    private static (Node Site, string? Text, int EndLine) FirstError(Node root)
     {
         var node = root;
         var quotable = root;
@@ -164,7 +165,11 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
 
             if (next is null)
             {
-                return (node, Snippet(quotable));
+                // The quotable node contains the failure, so its extent is how far the
+                // broken construct reaches — what a bare position can never show. An
+                // unclosed <script> has an error line near the top and an extent at the
+                // end of the file, because everything after it was consumed as its body.
+                return (node, Snippet(quotable), quotable.EndPosition.Row + 1);
             }
 
             node = next;

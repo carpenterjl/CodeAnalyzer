@@ -14,6 +14,12 @@ namespace CodeAnalyzer.Core.Storage;
 /// this list is far more often written in a dialect newer than the bundled grammar than it
 /// is actually broken, and without the position the reader cannot tell which.
 /// </para>
+/// <para>
+/// <paramref name="EndLine"/> is the last line of the construct the parse stopped inside.
+/// What that construct swallowed is not in the index and cannot be counted; its extent is
+/// the honest proxy, and a span running far past <paramref name="Line"/> is the shape of a
+/// swallow. Null on indexes written before the column existed.
+/// </para>
 /// </summary>
 public sealed record FileErrorRecord(
     string RelativePath,
@@ -21,4 +27,5 @@ public sealed record FileErrorRecord(
     string? Message,
     int SymbolCount,
     int? Line = null,
-    string? Text = null);
+    string? Text = null,
+    int? EndLine = null);

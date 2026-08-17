@@ -344,12 +344,15 @@ internal static class JsonFormatter
             totalFiles = report.TotalFiles,
             imperfectFiles = report.Files.Count,
             note = "every file listed was still indexed; symbols is what survived. A null message "
-                + "means the parser recovered, and stoppedAt is where it lost its footing.",
+                + "means the parser recovered, and stoppedAt is where it lost its footing. "
+                + "endLine is the last line of the construct it stopped in — a span reaching "
+                + "the end of the file means everything after the error was consumed as its body.",
             files = report.Files.Select(f => new
             {
                 path = f.RelativePath,
                 language = f.Language,
                 line = f.Line,
+                endLine = f.EndLine,
                 stoppedAt = f.Text,
                 symbols = f.SymbolCount,
                 message = f.Message,

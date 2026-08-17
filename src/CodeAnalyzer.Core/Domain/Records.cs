@@ -197,4 +197,14 @@ public sealed record ParseResult
     /// where the parser expected a token and found none, which has a position but no text.
     /// </summary>
     public string? ErrorText { get; init; }
+
+    /// <summary>
+    /// 1-based last line of the construct the parse stopped inside. The declarations a
+    /// broken construct swallowed are not in the index, so their count cannot be stated —
+    /// but the construct's extent can, and it is the honest proxy: an unclosed
+    /// <c>&lt;script&gt;</c> whose error line says 3 and whose extent says 40 consumed the
+    /// rest of the file, which is exactly the shape that hid 33 XAML declarations for nine
+    /// rounds behind a label naming only where the parse stopped.
+    /// </summary>
+    public int? ErrorEndLine { get; init; }
 }

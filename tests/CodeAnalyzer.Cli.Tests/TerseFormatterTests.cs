@@ -69,6 +69,27 @@ public class TerseFormatterTests
     }
 
     [Fact]
+    public void AConstructReachingPastItsErrorLineSaysHowFar()
+    {
+        // "12 indexed" says what survived and nothing about reach — the exact gap that
+        // hid a swallow for nine rounds. The extent appears only when it adds anything:
+        // a one-line error stays one line, and an old index without the column stays
+        // silent rather than guessing.
+        var report = new ParseErrorReport(3, [
+            new("eats.html", "HTML", null, SymbolCount: 1, Line: 3, Text: "<script>", EndLine: 40),
+            new("narrow.cs", "C#", null, SymbolCount: 12, Line: 7, Text: "= ;", EndLine: 7),
+            new("old.cs", "C#", null, SymbolCount: 5, Line: 9, Text: "[]", EndLine: null),
+        ]);
+
+        var text = TerseFormatter.ParseErrors(report, limit: 10);
+
+        Assert.Contains("eats.html:3  1 indexed — the construct it stopped in runs to line 40", text);
+        Assert.Contains("narrow.cs:7  12 indexed", text);
+        Assert.DoesNotContain("runs to line 7", text);
+        Assert.DoesNotContain("runs to line 9", text);
+    }
+
+    [Fact]
     public void AWorkspaceWithNothingToReportSaysSoWithoutAnEmptyTable()
     {
         Assert.Equal(
