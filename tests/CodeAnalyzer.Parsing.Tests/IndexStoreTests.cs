@@ -253,6 +253,47 @@ public class IndexStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task ASameNameTieGoesToTheSymbolTheWorkspaceActuallyUses()
+    {
+        // 15 of the 51 real queries ever issued against this tool hit a rank-1 tie between
+        // same-name symbols — same score, same length — which an unstable sort resolved by
+        // partition luck. The tie goes to unique-edge referencers: the class two other
+        // types use beats the identically named field declared earlier, which nothing
+        // references. Unique edges only, because ambiguous edges land on every same-name
+        // candidate and would score the whole tie group as equally important.
+        WriteFile("src/widgets.cs", """
+            class Alpha
+            {
+                public int Widget;
+            }
+
+            class Widget
+            {
+            }
+
+            class UserOne
+            {
+                private Widget _fieldOne;
+            }
+
+            class UserTwo
+            {
+                private Widget _fieldTwo;
+            }
+            """);
+
+        var store = await IndexAsync();
+
+        var search = new SymbolSearchService(store.Connection);
+        search.Reload();
+
+        var hits = search.Search("Widget").Where(h => h.Name == "Widget").ToList();
+        Assert.Equal(2, hits.Count);
+        Assert.Equal(SymbolKind.Class, hits[0].Kind);
+        Assert.Equal(SymbolKind.Field, hits[1].Kind);
+    }
+
+    [Fact]
     public async Task AChattyCallerDoesNotStarveTheListBelowItsCap()
     {
         // The LIMIT counts entries, not raw reference rows. Before it did, one caller with
