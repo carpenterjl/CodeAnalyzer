@@ -112,6 +112,14 @@ public class TerseFormatterTests
             new(UnresolvedRule.OutOfScope, 1),
             new(UnresolvedRule.Unexplained, 0),
         ],
+        UnresolvedByRulePerLanguage:
+        [
+            // C's whole residue is external; C#'s is not, so exactly one of the two rows
+            // has a rule to name after external and the other must stay silent.
+            new("C#", [new(UnresolvedRule.External, unresolved - 4), new(UnresolvedRule.TooCommon, 2),
+                       new(UnresolvedRule.ReceiverNotTyped, 1), new(UnresolvedRule.OutOfScope, 1)]),
+            new("C", [new(UnresolvedRule.External, 15)]),
+        ],
         RefsOnlyCrossLanguage: 3,
         TotalEdges: 95,
         EdgesByConfidence: [new("Unique", 85), new("Ambiguous", 10)],
@@ -495,6 +503,31 @@ public class TerseFormatterTests
 
         Assert.DoesNotContain('\n', line);
         Assert.Contains("( int a, int b)", line);
+    }
+
+    /// <summary>
+    /// The per-language refusal split, on the row that already exists rather than in a
+    /// block of its own. External is left off it because the row carries that share
+    /// already — what a reader cannot see anywhere else is which rule takes the rest, and
+    /// measured here that is 39.7% of JavaScript's residue against 10.4% of C#'s.
+    /// </summary>
+    [Fact]
+    public void EachLanguageRowNamesWhicheverRuleTakesMostOfWhatExternalLeaves()
+    {
+        var text = TerseFormatter.Stats(SomeStats());
+
+        // C# has refusals besides external, so its row names the largest of them; C's
+        // residue is entirely external, so there is nothing left to name and it says
+        // nothing rather than printing a zero.
+        var languageRows = text.Split('\n')
+            .SkipWhile(line => !line.StartsWith("by language", StringComparison.Ordinal))
+            .Skip(1)
+            .Take(2)
+            .ToList();
+
+        Assert.Contains("too common", languageRows[0]);
+        Assert.DoesNotContain("too common", languageRows[1]);
+        Assert.Contains("external", languageRows[1]);
     }
 
     private static SymbolSearchHit Hit(long id, string name, bool loose) =>

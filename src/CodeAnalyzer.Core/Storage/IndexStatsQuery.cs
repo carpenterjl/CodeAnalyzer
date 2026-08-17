@@ -80,6 +80,27 @@ public enum UnresolvedRule
 public sealed record RefusalCount(UnresolvedRule Rule, int Count);
 
 /// <summary>
+/// One language's unresolved references, split by the rule that refused them. The whole-index
+/// partition says what this workspace's residue is made of; this says whether that shape is
+/// the same in every language, and measured it is not — JavaScript's refusals are dominated
+/// by the container rule and C#'s by kind compatibility, which is the difference between "a
+/// language with no declared types" and "a codebase that leans on libraries".
+/// </summary>
+public sealed record LanguageRefusals(string Language, IReadOnlyList<RefusalCount> ByRule)
+{
+    /// <summary>The largest refusal that is not <see cref="UnresolvedRule.External"/>.</summary>
+    /// <remarks>
+    /// External is excluded because every per-language row already carries it: the external
+    /// share on the resolution split is the same predicate counted the same way. What a
+    /// reader cannot see anywhere else is which rule takes the rest.
+    /// </remarks>
+    public RefusalCount? LargestBesidesExternal { get; } = ByRule
+        .Where(r => r.Rule != UnresolvedRule.External && r.Count > 0)
+        .OrderByDescending(r => r.Count)
+        .FirstOrDefault();
+}
+
+/// <summary>
 /// Aggregate facts about one workspace's index: what is in it, and — the part no other
 /// query answers — how well resolution is doing. Every count is measured from the tables
 /// at read time; nothing here is cached or estimated.
@@ -106,6 +127,12 @@ public sealed record IndexStats(
     /// they are settled against <c>file_dep</c> and counted there.
     /// </summary>
     IReadOnlyList<RefusalCount> UnresolvedByRule,
+    /// <summary>
+    /// The same partition, per language, and folded from the same query rather than asked
+    /// again — so the two cannot disagree. The terse block takes one figure from each row;
+    /// the whole matrix goes out through <c>--json</c>, which has no line budget to spend.
+    /// </summary>
+    IReadOnlyList<LanguageRefusals> UnresolvedByRulePerLanguage,
     /// <summary>
     /// How many references resolved <em>only</em> by a cross-language name match. Reported
     /// beside the resolution triple because it qualifies it: measured on this workspace,
@@ -226,7 +253,7 @@ public static class IndexStatsQuery
         var refsByLanguage = ReadSplits(connection,
             "f.language", "ref r JOIN file f ON f.id = r.file_id", scope);
 
-        var unresolvedByRule = ReadRefusals(connection, scope);
+        var (unresolvedByRule, refusalsByLanguage) = ReadRefusals(connection, scope);
         var onlyCrossLanguage = ReadCrossLanguageOnly(connection, scope);
 
         var totalRefs = (int)scalars[3];
@@ -245,6 +272,7 @@ public static class IndexStatsQuery
             RefsByKind: refsByKind,
             RefsByLanguage: refsByLanguage,
             UnresolvedByRule: unresolvedByRule,
+            UnresolvedByRulePerLanguage: refusalsByLanguage,
             RefsOnlyCrossLanguage: onlyCrossLanguage,
             SymbolsByKind: symbolsByKind,
             TotalEdges: (int)scalars[6],
@@ -270,7 +298,8 @@ public static class IndexStatsQuery
     /// holding that member.
     /// </para>
     /// </summary>
-    private static List<RefusalCount> ReadRefusals(SqliteConnection connection, FileScope scope)
+    private static (List<RefusalCount> Overall, List<LanguageRefusals> PerLanguage) ReadRefusals(
+        SqliteConnection connection, FileScope scope)
     {
         using var command = connection.CreateCommand();
         command.CommandText = $"""
@@ -278,7 +307,7 @@ public static class IndexStatsQuery
                 SELECT name FROM symbol WHERE is_definition = 1
                 GROUP BY name HAVING COUNT(*) > {Resolution.ReferenceResolver.DefaultMaxCandidates}
             )
-            SELECT CASE
+            SELECT f.language, CASE
                 WHEN NOT EXISTS (SELECT 1 FROM symbol s
                                  WHERE s.name = r.name AND s.is_definition = 1
                                    AND {Resolution.ReferenceResolver.CompatibleKindSql("r", "s")})
@@ -297,29 +326,53 @@ public static class IndexStatsQuery
                 ELSE {(int)UnresolvedRule.Unexplained}
             END AS rule, COUNT(*)
             FROM ref r
+            JOIN file f ON f.id = r.file_id
             WHERE NOT EXISTS (SELECT 1 FROM edge e WHERE e.ref_id = r.id)
               AND r.kind NOT IN ({(int)ReferenceKind.Include}, {(int)ReferenceKind.Import})
               {scope.AndFileIn("r.file_id")}
-            GROUP BY rule
+            GROUP BY f.language, rule
             ORDER BY rule
             """;
         scope.Bind(command);
 
-        var counts = new Dictionary<UnresolvedRule, int>();
+        var perLanguage = new Dictionary<string, Dictionary<UnresolvedRule, int>>();
         using (var reader = command.ExecuteReader())
         {
             while (reader.Read())
             {
-                counts[(UnresolvedRule)reader.GetInt32(0)] = reader.GetInt32(1);
+                var language = reader.GetString(0);
+                if (!perLanguage.TryGetValue(language, out var counts))
+                {
+                    perLanguage[language] = counts = [];
+                }
+
+                counts[(UnresolvedRule)reader.GetInt32(1)] = reader.GetInt32(2);
             }
         }
 
         // Every rule is listed even at zero. A partition that prints only its non-empty rows
         // reads as if the missing ones were never asked, and the whole point of the block is
         // that the four questions were all asked of every unresolved reference.
-        return Enum.GetValues<UnresolvedRule>()
-            .Select(rule => new RefusalCount(rule, counts.GetValueOrDefault(rule)))
-            .ToList();
+        static List<RefusalCount> Complete(Dictionary<UnresolvedRule, int> counts) =>
+            [.. Enum.GetValues<UnresolvedRule>()
+                .Select(rule => new RefusalCount(rule, counts.GetValueOrDefault(rule)))];
+
+        // The whole-index partition is the per-language one folded, not a second query, so
+        // the block and its per-language shares cannot drift apart.
+        var overall = new Dictionary<UnresolvedRule, int>();
+        foreach (var (_, counts) in perLanguage)
+        {
+            foreach (var (rule, count) in counts)
+            {
+                overall[rule] = overall.GetValueOrDefault(rule) + count;
+            }
+        }
+
+        return (Complete(overall),
+            [.. perLanguage
+                .Select(entry => new LanguageRefusals(entry.Key, Complete(entry.Value)))
+                .OrderByDescending(entry => entry.ByRule.Sum(r => r.Count))
+                .ThenBy(entry => entry.Language, StringComparer.Ordinal)]);
     }
 
     /// <summary>

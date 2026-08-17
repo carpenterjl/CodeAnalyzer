@@ -611,7 +611,7 @@ internal static class TerseFormatter
         builder.AppendLine($"  unresolved         {stats.RefsUnresolved,9:n0}  {Percent(stats.RefsUnresolved, stats.TotalRefs),6}");
 
         AppendSplits(builder, "by reference kind", stats.RefsByKind);
-        AppendSplits(builder, "by language", stats.RefsByLanguage);
+        AppendSplits(builder, "by language", stats.RefsByLanguage, stats.UnresolvedByRulePerLanguage);
         AppendRefusals(builder, stats);
 
         builder.AppendLine($"edges: {stats.TotalEdges:n0} ({Tally(stats.EdgesByConfidence)})");
@@ -644,7 +644,9 @@ internal static class TerseFormatter
             + "that leans on external libraries that is the normal shape, not a defect count. "
             + "the external share says how much of a row's unresolved names nothing any workspace "
             + "definition of a compatible kind carries — those are correct, not gaps. a lower bound: "
-            + "the residue is where a real gap would hide, not proof of one.");
+            + "the residue is where a real gap would hide, not proof of one. each language row also "
+            + "names whichever rule below takes most of what external leaves; --json carries that "
+            + "split in full.");
 
         return builder.Finish();
     }
@@ -700,7 +702,10 @@ internal static class TerseFormatter
     /// shape of a resolver gap, and reading it off a table beats guessing at it.
     /// </summary>
     private static void AppendSplits(
-        StringBuilder builder, string heading, IReadOnlyList<ResolutionSplit> splits)
+        StringBuilder builder,
+        string heading,
+        IReadOnlyList<ResolutionSplit> splits,
+        IReadOnlyList<LanguageRefusals>? refusals = null)
     {
         if (splits.Count == 0)
         {
@@ -717,13 +722,43 @@ internal static class TerseFormatter
             var external = split.Unresolved == 0
                 ? string.Empty
                 : $"  · {Percent(split.External, split.Unresolved),6} external";
+
+            // And the second share names whichever rule takes most of what is left, which is
+            // where the languages stop looking alike: measured here, JavaScript's residue is
+            // 39.7% the container rule against C#'s 10.9%. Sharing the unresolved denominator
+            // with the external clause is deliberate — two shares on one line reading against
+            // two different totals is a trap, and the partition's own total differs from it by
+            // the include/import references it does not cover.
+            var largest = refusals
+                ?.FirstOrDefault(r => r.Language == split.Name)
+                ?.LargestBesidesExternal;
+            var runnerUp = largest is null || split.Unresolved == 0
+                ? string.Empty
+                : $"  · {Percent(largest.Count, split.Unresolved),6} {RefusalToken(largest.Rule)}";
+
             builder.AppendLine(
                 $"  {split.Name.PadRight(width)}  {split.Total,8:n0}  "
                 + $"uniq {Percent(split.Unique, split.Total),6}  "
                 + $"amb {Percent(split.Ambiguous, split.Total),6}  "
-                + $"unres {Percent(split.Unresolved, split.Total),6}{external}");
+                + $"unres {Percent(split.Unresolved, split.Total),6}{external}{runnerUp}");
         }
     }
+
+    /// <summary>
+    /// A rule in two or three words, for the one place it has to share a line. The full
+    /// sentence stays on the partition block, where there is room to say what the rule is
+    /// rather than merely name it.
+    /// </summary>
+    private static string RefusalToken(UnresolvedRule rule) => rule switch
+    {
+        UnresolvedRule.External => "external",
+        UnresolvedRule.ReceiverUnknown => "unknown receiver",
+        UnresolvedRule.TooCommon => "too common",
+        UnresolvedRule.ReceiverNotTyped => "untyped receiver",
+        UnresolvedRule.OutOfScope => "out of scope",
+        UnresolvedRule.Unexplained => "unexplained",
+        _ => rule.ToString(),
+    };
 
     /// <summary>
     /// How many of a caller or callee list are held together by nothing but a name matching

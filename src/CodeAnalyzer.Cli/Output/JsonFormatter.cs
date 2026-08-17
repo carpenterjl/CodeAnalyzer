@@ -403,6 +403,14 @@ internal static class JsonFormatter
                 // why it is emitted rather than filtered out for being empty.
                 unresolvedByRule = stats.UnresolvedByRule
                     .ToDictionary(r => r.Rule.ToString(), r => r.Count),
+                // And the same partition per language. The terse block prints one figure per
+                // language because it has a line budget; this has none, so the whole matrix
+                // goes here — the two are folded from one query, so they agree by
+                // construction rather than by both being correct.
+                unresolvedByRulePerLanguage = stats.UnresolvedByRulePerLanguage
+                    .ToDictionary(
+                        l => l.Language,
+                        l => l.ByRule.ToDictionary(r => r.Rule.ToString(), r => r.Count)),
             },
             edges = new
             {
