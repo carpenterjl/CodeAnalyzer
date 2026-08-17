@@ -62,6 +62,59 @@ public class ParseErrorLocationTests : IDisposable
         Assert.Contains(result.Symbols, s => s.Name == "_x");
     }
 
+    /// <summary>
+    /// The one contextual keyword the vendored grammar cannot take back: C# 11 made
+    /// <c>required</c> a member modifier and the grammar reads it as one wherever it
+    /// appears, so a local of that name cannot be a receiver. The README states this as a
+    /// known limit, and a stated limit with no test is a claim that can quietly stop being
+    /// true — if a future grammar reads this file cleanly, the failure here is the notice
+    /// to go and delete the README entry.
+    /// </summary>
+    [Theory]
+    [InlineData("file")]
+    [InlineData("scoped")]
+    [InlineData("record")]
+    [InlineData("init")]
+    [InlineData("dynamic")]
+    [InlineData("nint")]
+    public void AContextualKeywordIsStillUsableAsALocalName(string name)
+    {
+        var result = Analyze($$"""
+            class A
+            {
+                void Run()
+                {
+                    var {{name}} = new List<string>();
+                    {{name}}.Add("one");
+                }
+            }
+            """);
+
+        Assert.Null(result.ErrorLine);
+    }
+
+    /// <inheritdoc cref="AContextualKeywordIsStillUsableAsALocalName"/>
+    [Fact]
+    public void ALocalNamedRequiredIsTheOneThatIsNot()
+    {
+        var result = Analyze("""
+            class A
+            {
+                void Run()
+                {
+                    var required = new List<string>();
+                    required.Add("one");
+                }
+            }
+            """);
+
+        Assert.NotNull(result.ErrorLine);
+
+        // And the file is still indexed around the construct, which is what the errors
+        // report promises about everything it lists.
+        Assert.Contains(result.Symbols, s => s.Name == "Run");
+    }
+
     [Fact]
     public void TheQuotedTextIsTheInnermostConstructWithAnExtent()
     {
