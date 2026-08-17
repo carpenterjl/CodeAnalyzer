@@ -22,7 +22,9 @@ internal sealed class CodeAnalyzerTools(McpSessionHolder holder)
 {
     [McpServerTool(Name = "search_symbols")]
     [Description("Fuzzy search over the workspace's symbol definitions ('uwr' finds uart_write). "
-        + "Returns one line per hit: #id, name, kind, file:line.")]
+        + "Returns one line per hit: #id, name, kind, file:line. Hits where the query's "
+        + "letters merely appear in order are listed under a line saying so, and a query "
+        + "nothing here matches well is told so before the list rather than after it.")]
     public string SearchSymbols(
         [Description("Query text; word-hump aware, like an IDE symbol search")] string query,
         [Description("Optional comma-separated kind filter: families (function, type, interface, "

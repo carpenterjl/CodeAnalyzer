@@ -40,6 +40,7 @@ internal static class JsonFormatter
         path = hit.RelativePath,
         line = hit.Line,
         descriptor = hit.Descriptor,
+        looseMatch = hit.LooseMatch,
     };
 
     private static object Located(LocatedSymbol symbol) => new

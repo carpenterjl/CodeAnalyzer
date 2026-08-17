@@ -14,7 +14,8 @@ internal static class ReadCommands
     public static CommandSpec Search { get; } = new(
         "search",
         "search <query> [--exact] [--kinds fn,type,…] [--limit N] [--root path] [--json]",
-        "fuzzy symbol search over the index; --exact matches the text verbatim instead",
+        "fuzzy symbol search over the index, weak hits set apart from real ones; "
+            + "--exact matches the text verbatim instead",
         (args, ct) => RunSearch(args, ct));
 
     public static CommandSpec Detail { get; } = new(

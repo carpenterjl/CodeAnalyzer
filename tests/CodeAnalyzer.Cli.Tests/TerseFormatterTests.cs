@@ -2,6 +2,7 @@ using CodeAnalyzer.Cli.Output;
 using CodeAnalyzer.Cli.Querying;
 using CodeAnalyzer.Core.Domain;
 using CodeAnalyzer.Core.Graph;
+using CodeAnalyzer.Core.Search;
 using CodeAnalyzer.Core.Storage;
 using Xunit;
 
@@ -494,6 +495,67 @@ public class TerseFormatterTests
 
         Assert.DoesNotContain('\n', line);
         Assert.Contains("( int a, int b)", line);
+    }
+
+    private static SymbolSearchHit Hit(long id, string name, bool loose) =>
+        new(id, name, SymbolKind.Method, "s.cs", (int)id, null, Score: 0, LooseMatch: loose);
+
+    /// <summary>
+    /// A list of coincidences presented as a list of results is the failure two field
+    /// reports described and this round reproduced: <c>search_symbols McpServer</c>
+    /// answered with one unrelated test method and said nothing about it.
+    /// </summary>
+    [Fact]
+    public void AListOfNothingButLooseHitsSaysSoBeforeListingThem()
+    {
+        var text = TerseFormatter.Search(
+            "McpServer", [Hit(1, "ABindingInsideATypedTemplate", loose: true)], kindFilter: null);
+
+        Assert.StartsWith("no symbol matches 'McpServer' well", text);
+        Assert.Contains("ABindingInsideATypedTemplate", text);
+        Assert.Contains("exact match", text);
+    }
+
+    [Fact]
+    public void StrongHitsAreListedPlainAndTheLooseTailIsMarkedOnce()
+    {
+        var text = TerseFormatter.Search(
+            "Xaml",
+            [Hit(1, "XamlAnalyzer", loose: false), Hit(2, "XamlRegistry", loose: false),
+             Hit(3, "ExtractedSymbol", loose: true)],
+            kindFilter: null);
+
+        Assert.DoesNotContain("no symbol matches", text);
+        Assert.Contains("… and 1 where the letters merely appear in order:", text);
+
+        // The boundary line separates them rather than labelling each row, which is only
+        // sound because one query means one bar and the list is sorted by score.
+        var boundary = text.IndexOf('…');
+        Assert.True(text.IndexOf("XamlRegistry", StringComparison.Ordinal) < boundary);
+        Assert.True(text.IndexOf("ExtractedSymbol", StringComparison.Ordinal) > boundary);
+    }
+
+    [Fact]
+    public void AListWithNoLooseHitsSaysNothingAboutTheBarAtAll()
+    {
+        var text = TerseFormatter.Search(
+            "ReferenceKind", [Hit(1, "ReferenceKind", loose: false)], kindFilter: null);
+
+        Assert.DoesNotContain("merely appear in order", text);
+        Assert.DoesNotContain("exact match", text);
+    }
+
+    /// <summary>
+    /// An exact search that returns anything returned names containing the query, so the
+    /// advice would be telling the reader to do what they just did.
+    /// </summary>
+    [Fact]
+    public void AnExactSearchIsNeverToldToTryAnExactSearch()
+    {
+        var text = TerseFormatter.Search(
+            "Mcp", [Hit(1, "McpCommand", loose: true)], kindFilter: null, exact: true);
+
+        Assert.DoesNotContain("exact match", text);
     }
 
     [Fact]

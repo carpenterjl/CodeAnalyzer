@@ -128,7 +128,7 @@ public sealed class IndexStalenessTests : IDisposable
     }
 
     [Fact]
-    public void TheRunTallyAndTheHeaderAgreeOnWhatADefinitionIs()
+    public async Task TheRunTallyAndTheHeaderAgreeOnWhatADefinitionIs()
     {
         // Two numbers were both called "symbols": the index line printed what the parse
         // yielded, the header prints what the index holds as definitions, and the gap is
@@ -142,8 +142,8 @@ public sealed class IndexStalenessTests : IDisposable
         Write("d.h", "int measure(int a);\nint measure(int a) { return a; }\n");
 
         using var session = WorkspaceSession.Open(_root, new TreeSitterAnalyzerFactory());
-        var result = session.IndexAsync([], progress: null, CancellationToken.None, full: true)
-            .GetAwaiter().GetResult();
+        var result = await session.IndexAsync(
+            [], progress: null, CancellationToken.None, full: true);
 
         Assert.True(
             result.Outcome.SymbolsFound > result.SymbolsStored,

@@ -152,10 +152,40 @@ internal static class TerseFormatter
             return kindFilter is null ? subject : $"{subject} with kinds {kindFilter}";
         }
 
+        // Loose hits are the tail of the list by construction — one query, so one floor,
+        // and the list is already sorted by score. Finding where they start is therefore a
+        // count, not a partition, and the reader gets one boundary line instead of a mark
+        // on every row.
+        var strong = hits.Count(hit => !hit.LooseMatch);
+
         var builder = new StringBuilder();
-        foreach (var hit in hits)
+
+        if (strong == 0)
         {
-            builder.AppendLine(HitLine(hit));
+            // The whole answer is that there isn't one. Saying it first is the difference
+            // between a reader treating the list as results and treating it as a shrug.
+            builder.AppendLine($"no symbol matches '{query}' well — in these the letters "
+                + "merely appear in order:");
+        }
+
+        for (var i = 0; i < hits.Count; i++)
+        {
+            if (i == strong && strong > 0)
+            {
+                builder.AppendLine($"… and {hits.Count - strong} where the letters merely "
+                    + "appear in order:");
+            }
+
+            builder.AppendLine(HitLine(hits[i]));
+        }
+
+        if (strong == 0 && !exact)
+        {
+            // Named by what it is rather than by how to spell it: the CLI switch is
+            // --exact and the MCP parameter is exact:true, and advice that names the
+            // wrong one is worse than advice that names neither.
+            builder.AppendLine("(asking for an exact match instead answers whether any "
+                + $"name contains '{query}' verbatim)");
         }
 
         return builder.Finish();

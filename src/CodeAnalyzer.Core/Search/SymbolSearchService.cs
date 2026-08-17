@@ -4,6 +4,11 @@ using Microsoft.Data.Sqlite;
 
 namespace CodeAnalyzer.Core.Search;
 
+/// <param name="LooseMatch">
+/// That the query's letters appear in this name in order and nothing better can be said
+/// for it: the match did not reach <see cref="FuzzyMatcher.StrongScoreFloor"/>. Verbatim
+/// matching never sets it — containing the query is itself the answer.
+/// </param>
 public sealed record SymbolSearchHit(
     long SymbolId,
     string Name,
@@ -17,7 +22,8 @@ public sealed record SymbolSearchHit(
     string? Modifiers = null,
     string? TypeText = null,
     int OverloadCount = 1,
-    int OverloadOrdinal = 1)
+    int OverloadOrdinal = 1,
+    bool LooseMatch = false)
 {
     /// <summary>
     /// What this hit is, in one line. Two overloads of one method otherwise produce two
@@ -206,8 +212,15 @@ public sealed class SymbolSearchService
             return byScore != 0 ? byScore : a.NameLength.CompareTo(b.NameLength);
         });
 
+        // Verbatim matching has no loose tier: a name that contains the query contains it.
+        // Fuzzy matching does, and because every hit here was scored against the same
+        // query, the loose ones are exactly the tail of this already-sorted list.
+        var floor = options.Match == SymbolMatchMode.Substring
+            ? int.MinValue
+            : FuzzyMatcher.StrongScoreFloor(query);
+
         var top = scored.Take(options.Limit).ToList();
-        return Hydrate(top, cancellationToken);
+        return Hydrate(top, floor, cancellationToken);
     }
 
     /// <summary>
@@ -235,6 +248,7 @@ public sealed class SymbolSearchService
     /// <summary>Fetches display rows for the winning ids, preserving their ranked order.</summary>
     private List<SymbolSearchHit> Hydrate(
         List<(long Id, int Score, int NameLength)> ranked,
+        int strongScoreFloor,
         CancellationToken cancellationToken)
     {
         var scoreById = ranked.ToDictionary(r => r.Id, r => r.Score);
@@ -274,7 +288,8 @@ public sealed class SymbolSearchService
                 reader.IsDBNull(8) ? null : reader.GetString(8),
                 reader.IsDBNull(9) ? null : reader.GetString(9),
                 reader.GetInt32(10),
-                reader.GetInt32(11));
+                reader.GetInt32(11),
+                scoreById[id] < strongScoreFloor);
         }
 
         return ranked
