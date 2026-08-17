@@ -30,15 +30,61 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $project  = Join-Path $repoRoot 'src\CodeAnalyzer.Cli\CodeAnalyzer.Cli.csproj'
 $exe      = Join-Path $InstallDir 'codeanalyzer.exe'
 
-# A session on another repo holds this exe open for as long as its MCP server lives. Name
-# the offenders rather than letting the copy fail on a lock error nobody can act on.
+# A session on another repo holds this exe open for as long as its MCP server lives. A PID
+# alone is not actionable, because the likeliest holder is the session running this script:
+# it re-spawns the server whenever it resumes, so "close those sessions" is advice nobody can
+# follow. Name the parent instead, and say which one is the reader's own.
 $running = @(Get-CimInstance Win32_Process -Filter "Name = 'codeanalyzer.exe'" |
     Where-Object { $_.ExecutablePath -and $_.ExecutablePath -ieq $exe })
 
 if ($running.Count -gt 0) {
-    $ids = ($running | ForEach-Object { $_.ProcessId }) -join ', '
-    Write-Host "The installed server is running (PID $ids) — a session is using it." -ForegroundColor Yellow
-    Write-Host "Close those sessions (or disconnect codeanalyzer in each), then run this again." -ForegroundColor Yellow
+    # Our own ancestry, so a holder parented anywhere up this chain can be called out as ours.
+    $ancestors = @()
+    $walk = $PID
+    while ($walk -and $ancestors -notcontains $walk -and $ancestors.Count -lt 24) {
+        $ancestors += $walk
+        $walk = (Get-CimInstance Win32_Process -Filter "ProcessId = $walk").ParentProcessId
+    }
+
+    Write-Host "The installed server is running — it cannot be replaced while it is loaded." -ForegroundColor Yellow
+    Write-Host ""
+
+    $mine = $false
+    foreach ($proc in $running) {
+        $parent = $null
+        if ($proc.ParentProcessId) {
+            $parent = Get-CimInstance Win32_Process -Filter "ProcessId = $($proc.ParentProcessId)"
+            # Windows reuses PIDs. A "parent" that started after its child is a different process.
+            if ($parent -and $parent.CreationDate -gt $proc.CreationDate) { $parent = $null }
+        }
+
+        $owner = if ($parent) { "$($parent.Name) (PID $($parent.ProcessId))" } else { "parent has exited" }
+
+        # Claude Code puts the session it resumed on its own command line — the one detail that
+        # tells a reader which of several open sessions is holding the file.
+        if ($parent -and $parent.CommandLine -match '--resume[= ]([0-9a-fA-F]{8})') {
+            $owner += ", session $($Matches[1])"
+        }
+
+        if ($parent -and $ancestors -contains $parent.ProcessId) {
+            $mine = $true
+            $owner += "  <- THIS session, the one running this script"
+        }
+
+        Write-Host "  PID $($proc.ProcessId)  spawned by $owner" -ForegroundColor Yellow
+    }
+
+    Write-Host ""
+    if ($mine) {
+        Write-Host "Closing sessions will not clear your own: it re-spawns the server on resume." -ForegroundColor Yellow
+        Write-Host "Stop the server process instead — the next codeanalyzer query starts a fresh" -ForegroundColor Yellow
+        Write-Host "one on the new build:" -ForegroundColor Yellow
+    }
+    else {
+        Write-Host "Close those sessions (or disconnect codeanalyzer in each), then run this again." -ForegroundColor Yellow
+        Write-Host "Or stop the servers directly — each session starts a fresh one on its next query:" -ForegroundColor Yellow
+    }
+    Write-Host "  Stop-Process -Id $(($running | ForEach-Object { $_.ProcessId }) -join ', ') -Force"
     exit 1
 }
 
