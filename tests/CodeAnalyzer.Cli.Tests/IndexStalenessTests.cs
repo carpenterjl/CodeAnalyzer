@@ -82,10 +82,24 @@ public sealed class IndexStalenessTests : IDisposable
     public void TheProvenanceLineSaysWhenNothingHasMoved()
     {
         using var session = Open();
+        var line = session.DescribeIndex();
 
         // The word "indexed" is the scope of the claim: the probe never goes looking for
         // files the index has not seen, so this must not read as "the workspace is current".
-        Assert.Contains("2 indexed files unchanged on disk", session.DescribeIndex());
+        Assert.Contains("2 indexed files unchanged on disk", line);
+    }
+
+    [Fact]
+    public void NothingHavingMovedIsNotAReasonToReIndex()
+    {
+        using var session = Open();
+
+        // M28.1. The advice used to print on every header, so the first read after a
+        // successful index said "unchanged on disk — run 'codeanalyzer index' to refresh":
+        // the evidence that the index is current, and an instruction to rebuild it, in one
+        // sentence. Advice nobody can act on is what teaches a reader to skip the line that
+        // carries the drift count.
+        Assert.DoesNotContain("to refresh", session.DescribeIndex());
     }
 
     private ReadOnlyIndexSession Open()

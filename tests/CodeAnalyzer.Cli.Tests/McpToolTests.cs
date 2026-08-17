@@ -19,8 +19,13 @@ public class McpToolTests(CliWorkspaceFixture fixture)
 
         var text = tools.SearchSymbols("uart");
 
+        // The vintage is what every answer must carry — which index, how big, how old. The
+        // fixture is freshly indexed, so it carries no advice to rebuild it: since M28.1 the
+        // "call reindex" line is attached to drift, and drift is what the agent can act on.
         Assert.StartsWith("[index:", text);
-        Assert.Contains("call reindex to refresh", text);
+        Assert.Contains("definitions, built ", text);
+        Assert.Contains("indexed files unchanged on disk", text);
+        Assert.DoesNotContain("to refresh", text);
         Assert.Contains("uart_init", text);
     }
 

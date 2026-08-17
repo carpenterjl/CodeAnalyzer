@@ -231,22 +231,28 @@ internal sealed class ReadOnlyIndexSession : IDisposable
                 : LastIndexUtc;
         }
 
-        // The word "indexed" is load-bearing in both branches: this probe compares the files
-        // already in the index and does not go looking for new ones, so neither sentence may
+        // The word "indexed" is load-bearing in every branch: this probe compares the files
+        // already in the index and does not go looking for new ones, so no sentence here may
         // claim anything about the workspace as a whole.
-        var drift = CurrentStaleness() switch
+        //
+        // The advice is attached to drift rather than printed unconditionally (M28.1). It
+        // used to follow every header, so the first `stats` after a successful `reindex` read
+        // "997 indexed files unchanged on disk — call reindex to refresh": an instruction to
+        // repeat the thing just done, in the same breath as the evidence that it worked. A
+        // reader who follows it once and sees nothing change learns to skip the whole line,
+        // and the line is where drift gets reported.
+        var (drift, advice) = CurrentStaleness() switch
         {
             // Nothing measurable: say only what is known rather than implying a clean disk.
-            null => string.Empty,
-            { IsStale: false } clean => $", {clean.Examined:N0} indexed files unchanged on disk",
-            var stale => $", {Describe(stale)}",
+            null => (string.Empty, string.Empty),
+            { IsStale: false } clean => ($", {clean.Examined:N0} indexed files unchanged on disk", string.Empty),
+            var stale => ($", {Describe(stale)}", " — run 'codeanalyzer index' to refresh"),
         };
 
         // "definitions", not "symbols": this counts is_definition rows, while an index run
         // reports every symbol it parsed, prototypes and declarations included. Two honest
         // numbers that differ, so they must not share a word.
-        return $"index: {RootPath} ({DefinitionCount:N0} definitions, built {built}{drift} — "
-            + "run 'codeanalyzer index' to refresh)";
+        return $"index: {RootPath} ({DefinitionCount:N0} definitions, built {built}{drift}{advice})";
     }
 
     private static string Describe(IndexStaleness stale)
