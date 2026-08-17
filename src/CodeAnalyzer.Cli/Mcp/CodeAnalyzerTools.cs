@@ -115,8 +115,9 @@ internal sealed class CodeAnalyzerTools(McpSessionHolder holder)
             include_trivial));
 
     [McpServerTool(Name = "get_callers")]
-    [Description("Who references this symbol, with resolution confidence. "
-        + "include_sites adds each call site's line and verbatim arguments.")]
+    [Description("Who references this symbol, with resolution confidence. Each row's "
+        + "path:line is the caller's first reference site, not its declaration; "
+        + "include_sites adds every site's line and verbatim arguments.")]
     public string GetCallers(
         [Description("Symbol name, path:name, Container.Name, or #id")] string symbol,
         [Description("Also list each individual call site")] bool include_sites = false,
@@ -124,7 +125,9 @@ internal sealed class CodeAnalyzerTools(McpSessionHolder holder)
         RelatedFor(symbol, callers: true, include_sites, cancellationToken);
 
     [McpServerTool(Name = "get_callees")]
-    [Description("What this symbol references, with resolution confidence.")]
+    [Description("What this symbol references, with resolution confidence. Each row's "
+        + "path:line is the callee's declaration; include_sites adds where this symbol "
+        + "calls it.")]
     public string GetCallees(
         [Description("Symbol name, path:name, Container.Name, or #id")] string symbol,
         [Description("Also list each individual call site")] bool include_sites = false,

@@ -498,11 +498,24 @@ public sealed class GraphQueryService(SqliteConnection connection)
         // declaration, and 39.1% of them named a line past the end of the file they pointed
         // at (54.8% on a 1,000-file workspace) — OverloadSql.cs:143 in a file of 86 lines.
         // Where each call was written stays available, and only there: include_sites.
+        //
+        // A caller with several sites shows the FIRST one. MIN, not whichever row the scan
+        // happened to yield: 23.7% of caller rows here (28.1% on the 1,000-file workspace)
+        // have more than one distinct site line, a median of 6 lines apart, and CallerSql
+        // above already answers the same question with MIN(r.line)/MAX(e.confidence) — the
+        // list and the graph should not disagree about a line neither calls arbitrary.
         var located = callers ? "r.line" : "s.start_line";
 
+        // One caller may reference the target many times; list it once per kind. Grouping
+        // here rather than deduplicating after the fetch, because LIMIT applies to whatever
+        // the SELECT emits: over raw rows, one chatty caller eats the row budget and the
+        // listing goes hungry below its own cap — measured before this was grouped, 47 of
+        // the 50 heaviest listings here (383 of 388 there) lost entries that way, the worst
+        // showing 40 of 1,790 while claiming "capped at 100".
         var sql = $"""
-            SELECT s.id, s.name, s.kind, f.rel_path, {located}, r.kind, e.confidence
+            SELECT s.id, s.name, s.kind, f.rel_path, MIN({located}), r.kind, MAX(e.confidence)
             {body}
+            GROUP BY s.id, r.kind
             ORDER BY s.name
             LIMIT $limit
             """;
@@ -522,27 +535,17 @@ public sealed class GraphQueryService(SqliteConnection connection)
         command.Parameters.AddWithValue("$limit", RelatedLimit);
 
         var results = new List<RelatedSymbol>();
-        var seen = new HashSet<(long, int)>();
 
         using var reader = command.ExecuteReader();
         while (reader.Read())
         {
-            var id = reader.GetInt64(0);
-            var referenceKind = reader.GetInt32(5);
-
-            // One caller may reference the target many times; list it once per kind.
-            if (!seen.Add((id, referenceKind)))
-            {
-                continue;
-            }
-
             results.Add(new RelatedSymbol(
-                id,
+                reader.GetInt64(0),
                 reader.GetString(1),
                 (SymbolKind)reader.GetInt32(2),
                 reader.GetString(3),
                 reader.GetInt32(4),
-                (ReferenceKind)referenceKind,
+                (ReferenceKind)reader.GetInt32(5),
                 (EdgeConfidence)reader.GetInt32(6)));
         }
 

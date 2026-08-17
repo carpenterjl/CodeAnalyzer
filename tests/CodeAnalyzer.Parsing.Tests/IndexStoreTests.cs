@@ -227,6 +227,64 @@ public class IndexStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task ACallerWithSeveralSitesIsLocatedAtItsFirst()
+    {
+        // A quarter of caller rows on a real corpus have more than one distinct site line;
+        // the listed one is the first, by contract, not whichever row the scan yielded.
+        WriteFile("alpha/target.c", "int target(void) { return 1; }");
+        WriteFile("beta/caller.c", """
+            int caller(void)
+            {
+                target();
+                target();
+                return target();
+            }
+            """);
+
+        var store = await IndexAsync();
+
+        var search = new SymbolSearchService(store.Connection);
+        search.Reload();
+        var graph = new GraphQueryService(store.Connection);
+
+        var targetId = search.Search("target").First(h => h.Name == "target").SymbolId;
+        var caller = Assert.Single(graph.GetDetail(targetId)!.Callers, c => c.Name == "caller");
+        Assert.Equal(3, caller.Line);
+    }
+
+    [Fact]
+    public async Task AChattyCallerDoesNotStarveTheListBelowItsCap()
+    {
+        // The LIMIT counts entries, not raw reference rows. Before it did, one caller with
+        // more sites than the cap ate the row budget and the list went hungry below its own
+        // cap — 47 of the 50 heaviest listings on this repo lost entries that way.
+        WriteFile("alpha/target.c", "int target(void) { return 1; }");
+        WriteFile("beta/callers.c", """
+            int aaa(void) { target(); target(); target(); target(); target(); return target(); }
+            int bbb(void) { return target(); }
+            int ccc(void) { return target(); }
+            int ddd(void) { return target(); }
+            int eee(void) { return target(); }
+            """);
+
+        var store = await IndexAsync();
+
+        var search = new SymbolSearchService(store.Connection);
+        search.Reload();
+        var graph = new GraphQueryService(store.Connection)
+        {
+            NeighboursPerDirection = 1, // RelatedLimit = 4, below the five callers
+        };
+
+        var targetId = search.Search("target").First(h => h.Name == "target").SymbolId;
+        var detail = graph.GetDetail(targetId)!;
+
+        // aaa's six sites are one entry; the cap has room for three more callers.
+        Assert.Equal(4, detail.Callers.Count);
+        Assert.Equal(5, detail.CallerTotal);
+    }
+
+    [Fact]
     public async Task ExposesStructMembersAsCompositionFacts()
     {
         WriteFile("src/types.c", """

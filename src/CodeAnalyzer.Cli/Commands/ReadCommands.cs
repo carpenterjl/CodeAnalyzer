@@ -33,13 +33,14 @@ internal static class ReadCommands
     public static CommandSpec Callers { get; } = new(
         "callers",
         "callers <symbol> [--sites] [--root path] [--json]",
-        "who references this symbol; --sites adds each call site's line and arguments",
+        "who references this symbol, each row located at its first reference site; "
+            + "--sites adds each call site's line and arguments",
         (args, ct) => RunRelated(args, callers: true, ct));
 
     public static CommandSpec Callees { get; } = new(
         "callees",
         "callees <symbol> [--sites] [--root path] [--json]",
-        "what this symbol references",
+        "what this symbol references, each row located at its declaration",
         (args, ct) => RunRelated(args, callers: false, ct));
 
     public static CommandSpec Trace { get; } = new(

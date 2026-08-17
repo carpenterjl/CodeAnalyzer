@@ -271,7 +271,8 @@ public sealed record EdgeCallSite(
 /// <param name="Line">
 /// A line in <paramref name="RelativePath"/> — which is the invariant, and which is why the
 /// two directions read different columns to satisfy it. On a caller the pair is the call
-/// site: the file is the caller's and the line is where inside it the reference is written.
+/// site — the file is the caller's and the line is where inside it the reference is written,
+/// the FIRST such line when there are several (a quarter of caller rows have more than one).
 /// On a callee the file is the target's, so the pair is the target's declaration; where the
 /// call was written belongs to the symbol being asked about, and comes back with
 /// <c>include_sites</c>. Reading the reference's line for both is what made a callee row
