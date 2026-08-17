@@ -10,8 +10,15 @@ namespace CodeAnalyzer.Parsing.Tests;
 /// The counted-but-never-examined number these tests came from: five rounds of reporting
 /// said "57 files with syntax errors" over a workspace that compiles with no warnings at
 /// all. A count with no position invites the reader to distrust their own source, and on
-/// this project it was wrong to — every flagged C# file trips on one construct the bundled
-/// grammar is older than.
+/// this project it was wrong to — every flagged C# file tripped on one construct the
+/// bundled grammar was older than.
+/// </para>
+/// <para>
+/// M28.3 removed that construct from the list by vendoring a newer grammar, which is why
+/// every fixture here now uses a genuine syntax error instead. The cost of the old
+/// behaviour is worth recording: it was not lost symbols — measured at zero, on this repo
+/// and on the reported shape alike — but lost trust. A reader who correctly noticed 136
+/// truncated files then reasoned from them to a cause that was not there.
 /// </para>
 /// </summary>
 public class ParseErrorLocationTests : IDisposable
@@ -35,11 +42,13 @@ public class ParseErrorLocationTests : IDisposable
     }
 
     [Fact]
-    public void AnEmptyCollectionExpressionIsLocatedAndQuoted()
+    public void AnEmptyCollectionExpressionIsReadWithoutComplaint()
     {
-        // The construct behind every C# file this project flags. The grammar predates it,
-        // recovers, and indexes the file anyway — so the position is the only thing that
-        // can tell the reader the file is fine and the grammar is old.
+        // This test used to assert the opposite, and its inversion is the whole point of
+        // M28.3. `= []` is what flagged 57 of this project's 61 imperfect parses and 119 of
+        // JGraph's 136; the grammar under grammars/csharp reads it. Kept as the regression
+        // guard on the vendored grammar: if a build ever falls back to the NuGet package's
+        // older copy, this is the test that says so.
         var result = Analyze("""
             class A
             {
@@ -47,26 +56,28 @@ public class ParseErrorLocationTests : IDisposable
             }
             """);
 
-        Assert.Equal(FileStatus.ParseError, result.Status);
-        Assert.Equal(3, result.ErrorLine);
-        Assert.Equal("[]", result.ErrorText);
-
-        // Recovered, not failed: no message, and the declaration survives.
-        Assert.Null(result.ErrorMessage);
+        Assert.Equal(FileStatus.Ok, result.Status);
+        Assert.Null(result.ErrorLine);
+        Assert.Null(result.ErrorText);
         Assert.Contains(result.Symbols, s => s.Name == "_x");
     }
 
     [Fact]
     public void TheQuotedTextIsTheInnermostConstructWithAnExtent()
     {
-        // The failing node itself is zero-width — a token the grammar wanted and did not
-        // get. Quoting it would print nothing, so what is quoted is the nearest enclosing
+        // The token the grammar wanted and did not get — here a `;` — is zero-width.
+        // Quoting it would print nothing, so what is quoted is the nearest enclosing
         // construct that has any text, which is what a reader recognises.
-        var result = Analyze("class A { void M() { Use([]); } }");
+        var result = Analyze("""
+            class A
+            {
+                void M() { int x = 1 }
+            }
+            """);
 
         Assert.NotNull(result.ErrorText);
         Assert.DoesNotContain("class A", result.ErrorText);
-        Assert.Contains("[]", result.ErrorText);
+        Assert.Contains("int x = 1", result.ErrorText);
     }
 
     [Fact]
@@ -76,8 +87,8 @@ public class ParseErrorLocationTests : IDisposable
             class A
             {
                 public int Y() => 1;
-                private readonly List<int> _first = [];
-                private readonly List<int> _second = [];
+                void First() { int a = 1 }
+                void Second() { int b = 2 }
             }
             """);
 
@@ -88,7 +99,7 @@ public class ParseErrorLocationTests : IDisposable
     public void AQuoteIsCappedSoOneErrorCannotPrintAFile()
     {
         var wide = new string('x', 400);
-        var result = Analyze($"class A {{ void M() {{ Use([], \"{wide}\"); }} }}");
+        var result = Analyze($"class A {{ void M() {{ int x = \"{wide}\" }} }}");
 
         Assert.NotNull(result.ErrorLine);
         Assert.True(

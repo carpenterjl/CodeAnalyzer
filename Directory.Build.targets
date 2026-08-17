@@ -1,0 +1,35 @@
+<Project>
+
+  <!--
+    The TreeSitter.DotNet package ships a tree-sitter-c-sharp.dll that predates C# 12
+    collection expressions, and 1.3.0 is the newest published version, so there is no
+    upgrade to take. grammars/csharp holds a newer grammar built from vendored source;
+    this copies it over the package's after every build and publish.
+
+    Conditioned on the package's DLL already being in the output, so projects that never
+    reference the parser do not gain a 6 MB native library they have no use for.
+    SkipUnchangedFiles means the copy happens once and incremental builds skip it.
+  -->
+  <PropertyGroup>
+    <VendoredCSharpGrammar>$(MSBuildThisFileDirectory)grammars\csharp\lib\tree-sitter-c-sharp.dll</VendoredCSharpGrammar>
+  </PropertyGroup>
+
+  <Target Name="OverrideBundledCSharpGrammar"
+          AfterTargets="Build"
+          Condition="Exists('$(VendoredCSharpGrammar)') And Exists('$(OutDir)tree-sitter-c-sharp.dll')">
+    <Copy SourceFiles="$(VendoredCSharpGrammar)"
+          DestinationFolder="$(OutDir)"
+          SkipUnchangedFiles="true"
+          OverwriteReadOnlyFiles="true" />
+  </Target>
+
+  <Target Name="OverrideBundledCSharpGrammarOnPublish"
+          AfterTargets="Publish"
+          Condition="Exists('$(VendoredCSharpGrammar)') And Exists('$(PublishDir)tree-sitter-c-sharp.dll')">
+    <Copy SourceFiles="$(VendoredCSharpGrammar)"
+          DestinationFolder="$(PublishDir)"
+          SkipUnchangedFiles="true"
+          OverwriteReadOnlyFiles="true" />
+  </Target>
+
+</Project>

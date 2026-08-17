@@ -254,34 +254,39 @@ public class TreeSitterApiContractTests
     }
 
     [Fact]
-    public void MissingToken_SurfacesOnlyThroughHasError()
+    public void AnErrorIsReachableOnlyByDescendingOnHasError()
     {
         // The binding fact the error locator is built on, and the one that broke its first
-        // cut. A token the grammar expected and did not find does NOT arrive as a node
-        // reporting IsMissing or IsError: it arrives as an ordinary childless node of some
-        // ordinary type, empty, with HasError set and the other two flags clear. Anything
-        // that descends a tree looking for IsError or IsMissing walks off the end and
-        // concludes the file is fine.
+        // cut: the flag that marks the *path* to a problem is HasError, and it is the only
+        // one set on the nodes above it. A walker that looks for IsError or IsMissing at
+        // the root — or at any ancestor — finds neither and concludes the file is fine.
+        //
+        // The original fixture was a C# 12 collection expression, which produced a stranger
+        // shape still: a childless, zero-width node with HasError set and IsError and
+        // IsMissing both clear. M28.3's grammar parses that construct, so the shape is no
+        // longer reachable from C#; what survives, and is what the locator actually needs,
+        // is the ancestor property asserted below.
         using var language = new Language("C#");
         using var parser = new Parser(language);
 
-        // A C# 12 collection expression, which this bundled grammar predates.
-        using var tree = parser.Parse("class A { private readonly List<int> _x = []; }")!;
+        using var tree = parser.Parse("class A\n{\n    void M() { int x = 1 }\n}")!;
 
+        // The root knows something is wrong, and says so through HasError alone.
         Assert.True(tree.RootNode.HasError);
+        Assert.False(tree.RootNode.IsError);
+        Assert.False(tree.RootNode.IsMissing);
 
         // Descend on HasError alone, to the innermost node that still reports one.
         var node = tree.RootNode;
+        var depth = 0;
         while (node.Children.FirstOrDefault(c => c.HasError) is { } child)
         {
             node = child;
+            depth++;
         }
 
-        Assert.Empty(node.Children);
+        Assert.True(depth > 0, "the error was not below the root, so the descent proves nothing");
         Assert.True(node.HasError);
-        Assert.False(node.IsError);
-        Assert.False(node.IsMissing);
-        Assert.True(string.IsNullOrEmpty(node.Text));
     }
 
     [Fact]

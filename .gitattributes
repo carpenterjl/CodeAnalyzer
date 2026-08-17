@@ -1,0 +1,4 @@
+# The vendored grammar is upstream's bytes. Line-ending normalisation would rewrite 32 MB
+# of generated C on every checkout and leave the working tree differing from the source it
+# was taken from, which is the one property that makes vendoring worth doing.
+grammars/csharp/vendor/** -text

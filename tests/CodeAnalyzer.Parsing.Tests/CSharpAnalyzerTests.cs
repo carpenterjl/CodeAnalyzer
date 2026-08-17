@@ -143,9 +143,10 @@ public class CSharpAnalyzerTests() : LanguagePackFixture(LanguageRegistry.CSharp
     [Fact]
     public void ACollectionExpressionInitialiserDoesNotEraseTheDeclaration()
     {
-        // The bundled grammar predates C# 12 and cannot parse `= []`. The declaration
-        // around it is still perfectly readable, and dropping it would lose a member from
-        // most modern C# files — including this project's own.
+        // The declaration around `= []` always survived — that was measured before the
+        // grammar was replaced and it never was the problem. What changed in M28.3 is that
+        // the file is no longer *reported* as imperfect for containing one, so a reader is
+        // no longer invited to doubt counts drawn from it.
         var result = Analyze("""
             public class Holder
             {
@@ -155,7 +156,7 @@ public class CSharpAnalyzerTests() : LanguagePackFixture(LanguageRegistry.CSharp
             }
             """);
 
-        Assert.Equal(FileStatus.ParseError, result.Status);
+        Assert.Equal(FileStatus.Ok, result.Status);
 
         var values = Symbol(result, "Values");
         Assert.Equal(SymbolKind.Property, values.Kind);

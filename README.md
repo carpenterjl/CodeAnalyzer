@@ -143,11 +143,44 @@ For AI agents, the MCP server exposes the same queries as tools
 (`search_symbols`, `get_symbol`, `get_context`, `get_callers`, `get_callees`,
 `trace_paths`, `repo_map`, `file_outline`, `io_boundaries`, `find_by_value`,
 `shared_constants`, `parse_errors`, `stats`, `reindex`). This
-repo's `.mcp.json` registers it for Claude Code; elsewhere:
+repo's `.mcp.json` registers it for Claude Code.
+
+### Using it on every other repository
+
+Install a copy outside this tree and register it once, for all projects:
 
 ```bash
-claude mcp add codeanalyzer -- codeanalyzer mcp --root "C:\some\repo"
+powershell -ExecutionPolicy Bypass -File tools\install-codeanalyzer.ps1
 ```
+
+```bash
+claude mcp add codeanalyzer --scope user -- "%LOCALAPPDATA%\CodeAnalyzer\bin\codeanalyzer.exe" mcp
+```
+
+No `--root`: it defaults to the working directory, and a client launches an stdio server in
+the project directory, so one registration serves every repository you open. Nothing is
+written into those repositories — the index lives under `%LOCALAPPDATA%\CodeAnalyzer\`, keyed
+by a hash of the workspace path. A repo with no cache yet is not an error: every tool answers
+with the way out, and `reindex` builds it.
+
+**Scope precedence is `local` > `user` > `project`** — measured against the client, not assumed,
+because the natural guess is wrong. A user-scope registration therefore *shadows* this repo's
+`.mcp.json`. That matters here specifically: developing the tool means the server must launch
+from `.mcp\server\`, so register that one at local scope, which outranks both:
+
+```bash
+claude mcp add codeanalyzer --scope local -- "<repo>\.mcp\server\codeanalyzer.exe" mcp --root .
+```
+
+The two published copies answer to different masters and that is the point. `.mcp\server\` is
+the development copy, replaced whenever you want the server to see a change you just made. The
+installed copy is the field copy, held open for hours by sessions on unrelated codebases. One
+folder for both means every publish here fails on a lock held elsewhere, and every refresh here
+silently changes the tool another session is mid-report on. Re-run `install-codeanalyzer.ps1`
+to promote a landed build into the field.
+
+Reports from those sessions collect in [`dogfood/`](dogfood/), which exists because twelve
+rounds of this tool were ranked from a single corpus — this repository.
 
 **Point the server at a published copy, never at `bin/`.** A running server holds its own
 binaries open, so if it launches out of a build directory you cannot rebuild the project
@@ -206,6 +239,8 @@ tools/CodeAnalyzer.Bench/   Throughput harness
 tools/CodeAnalyzer.BindingCheck/  Resolves every XAML {Binding} and event handler against
                             the compiled app, with a deliberately-wrong selftest fixture
 samples/c-demo/             7-file C workspace for manual end-to-end testing
+dogfood/                    Field reports from sessions using the tool on other codebases,
+                            plus the template and the rules a report is held to
 ```
 
 ## How it works
@@ -217,11 +252,19 @@ sits inside, not the file.
 
 A file the parser stumbled on is usually not a broken file. `codeanalyzer errors` lists
 them with the line and the construct, and leads with a tally, because the tally is normally
-the whole story: on this repo it reads `53 × C# []` — every flagged C# file holds a C# 12
-collection expression, which the bundled grammar predates. All of them compile, and all of
-them index. The remaining four are WPF property elements (`<Grid.RowDefinitions>`), which
-the XAML grammar reads as a tag plus an error. Neither is a defect in the source, and
-neither is fixable here: 1.3.0 is the newest published TreeSitter.DotNet.
+the whole story. For five rounds that tally read `57 × C# []` — every flagged C# file held
+a C# 12 collection expression, which the bundled grammar predated. All of them compiled,
+and all of them indexed: the cost was measured at **zero symbols**, on this repo and on the
+shape a field report blamed for an undercount alike.
+
+Zero symbols is not zero cost. A tool that reports 61 imperfect parses over a workspace
+that compiles cleanly teaches its reader to distrust every count it prints, and the
+2026-08-17 JGraph report shows where that ends — a correct observation (39 of the 41 files
+using a type were flagged) reasoned into a cause that was not there. So the grammar was
+replaced rather than explained again: [`grammars/csharp`](grammars/csharp) builds a current
+tree-sitter-c-sharp from vendored source, and the tally is now `4 × XAML property element`.
+Those four are `<Grid.RowDefinitions>` and friends, which the borrowed HTML grammar reads
+as a tag plus an error, and they are not a defect in the source either.
 
 A run also compares the index's **links per file** against the previous run's and says so
 when it multiplies, naming the files that account for it. The measure is deliberately not
@@ -268,8 +311,12 @@ worse than one that admits the gap.
   row per file, so the halves look like two containers.
 - **Two same-named functions in different C files** are deliberately not treated as an
   overload set. C has no overloading, and calling them one would be an invention.
-- The bundled **C# grammar predates collection expressions** (`= []`), which costs the
-  declarations containing them.
+- **The C# grammar is vendored, not packaged.** TreeSitter.DotNet's copy predates C# 12
+  collection expressions and 1.3.0 is the newest published version, so
+  [`grammars/csharp`](grammars/csharp) carries a current one built from source and
+  `Directory.Build.targets` copies it over the package's in every output. If a build ever
+  falls back to the package's copy, `AnEmptyCollectionExpressionIsReadWithoutComplaint`
+  fails.
 - The bundled **Verilog grammar** mis-parses a bare subroutine-call statement (`load(1);`).
   The call site is dropped rather than turned into a phantom variable. Calls inside an
   expression are fine.
