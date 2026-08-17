@@ -317,12 +317,19 @@ worse than one that admits the gap.
   row per file, so the halves look like two containers.
 - **Two same-named functions in different C files** are deliberately not treated as an
   overload set. C has no overloading, and calling them one would be an invention.
-- **The C# grammar is vendored, not packaged.** TreeSitter.DotNet's copy predates C# 12
-  collection expressions and 1.3.0 is the newest published version, so
-  [`grammars/csharp`](grammars/csharp) carries a current one built from source and
-  `Directory.Build.targets` copies it over the package's in every output. If a build ever
-  falls back to the package's copy, `AnEmptyCollectionExpressionIsReadWithoutComplaint`
-  fails.
+- **Two grammars are built here rather than taken from the package.**
+  [`grammars/csharp`](grammars/csharp) is a current tree-sitter-c-sharp, because
+  TreeSitter.DotNet's copy predates C# 12 collection expressions and 1.3.0 is the newest
+  published version. [`grammars/xaml`](grammars/xaml) is tree-sitter-html compiled again with
+  its tag table switched off, because `<Style>` is a raw-text element in HTML and XAML puts
+  markup inside one. `Directory.Build.targets` copies both into every output. If a build falls
+  back to the packaged copies, `AnEmptyCollectionExpressionIsReadWithoutComplaint` and
+  `ADeclarationInsideAStyleElementSurvives` are what fail.
+- **A C# local named `required` cannot be a receiver.** C# 11 made the word a member modifier
+  and the vendored grammar reads it as one wherever it appears, so `required.AddRange(…)` lands
+  in `errors` as an imperfect parse. Measured against seven contextual keywords — `file`,
+  `scoped`, `record`, `init`, `dynamic` and `nint` are all fine, and `required` is not. Rename
+  the local; it is not worth patching a grammar over.
 - The bundled **Verilog grammar** mis-parses a bare subroutine-call statement (`load(1);`).
   The call site is dropped rather than turned into a phantom variable. Calls inside an
   expression are fine.
@@ -349,15 +356,21 @@ worse than one that admits the gap.
   without that rule took it from 11,236 links to 306,922 and a re-index from 0.6 s to
   138 s, essentially all of it three vendored bundles. The rule is the naming convention
   only — no line-length heuristic, which would eventually refuse a real file.
-- **XAML is read with the HTML grammar**, because the bundle has no XAML or XML one. The two
-  agree on elements, attributes and quoted values, which is everything the pack reads: an
-  element's `x:Name`, `Name` or `x:Key` is a declaration and its tag is the type, exactly as
-  an `id` is in HTML. Three things follow from the borrowing and are stated wherever they
-  show. A property element (`<Grid.RowDefinitions>`) is valid XAML and invalid HTML, so the
-  parser reports it — names around and inside it are still indexed, and the error list says
-  what actually happened instead of blaming the file. A `<Style>` is HTML's CSS `<style>`, so
-  its `Setter`s arrive as one opaque blob; the Style's own `x:Key` survives, which is the part
-  anything refers to. A markup extension is still a single attribute value to this grammar,
+- **XAML is read with a grammar derived from HTML's**, because the bundle has no XAML or XML
+  one — [`grammars/xaml`](grammars/xaml) is tree-sitter-html compiled again with HTML's tag
+  table switched off. The two languages agree on elements, attributes and quoted values, which
+  is everything the pack reads: an element's `x:Name`, `Name` or `x:Key` is a declaration and
+  its tag is the type, exactly as an `id` is in HTML. What they do **not** agree on is what
+  certain tag names mean, and this entry used to say so and wave it away: "a `<Style>` is
+  HTML's CSS `<style>`, so its `Setter`s arrive as one opaque blob; the Style's own `x:Key`
+  survives, which is the part anything refers to". The first half was right and the second was
+  never measured. Everything inside a `<Style>` was being discarded — 33 declarations in this
+  repo's own `Themes/Controls.xaml`, every `x:Name` on a template part — with no error raised,
+  because a raw-text element is not a parse failure. The variant grammar ends that; see its
+  README for the one-line diff. A property element (`<Grid.RowDefinitions>`) is still valid
+  XAML and invalid HTML, so the parser still reports it, and that one really does cost nothing:
+  measured after the fix, `Controls.xaml` declares 92 names and indexes 93. A markup extension
+  is still a single attribute value to this grammar,
   but it is read (M19.3): `{Binding Search.Query}` becomes a binding reference named by its
   first path segment and `{StaticResource PanelBrush}` a resource reference named by its key,
   each resolving at the confidence it deserves — a binding path is at best a cross-language
