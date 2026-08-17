@@ -1034,11 +1034,25 @@ public sealed class ReferenceResolver(SqliteConnection connection)
     /// and 966 against 449 on the second.
     /// </para>
     /// <para>
-    /// The 907 it costs are real and are the reason the test is on the identifier's shape.
-    /// A receiver that names nothing is usually an external type, but it can also be a
-    /// binding form this parser does not index — a lambda parameter, chiefly, as in
-    /// <c>Members.Select(m => m.Name)</c>. Those resolve correctly today and stop doing so
-    /// here. The trade was taken on the ratio and on which way the errors point: a missing
+    /// What it costs was enumerated rather than estimated, because the first account of it
+    /// was wrong in both directions. The population is the references this refuses whose
+    /// member name IS declared here — the ones that used to draw a bare-name edge:
+    /// 1,090 here and 13,791 on a 1,000-file workspace. Classified from the source of the
+    /// file each was written in, the great majority are external types the rule is right
+    /// about: <c>Assert</c> alone is 331 here and 7,870 there, then <c>Math</c>,
+    /// <c>Console</c>, <c>Task</c>, <c>StringComparison</c>. A receiver that is genuinely a
+    /// binding form this parser does not index — a lambda parameter, as in
+    /// <c>Members.Select(m =&gt; m.Name)</c> — accounts for 321 of the 1,090 here and
+    /// <b>none at all</b> of the 13,791 there. Of this workspace's 321, 248 are JavaScript
+    /// and 224 are inside vendored libraries under <c>wwwroot/lib</c>.
+    /// </para>
+    /// <para>
+    /// Capturing those binders would not fix them, and the reason is this rule's own shape:
+    /// the existence test is unscoped, so one lambda parameter named <c>m</c> anywhere
+    /// would re-admit every <c>m.Something</c> in the workspace. The C# pack already
+    /// declines them for a separate reason written at its own use site — an implicit lambda
+    /// parameter carries no declared type, so it would add a bare name with nothing to say.
+    /// The trade stands, and stands more cheaply than it was first reported: a missing
     /// caller is a gap a reader can see, and a fabricated one is a fact they cannot.
     /// </para>
     /// <para>
