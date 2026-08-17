@@ -127,6 +127,34 @@ public sealed class IndexStalenessTests : IDisposable
         Assert.Contains("1 imperfect parses (see: errors)", line);
     }
 
+    [Fact]
+    public void TheRunTallyAndTheHeaderAgreeOnWhatADefinitionIs()
+    {
+        // Two numbers were both called "symbols": the index line printed what the parse
+        // yielded, the header prints what the index holds as definitions, and the gap is
+        // the non-definition rows — 38 on this repo, 102 on a 1,000-file workspace. A
+        // reader comparing them had nothing telling them the words meant different things.
+        //
+        // A prototype is the cheapest way to make the two disagree: it is a symbol row and
+        // not a definition. The whole workspace has to be re-parsed for the comparison to
+        // mean anything — on an incremental run SymbolsFound counts only what this run
+        // touched, which is the trap the first draft of the fix fell into.
+        Write("d.h", "int measure(int a);\nint measure(int a) { return a; }\n");
+
+        using var session = WorkspaceSession.Open(_root, new TreeSitterAnalyzerFactory());
+        var result = session.IndexAsync([], progress: null, CancellationToken.None, full: true)
+            .GetAwaiter().GetResult();
+
+        Assert.True(
+            result.Outcome.SymbolsFound > result.SymbolsStored,
+            $"the fixture must produce a non-definition row: parsed {result.Outcome.SymbolsFound}, "
+            + $"stored {result.SymbolsStored}");
+
+        // And the header's count is the definitions one, which is the number the run must
+        // now name as such rather than calling it "symbols" too.
+        Assert.Contains($"{result.SymbolsStored:N0} definitions", Open().DescribeIndex());
+    }
+
     private void ReIndex()
     {
         using var session = WorkspaceSession.Open(_root, new TreeSitterAnalyzerFactory());

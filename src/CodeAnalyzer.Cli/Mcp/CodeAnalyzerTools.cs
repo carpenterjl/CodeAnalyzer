@@ -225,10 +225,16 @@ internal sealed class CodeAnalyzerTools(McpSessionHolder holder)
             }
 
             var outcome = result.Outcome;
+
+            // The same reconciliation the CLI's index line carries, and worded the same way:
+            // the first figure is this run's parses, the second is what the index holds, and
+            // `stats` reports the second. Both populations are named because an incremental
+            // run makes them differ for a reason that has nothing to do with prototypes.
             return $"indexed {holder.RootPath}: {outcome.FilesParsed} parsed, "
                 + $"{outcome.FilesUnchanged} unchanged, {outcome.FilesFailed} failed, "
                 + $"{outcome.FilesWithSyntaxErrors} with syntax errors, {result.FilesRemoved} removed · "
-                + $"{outcome.SymbolsFound:N0} symbols, {result.EdgesCreated:N0} links "
+                + $"{outcome.SymbolsFound:N0} symbols parsed, index holds "
+                + $"{result.SymbolsStored:N0} definitions and {result.EdgesCreated:N0} links, "
                 + $"in {result.Elapsed.TotalSeconds:0.0}s";
         }
         catch (SqliteException e)

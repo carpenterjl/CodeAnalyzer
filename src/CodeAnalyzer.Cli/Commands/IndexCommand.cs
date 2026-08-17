@@ -77,16 +77,31 @@ internal static class IndexCommand
             {
                 Console.WriteLine(
                     $"indexed {root}: all {outcome.FilesUnchanged} files up to date — "
-                    + $"index holds {result.SymbolsStored:N0} symbols, {result.EdgesCreated:N0} links "
+                    + $"index holds {result.SymbolsStored:N0} definitions, {result.EdgesCreated:N0} links "
                     + $"(checked in {result.Elapsed.TotalSeconds:0.0}s)");
             }
             else
             {
+                // Two numbers were both called "symbols" and differed: this line printed
+                // what the parse yielded, and stats prints what the index holds as
+                // definitions. The gap is the non-definition rows — 38 here (34 method
+                // prototypes, 4 function declarations), 102 on a 1,000-file workspace —
+                // and a reader comparing the two had no way to know that. Same defect
+                // M25.3 fixed for "imports", and the same fix: say which is which, on the
+                // surface where they meet.
+                //
+                // Both halves have to be worded, not just one. The first draft printed
+                // "N symbols (M definitions)" and a test caught it immediately: SymbolsFound
+                // counts only THIS run's parses while SymbolsStored is the whole index, so
+                // on an incremental run the parenthesis compared unrelated numbers and would
+                // have read as arithmetic. Naming each one's population makes it true on a
+                // full run and a one-file refresh alike.
                 Console.WriteLine(
                     $"indexed {root}: {outcome.FilesParsed} parsed, {outcome.FilesUnchanged} unchanged, "
                     + $"{outcome.FilesFailed} failed, {outcome.FilesWithSyntaxErrors} with syntax errors, "
-                    + $"{result.FilesRemoved} removed · {outcome.SymbolsFound:N0} symbols, "
-                    + $"{result.EdgesCreated:N0} links in {result.Elapsed.TotalSeconds:0.0}s");
+                    + $"{result.FilesRemoved} removed · {outcome.SymbolsFound:N0} symbols parsed, "
+                    + $"index holds {result.SymbolsStored:N0} definitions and "
+                    + $"{result.EdgesCreated:N0} links, in {result.Elapsed.TotalSeconds:0.0}s");
             }
 
             // Not suppressed by --quiet: the summary is the answer, and if the index just
