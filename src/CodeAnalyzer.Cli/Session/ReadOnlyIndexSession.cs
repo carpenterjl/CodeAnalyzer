@@ -81,6 +81,16 @@ internal sealed class ReadOnlyIndexSession : IDisposable
     /// <summary>Definitions in the index, for the header line.</summary>
     public int DefinitionCount { get; private set; }
 
+    /// <summary>
+    /// Files the parser could not fully read. On the header line because every count this
+    /// tool prints is drawn from what parsed, and until M28.4 no per-symbol answer said so:
+    /// `stats` and `errors` both reported the number, and `get_callers` — the command whose
+    /// answer is a count — did not. The JGraph field report is what that costs. A reader saw
+    /// 22 callers formatted exactly like a complete answer, had already read "136 imperfect
+    /// parses" in another command's output, and had nothing in front of them joining the two.
+    /// </summary>
+    public int ImperfectParseCount { get; private set; }
+
     public static IndexOpenResult TryOpen(string rootPath)
     {
         var fullRoot = Path.GetFullPath(rootPath)
@@ -180,6 +190,10 @@ internal sealed class ReadOnlyIndexSession : IDisposable
         using var command = Connection.CreateCommand();
         command.CommandText = "SELECT COUNT(*) FROM symbol WHERE is_definition = 1";
         DefinitionCount = Convert.ToInt32(command.ExecuteScalar() ?? 0);
+
+        using var imperfect = Connection.CreateCommand();
+        imperfect.CommandText = "SELECT COUNT(*) FROM file WHERE error_line IS NOT NULL";
+        ImperfectParseCount = Convert.ToInt32(imperfect.ExecuteScalar() ?? 0);
     }
 
     /// <summary>
@@ -249,10 +263,22 @@ internal sealed class ReadOnlyIndexSession : IDisposable
             var stale => ($", {Describe(stale)}", " — run 'codeanalyzer index' to refresh"),
         };
 
+        // Deliberately a count and a pointer, not a per-symbol claim (M28.4). The specific
+        // form the field report asked for — "N of the files referencing this were truncated"
+        // — cannot be said honestly: a truncated file's references are not in the index, so
+        // nothing knows they would have referenced anything. Approximating it by searching
+        // truncated files for the symbol's name was measured and rejected: it would have
+        // labelled 452 of this repo's 4,935 definition names, including 266 from a file that
+        // lost nothing at all. A warning that wrong that often is the one a reader learns to
+        // skip — which is the failure this whole item exists to prevent.
+        var imperfect = ImperfectParseCount > 0
+            ? $", {ImperfectParseCount:N0} imperfect parses (see: errors)"
+            : string.Empty;
+
         // "definitions", not "symbols": this counts is_definition rows, while an index run
         // reports every symbol it parsed, prototypes and declarations included. Two honest
         // numbers that differ, so they must not share a word.
-        return $"index: {RootPath} ({DefinitionCount:N0} definitions, built {built}{drift}{advice})";
+        return $"index: {RootPath} ({DefinitionCount:N0} definitions{imperfect}, built {built}{drift}{advice})";
     }
 
     private static string Describe(IndexStaleness stale)

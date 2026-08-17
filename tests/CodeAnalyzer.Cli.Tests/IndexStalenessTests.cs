@@ -8,9 +8,9 @@ using Xunit;
 namespace CodeAnalyzer.Cli.Tests;
 
 /// <summary>
-/// The drift count on the provenance line. These tests edit and delete files, so they get
-/// their own workspace rather than the shared fixture every other class in the collection
-/// reads from.
+/// The provenance line: how far the index has drifted, and how much of it the parser could
+/// not fully read. These tests edit and delete files, so they get their own workspace rather
+/// than the shared fixture every other class in the collection reads from.
 /// </summary>
 public sealed class IndexStalenessTests : IDisposable
 {
@@ -100,6 +100,37 @@ public sealed class IndexStalenessTests : IDisposable
         // sentence. Advice nobody can act on is what teaches a reader to skip the line that
         // carries the drift count.
         Assert.DoesNotContain("to refresh", session.DescribeIndex());
+    }
+
+    [Fact]
+    public void AWorkspaceTheParserReadWholeSaysNothingAboutImperfectParses()
+    {
+        using var session = Open();
+
+        // Absence is the point: a clause that prints "0 imperfect parses" on every answer
+        // is the same noise as advice nobody can act on.
+        Assert.DoesNotContain("imperfect", session.DescribeIndex());
+    }
+
+    [Fact]
+    public void TheHeaderCarriesTheImperfectParseCountEveryAnswerIsDrawnFrom()
+    {
+        // M28.4. `stats` and `errors` both reported this number; `get_callers`, whose whole
+        // answer is a count, did not — so a reader could hold "136 files truncated" and
+        // "22 callers" in the same session with nothing joining them. Every command prints
+        // this header, so every count now arrives beside the reason it might be short.
+        Write("c.cs", "class A\n{\n    void M() { int x = 1 }\n}\n");
+        ReIndex();
+
+        var line = Open().DescribeIndex();
+
+        Assert.Contains("1 imperfect parses (see: errors)", line);
+    }
+
+    private void ReIndex()
+    {
+        using var session = WorkspaceSession.Open(_root, new TreeSitterAnalyzerFactory());
+        session.IndexAsync([]).GetAwaiter().GetResult();
     }
 
     private ReadOnlyIndexSession Open()

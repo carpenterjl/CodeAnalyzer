@@ -132,8 +132,14 @@ two same-named types anywhere still are one. Every command takes `--root <path>`
 current directory), `--json`, and `--quiet`. Reads never index implicitly — `index` is the
 only writer.
 
-Every command prints a one-line provenance header naming the index, its size, when it was
-built and how far it has drifted since. It goes to **stdout at a terminal** and to **stderr
+Every command prints a one-line provenance header naming the index, its size, how much of it
+the parser could not fully read, when it was built and how far it has drifted since. The
+imperfect-parse count is there because every count this tool prints is drawn from what
+parsed, and `get_callers` — whose entire answer is a count — used to say nothing about it
+while `stats` and `errors` both did. The advice to re-index appears only when files have
+actually moved; "nothing has changed" is not a reason to rebuild.
+
+It goes to **stdout at a terminal** and to **stderr
 when stdout is redirected or `--json` was asked for**, so a pipe only ever receives the
 answer while a human never sees a successful query painted as an error by a shell that
 colours stderr red. `--quiet` drops it entirely — and on `index`, drops the progress lines

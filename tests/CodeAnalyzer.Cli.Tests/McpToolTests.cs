@@ -23,10 +23,15 @@ public class McpToolTests(CliWorkspaceFixture fixture)
         // fixture is freshly indexed, so it carries no advice to rebuild it: since M28.1 the
         // "call reindex" line is attached to drift, and drift is what the agent can act on.
         Assert.StartsWith("[index:", text);
-        Assert.Contains("definitions, built ", text);
+        Assert.Contains(" definitions", text);
+        Assert.Contains(", built ", text);
         Assert.Contains("indexed files unchanged on disk", text);
         Assert.DoesNotContain("to refresh", text);
         Assert.Contains("uart_init", text);
+
+        // This fixture holds a deliberately broken file, so the vintage carries M28.4's
+        // clause too — the count every answer below it is drawn from.
+        Assert.Contains("imperfect parses (see: errors)", text);
     }
 
     [Fact]
