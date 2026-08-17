@@ -159,14 +159,19 @@ internal static class JsonFormatter
         IReadOnlyList<RelatedSymbol> related,
         string direction,
         int listCap,
-        IReadOnlyDictionary<long, List<EdgeCallSite>>? sites) =>
+        IReadOnlyDictionary<long, List<EdgeCallSite>>? sites,
+        int total = 0) =>
         JsonSerializer.Serialize(new
         {
             index = Index(session),
             focus = Located(focus),
             direction,
             listCap,
-            listCapped = related.Count >= listCap,
+            // listCapped was computed from the list's own length, which cannot see a
+            // truncation whose cut rows would have collapsed into entries already listed.
+            // relatedTotal is counted over the same predicate as the listing.
+            relatedTotal = total,
+            listCapped = total > related.Count || related.Count >= listCap,
             related = related.Select(r => new
             {
                 id = r.Id,

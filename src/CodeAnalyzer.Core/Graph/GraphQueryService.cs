@@ -334,18 +334,21 @@ public sealed class GraphQueryService(SqliteConnection connection)
         }
 
         var callers = LoadRelated(symbolId, callers: true);
+        var callees = LoadRelated(symbolId, callers: false);
 
         return detail with
         {
             Overloads = LoadOverloads(symbolId),
             Members = LoadMembers(symbolId),
-            Callers = callers,
-            Callees = LoadRelated(symbolId, callers: false),
+            Callers = callers.Listed,
+            CallerTotal = callers.Total,
+            Callees = callees.Listed,
+            CalleeTotal = callees.Total,
             UnresolvedReferences = LoadUnresolved(symbolId),
             BaseTypes = LoadBaseTypes(symbolId),
             // Already loaded — a derived type is a caller whose reference is an inherit.
             // Filtered rather than re-queried so the sheet and the caller list agree.
-            DerivedTypes = callers.Where(c => c.ReferenceKind == ReferenceKind.Inherit).ToList(),
+            DerivedTypes = callers.Listed.Where(c => c.ReferenceKind == ReferenceKind.Inherit).ToList(),
         };
     }
 
@@ -463,31 +466,44 @@ public sealed class GraphQueryService(SqliteConnection connection)
     /// the same rule as the graph edges, so what the pane lists and what the canvas draws
     /// cannot disagree; those names appear under Members instead.
     /// </summary>
-    private List<RelatedSymbol> LoadRelated(long symbolId, bool callers)
+    private (List<RelatedSymbol> Listed, int Total) LoadRelated(long symbolId, bool callers)
     {
-        var sql = callers
+        // Split at the projection so the count and the listing share one FROM/WHERE. A
+        // second, hand-copied predicate is how a total comes to describe a population the
+        // list does not, and this total exists precisely to be trusted against the list.
+        var body = callers
             ? """
-              SELECT s.id, s.name, s.kind, f.rel_path, r.line, r.kind, e.confidence
               FROM edge e
               JOIN ref r ON r.id = e.ref_id
               JOIN symbol s ON s.id = r.from_symbol_id
               JOIN file f ON f.id = s.file_id
               WHERE e.target_symbol_id = $symbolId AND s.id <> $symbolId
                 AND s.id IS NOT (SELECT container_id FROM symbol WHERE id = $symbolId)
-              ORDER BY s.name
-              LIMIT $limit
               """
             : """
-              SELECT s.id, s.name, s.kind, f.rel_path, r.line, r.kind, e.confidence
               FROM ref r
               JOIN edge e ON e.ref_id = r.id
               JOIN symbol s ON s.id = e.target_symbol_id
               JOIN file f ON f.id = s.file_id
               WHERE r.from_symbol_id = $symbolId AND s.id <> $symbolId
                 AND s.container_id IS NOT $symbolId
-              ORDER BY s.name
-              LIMIT $limit
               """;
+
+        var sql = $"""
+            SELECT s.id, s.name, s.kind, f.rel_path, r.line, r.kind, e.confidence
+            {body}
+            ORDER BY s.name
+            LIMIT $limit
+            """;
+
+        // COUNT(DISTINCT s.id || ':' || r.kind) rather than COUNT(*): the reader below keeps
+        // one entry per caller and reference kind, and the count has to agree with the list
+        // it is quoted beside. SQLite's COUNT(DISTINCT ...) takes a single expression, hence
+        // the concatenation.
+        using var counter = connection.CreateCommand();
+        counter.CommandText = $"SELECT COUNT(DISTINCT s.id || ':' || r.kind) {body}";
+        counter.Parameters.AddWithValue("$symbolId", symbolId);
+        var total = Convert.ToInt32(counter.ExecuteScalar() ?? 0);
 
         using var command = connection.CreateCommand();
         command.CommandText = sql;
@@ -519,7 +535,7 @@ public sealed class GraphQueryService(SqliteConnection connection)
                 (EdgeConfidence)reader.GetInt32(6)));
         }
 
-        return results;
+        return (results, total);
     }
 
     /// <summary>

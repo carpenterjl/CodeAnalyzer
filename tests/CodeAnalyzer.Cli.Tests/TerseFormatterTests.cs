@@ -355,6 +355,57 @@ public class TerseFormatterTests
     }
 
     /// <summary>
+    /// The cap says how much it cut. A field report on another codebase read
+    /// "… list capped at 100 per direction" and could not tell 101 from 1,010 without
+    /// leaving the tool for grep.
+    /// </summary>
+    [Fact]
+    public void ACappedListSaysHowManyItIsShowingOf()
+    {
+        var entries = Enumerable.Range(0, 100)
+            .Select(i => new RelatedSymbol(i, $"caller{i}", SymbolKind.Method, "c.cs", i,
+                ReferenceKind.Call, EdgeConfidence.Unique))
+            .ToList();
+
+        var text = TerseFormatter.Related(From, entries, TerseFormatter.Callers, 100, null, total: 412);
+
+        Assert.Contains("showing 100 of 412", text);
+    }
+
+    /// <summary>
+    /// And it says so even when the list came back shorter than the cap, which is the case
+    /// the old length test could not see. The LIMIT applies to rows and the list holds one
+    /// entry per caller and reference kind, so a symbol whose callers reference it many
+    /// times loses entries while never reaching the cap: measured on this repo,
+    /// <c>OverloadSql.Count</c> listed 51 of 174 and announced nothing at all.
+    /// </summary>
+    [Fact]
+    public void AShortListThatWasStillTruncatedSaysSo()
+    {
+        var entries = Enumerable.Range(0, 51)
+            .Select(i => new RelatedSymbol(i, $"caller{i}", SymbolKind.Method, "c.cs", i,
+                ReferenceKind.Call, EdgeConfidence.Unique))
+            .ToList();
+
+        var text = TerseFormatter.Related(From, entries, TerseFormatter.Callers, 100, null, total: 174);
+
+        Assert.Contains("showing 51 of 174", text);
+    }
+
+    /// <summary>Nothing cut, nothing said.</summary>
+    [Fact]
+    public void ACompleteListMentionsNoCap()
+    {
+        var entry = new RelatedSymbol(3, "caller", SymbolKind.Method, "c.cs", 4,
+            ReferenceKind.Call, EdgeConfidence.Unique);
+
+        var text = TerseFormatter.Related(From, [entry], TerseFormatter.Callers, 100, null, total: 1);
+
+        Assert.DoesNotContain("capped", text);
+        Assert.DoesNotContain("showing", text);
+    }
+
+    /// <summary>
     /// A call site line rebuilds the source in source order. The name is what keeps the
     /// receiver's dot attached to something: a use carries no arguments, so without it a
     /// site read <c>:632 SymbolKind.</c> — and a bare use read <c>:454</c> and nothing.

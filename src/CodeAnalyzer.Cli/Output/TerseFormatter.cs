@@ -361,7 +361,8 @@ internal static class TerseFormatter
         IReadOnlyList<RelatedSymbol> related,
         string direction,
         int listCap,
-        IReadOnlyDictionary<long, List<EdgeCallSite>>? sites)
+        IReadOnlyDictionary<long, List<EdgeCallSite>>? sites,
+        int total = 0)
     {
         // Which end of the edge the site text is written against: asking for callers, every
         // site names the focus; asking for callees, each site names that entry.
@@ -399,7 +400,18 @@ internal static class TerseFormatter
             }
         }
 
-        if (related.Count >= listCap)
+        // The cap used to be announced without a size, and tested by comparing the list
+        // length against it. Both were wrong in the same direction. A reader could not tell
+        // 101 from 1,010 without leaving the tool, and the test misses a truncation whenever
+        // the cut rows would have collapsed into entries already listed — the LIMIT applies
+        // to rows, the list holds one entry per caller and reference kind. The total is
+        // counted in SQL over the same predicate, so it answers both.
+        if (total > related.Count)
+        {
+            builder.AppendLine(
+                $"  … showing {related.Count} of {total:n0}, capped at {listCap} per direction");
+        }
+        else if (related.Count >= listCap)
         {
             builder.AppendLine($"  … list capped at {listCap} per direction");
         }

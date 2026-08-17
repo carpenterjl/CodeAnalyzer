@@ -292,10 +292,11 @@ internal static class ReadCommands
 
             var direction = callers ? TerseFormatter.Callers : TerseFormatter.Callees;
             var listCap = toolset.Session.Graph.RelatedLimit;
+            var total = callers ? detail.CallerTotal : detail.CalleeTotal;
 
             Console.WriteLine(args.Switch("json")
-                ? JsonFormatter.RelatedList(toolset.Session, focus, related, direction, listCap, sites)
-                : TerseFormatter.Related(focus, related, direction, listCap, sites));
+                ? JsonFormatter.RelatedList(toolset.Session, focus, related, direction, listCap, sites, total)
+                : TerseFormatter.Related(focus, related, direction, listCap, sites, total));
 
             return Task.FromResult(ExitCodes.Ok);
         });

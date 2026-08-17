@@ -155,6 +155,29 @@ public sealed record SymbolDetail
     public IReadOnlyList<RelatedSymbol> Callers { get; init; } = [];
     public IReadOnlyList<RelatedSymbol> Callees { get; init; } = [];
 
+    /// <summary>
+    /// How many distinct callers and callees exist, as against how many are listed. Equal
+    /// to the list length whenever nothing was cut.
+    /// <para>
+    /// Carried because the cap was announced without a size. A field report on another
+    /// codebase read "… list capped at 100 per direction" and could not tell 101 from 1,010
+    /// without leaving the tool for grep — and "how many" was the question that report's
+    /// predecessor had got wrong.
+    /// </para>
+    /// <para>
+    /// It also fixes a way the cap could bite in silence. The LIMIT applies to rows, and
+    /// rows are then collapsed to one entry per caller and reference kind, so a symbol
+    /// whose callers reference it repeatedly could lose entries while the list came back
+    /// shorter than the cap — and the only test for truncation was list length against the
+    /// cap. Counting the distinct entries in SQL asks the question the list cannot answer
+    /// about itself.
+    /// </para>
+    /// </summary>
+    public int CallerTotal { get; init; }
+
+    /// <inheritdoc cref="CallerTotal"/>
+    public int CalleeTotal { get; init; }
+
     /// <summary>References from this symbol that matched no definition, e.g. libc calls.</summary>
     public IReadOnlyList<UnresolvedReference> UnresolvedReferences { get; init; } = [];
 

@@ -282,7 +282,8 @@ internal sealed class CodeAnalyzerTools(McpSessionHolder holder)
                 related,
                 callers ? TerseFormatter.Callers : TerseFormatter.Callees,
                 toolset.Session.Graph.RelatedLimit,
-                sites);
+                sites,
+                callers ? detail.CallerTotal : detail.CalleeTotal);
         });
 
     /// <summary>Session + provenance + busy handling around every read tool.</summary>
