@@ -66,4 +66,56 @@ public class HtmlAnalyzerTests() : LanguagePackFixture(LanguageRegistry.Html, "i
             new[] { "css/app.css", "js/app.js", "detail.html", "img/logo.png", "https://example.com/docs" },
             ReferenceNames(result, ReferenceKind.Import));
     }
+
+    /// <summary>
+    /// HTML keeps its raw-text elements, and that is correct: <c>&lt;style&gt;</c> holds CSS
+    /// and <c>&lt;script&gt;</c> holds JavaScript, neither of which declares anything this
+    /// pack indexes. It is worth pinning because the fix for the XAML side was to point
+    /// <c>.xaml</c> at a second grammar with the tag table switched off, and pointing
+    /// <c>.html</c> at that same grammar is a one-line edit away.
+    /// <para>
+    /// This is also what a round of trying to reproduce XAML's failure here found: text
+    /// that looks like markup inside a style element is a comment, it costs nothing, and no
+    /// error is raised because nothing went wrong.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void MarkupShapedTextInsideAStyleElementCostsNothingAndRaisesNothing()
+    {
+        var result = Analyze("""
+            <div id="before">x</div>
+            <style>
+              #styled { color: red; }
+              /* <div id="commented-out">not an element</div> */
+            </style>
+            <div id="after">y</div>
+            """);
+
+        // The id inside the comment is not a declaration, and the two real ones both
+        // survive — the second is what a swallow would have taken.
+        Assert.Equal(new[] { "before", "after" }, result.Symbols.Select(s => s.Name));
+        Assert.Null(result.ErrorLine);
+    }
+
+    /// <summary>
+    /// And where a raw-text element really does swallow markup, the report names the
+    /// element that did it. This is the case XAML got wrong for nine rounds: there the
+    /// parse stopped at <c>&lt;/Style.Triggers&gt;</c>, which begins with the characters
+    /// of an end tag, so the label blamed a property element that had cost nothing.
+    /// </summary>
+    [Fact]
+    public void AnUnclosedScriptIsReportedAgainstTheScriptItself()
+    {
+        var result = Analyze("""
+            <div id="reached">x</div>
+            <script>
+              function lost() { return 1; }
+            <div id="swallowed">y</div>
+            """);
+
+        // The loss is real and is HTML's own rule, not a defect: everything after an
+        // unclosed <script> is script text.
+        Assert.Equal(new[] { "reached" }, result.Symbols.Select(s => s.Name));
+        Assert.Equal("<script>", result.ErrorText);
+    }
 }

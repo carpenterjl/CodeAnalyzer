@@ -83,11 +83,15 @@ public class XamlAnalyzerTests() : LanguagePackFixture(LanguageRegistry.Xaml, "V
     }
 
     [Fact]
-    public void AStyleKeepsItsKeyEvenThoughItsBodyIsSwallowed()
+    public void AStyleDeclaresItsKeyLikeAnyOtherKeyedResource()
     {
-        // <Style> is HTML's CSS <style>, so the grammar hands back its children as one
-        // raw_text blob. The key survives because it is on the tag itself, and the key is
-        // what a StaticResource reference is written against.
+        // This test was called AStyleKeepsItsKeyEvenThoughItsBodyIsSwallowed, and its
+        // comment read "<Style> is HTML's CSS <style>, so the grammar hands back its
+        // children as one raw_text blob". That was true for nine rounds and stopped being
+        // true in M29.1, when .xaml moved to a grammar with the tag table switched off —
+        // ADeclarationInsideAStyleElementSurvives is where the body is now checked. The
+        // assertion below was always about the key, which is on the tag either way; only
+        // the name and the reason had gone stale.
         var result = Analyze("""
             <ResourceDictionary>
                 <Style x:Key="RowButton" TargetType="Button">
