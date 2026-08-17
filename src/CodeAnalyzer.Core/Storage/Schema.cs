@@ -166,7 +166,14 @@ public static class Schema
     /// files are newly discovered rather than stale.
     /// </para>
     /// </summary>
-    public const int Version = 25;
+    /// <para>
+    /// 26 — M28.2 attributes a reference written in a member's initialiser to that member.
+    /// The stored column is ref.from_symbol_id and its meaning did not change; what changed
+    /// is that 3,129 rows that held NULL now hold an owner. A refresh alone would not
+    /// produce them: it skips files whose content is unchanged, and every one of these files
+    /// is unchanged — the analyzer moved, not the source.
+    /// </para>
+    public const int Version = 26;
 
     public const string MetaSchemaVersion = "schema_version";
     public const string MetaRootPath = "root_path";

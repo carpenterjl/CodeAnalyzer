@@ -484,6 +484,26 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
             .OrderBy(x => x.symbol.Record.Span.Length)
             .ToList();
 
+        // A reference written in a member's initialiser has no callable around it, so under
+        // CallerKinds alone it has no owner at all. The JGraph field report found the
+        // consequence the hard way: `private static readonly OptionSpec Sort = new(...)` is
+        // the dominant idiom in that codebase, every one of those references is recorded,
+        // and `get_callers OptionSpec` could not list a single one of them. Measured on this
+        // repo: 3,129 such references, 2,250 of them C# and 873 JavaScript.
+        //
+        // This is a fallback rather than an addition to CallerKinds, and the difference is
+        // the difference between gaining owners and moving them. Adding Variable to
+        // CallerKinds gains 962 and re-attributes 12,827 — every `var x = Foo();` inside a
+        // method would answer "who calls Foo" with the local `x` instead of the method that
+        // runs it. Because this list is consulted only when no callable encloses the
+        // reference, a method keeps everything inside its body by construction.
+        var memberCandidates = symbols
+            .Select((symbol, index) => (symbol, index))
+            .Where(x => x.symbol.Record.Kind is SymbolKind.Field or SymbolKind.Property
+                or SymbolKind.Constant or SymbolKind.Variable)
+            .OrderBy(x => x.symbol.Record.Span.Length)
+            .ToList();
+
         // Keyed by start offset so two patterns matching one site collapse to the
         // most specific kind rather than producing duplicate edges.
         var byOffset = new Dictionary<int, (ReferenceRecord Record, int Specificity)>();
@@ -653,9 +673,12 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
                     ArgumentText = argumentText,
                     ReceiverText = receiverText,
                     Position = position,
+                    // A member only ever claims what no callable would: its span cannot
+                    // contain a method body, and a base list cannot sit inside a field.
                     FromSymbolLocalIndex = FindEnclosingCaller(
-                        kind == ReferenceKind.Inherit ? typeCandidates : callerCandidates,
-                        nameStart),
+                            kind == ReferenceKind.Inherit ? typeCandidates : callerCandidates,
+                            nameStart)
+                        ?? FindEnclosingCaller(memberCandidates, nameStart),
                 },
                 specificity);
         }

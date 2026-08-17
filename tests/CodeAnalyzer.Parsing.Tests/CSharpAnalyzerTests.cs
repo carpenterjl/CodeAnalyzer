@@ -288,6 +288,51 @@ public class CSharpAnalyzerTests() : LanguagePackFixture(LanguageRegistry.CSharp
     }
 
     [Fact]
+    public void AReferenceInAFieldInitialiserIsOwnedByTheField()
+    {
+        // The JGraph idiom, and the reason `get_callers OptionSpec` answered 22 where 41
+        // files use it: no callable encloses a field initialiser, so every reference in one
+        // was recorded with no owner at all and no caller list could reach it.
+        var result = Analyze("""
+            public class Registry
+            {
+                private static readonly OptionSpec Sort =
+                    new("sort", Flags: ["rows"], Names: [], Positionals: 2);
+            }
+            """);
+
+        var field = result.Symbols.ToList().FindIndex(s => s is { Name: "Sort", IsDefinition: true });
+        Assert.True(field >= 0, "the field itself must be indexed");
+
+        var spec = Assert.Single(result.References, r => r.Name == "OptionSpec");
+        Assert.Equal(field, spec.FromSymbolLocalIndex);
+    }
+
+    [Fact]
+    public void AMethodKeepsTheReferencesInsideItsBody()
+    {
+        // The guard on M28.2's shape. Attributing to members is a fallback, never a
+        // preference: making Variable a caller kind outright would have moved 12,827
+        // references on this repo alone, so that "who calls Parse" answered with the local
+        // `parsed` instead of the method that runs it.
+        var result = Analyze("""
+            public class Reader
+            {
+                public int Run()
+                {
+                    var parsed = Parse("x");
+                    return parsed;
+                }
+            }
+            """);
+
+        var run = result.Symbols.ToList().FindIndex(s => s is { Name: "Run", IsDefinition: true });
+        var call = Assert.Single(result.References, r => r is { Kind: ReferenceKind.Call, Name: "Parse" });
+
+        Assert.Equal(run, call.FromSymbolLocalIndex);
+    }
+
+    [Fact]
     public void TypePositionsAreRecordedAsTypeReferencesNotBareUses()
     {
         var result = Analyze("""
