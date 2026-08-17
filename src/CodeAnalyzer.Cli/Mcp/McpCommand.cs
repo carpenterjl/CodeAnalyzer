@@ -2,6 +2,7 @@ using CodeAnalyzer.Cli.Commands;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using ModelContextProtocol.Server;
 
 namespace CodeAnalyzer.Cli.Mcp;
 
@@ -49,7 +50,46 @@ internal static class McpCommand
             .WithStdioServerTransport()
             .WithTools<CodeAnalyzerTools>();
 
+        WrapToolsSoBadArgumentsAreExplained(builder.Services);
+
         await builder.Build().RunAsync(cancellationToken).ConfigureAwait(false);
         return ExitCodes.Ok;
+    }
+
+    /// <summary>
+    /// Replaces every registered tool with an <see cref="ExplainingTool"/> around it.
+    /// <para>
+    /// Argument binding happens inside the SDK, before any of this project's code runs, so
+    /// there is nowhere in <see cref="CodeAnalyzerTools"/> to catch a bad argument list —
+    /// which is why the one place that already tries (<c>Reindex</c>'s catch-all) cannot
+    /// help. Wrapping is the SDK's own suggested extension point:
+    /// <c>DelegatingMcpServerTool</c> exists to be chained around a tool, and doing it here
+    /// keeps the tool surface itself a list of plain methods.
+    /// </para>
+    /// <para>
+    /// The registration is re-pointed rather than rebuilt: whatever <c>WithTools</c> did to
+    /// generate schemas and resolve services is preserved exactly, and only the invocation
+    /// is intercepted.
+    /// </para>
+    /// </summary>
+    private static void WrapToolsSoBadArgumentsAreExplained(IServiceCollection services)
+    {
+        foreach (var registration in services.Where(s => s.ServiceType == typeof(McpServerTool)).ToList())
+        {
+            services.Remove(registration);
+            services.Add(ServiceDescriptor.Singleton<McpServerTool>(
+                provider => new ExplainingTool(Build(registration, provider))));
+        }
+
+        static McpServerTool Build(ServiceDescriptor registration, IServiceProvider provider) =>
+            registration switch
+            {
+                { ImplementationInstance: McpServerTool tool } => tool,
+                { ImplementationFactory: { } factory } => (McpServerTool)factory(provider),
+                { ImplementationType: { } type } =>
+                    (McpServerTool)ActivatorUtilities.CreateInstance(provider, type),
+                _ => throw new InvalidOperationException(
+                    "an McpServerTool was registered in a form this wrapper does not know how to build"),
+            };
     }
 }
