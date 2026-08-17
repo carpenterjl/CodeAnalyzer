@@ -74,17 +74,20 @@ public static class LanguageRegistry
         },
         new()
         {
-            // XAML on the HTML grammar. There is no XAML or XML grammar in the bundle, and
-            // the two languages agree on the part that matters here — elements, attributes,
-            // quoted values, self-closing tags — which was verified against this repo's own
-            // nine .xaml files before the pack was written. Where they disagree is the
-            // property element (<Grid.RowDefinitions>), which the grammar reports as an
-            // error; names inside such an element are still extracted, and the error is
-            // reworded for the reader by GrammarNotes rather than presented as the file's
-            // fault. See the pack header for the full list of what this does and does not
-            // see.
+            // XAML on a grammar of our own: tree-sitter-html compiled a second time with
+            // HTML's tag table switched off, so no tag is void, raw-text or implicitly
+            // closed. See grammars/xaml/README.md.
+            //
+            // It ran on the stock HTML grammar for nine rounds, and the note that stood
+            // here blamed the property element (<Grid.RowDefinitions>) for the errors it
+            // reported. That was wrong, and wrong in a way that hid a real loss: <Style>
+            // is a raw-text element in HTML, so everything between <Style ...> and </Style>
+            // was read as CSS and discarded — 32 declarations in this repo's own
+            // Controls.xaml, with no error raised at all. The visible error came from
+            // </Style.Triggers>, which begins with </Style and therefore ends the raw text
+            // in the wrong place; the property element was the messenger.
             Name = Xaml,
-            GrammarId = "HTML",
+            GrammarId = "xaml",
             Extensions = [".xaml"],
             QueryPackName = "xaml",
             // What can own a reference in a XAML file is a named element — the root owns

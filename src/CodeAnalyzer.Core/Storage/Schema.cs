@@ -173,7 +173,14 @@ public static class Schema
     /// produce them: it skips files whose content is unchanged, and every one of these files
     /// is unchanged — the analyzer moved, not the source.
     /// </para>
-    public const int Version = 26;
+    /// <para>
+    /// 27 — M29.1 reads XAML with its own grammar instead of HTML's, so declarations
+    /// written inside a <c>&lt;Style&gt;</c> exist for the first time: 33 of them in this
+    /// repo, which had been swallowed as raw text with no error to show for it. Same reason
+    /// as 12 and 26 — the source did not change, the analyzer did, and the incremental gate
+    /// reads the file rather than the analyzer.
+    /// </para>
+    public const int Version = 27;
 
     public const string MetaSchemaVersion = "schema_version";
     public const string MetaRootPath = "root_path";

@@ -370,8 +370,14 @@ public class XamlAnalyzerTests() : LanguagePackFixture(LanguageRegistry.Xaml, "V
         var note = GrammarNotes.For(LanguageNames.Xaml);
 
         Assert.NotNull(note);
-        Assert.Contains("HTML grammar", note);
-        Assert.Contains("still indexed", note);
+        Assert.Contains("valid XAML but not valid HTML", note);
+
+        // It used to say the names were "still indexed", which was a hope rather than a
+        // measurement — and while it was being said, 32 declarations in this repo's own
+        // Controls.xaml were in fact being dropped, by a different mechanism nobody had
+        // looked for. The claim is now the stronger one, and it is checked: the property
+        // element produces an error node and costs no declaration, before or after it.
+        Assert.Contains("No declaration is lost", note);
     }
 
     [Fact]
@@ -381,5 +387,76 @@ public class XamlAnalyzerTests() : LanguagePackFixture(LanguageRegistry.Xaml, "V
         // explained away as somebody else's fault.
         Assert.Null(GrammarNotes.For(LanguageNames.CSharp));
         Assert.Null(GrammarNotes.For(LanguageNames.Html));
+    }
+
+    [Fact]
+    public void ADeclarationInsideAStyleElementSurvives()
+    {
+        // The whole reason grammars/xaml exists. <style> is a raw-text element in HTML —
+        // the parser stops reading markup at the start tag and resumes at the end tag,
+        // because in HTML the content is CSS. WPF's <Style> holds markup, and for nine
+        // rounds everything inside one was discarded: 32 declarations in this repo's own
+        // Controls.xaml, with no error raised to notice it by.
+        //
+        // If the build ever falls back to the stock HTML grammar, this is what fails.
+        var result = Analyze("""
+            <ResourceDictionary>
+                <Style x:Key="RowButton" TargetType="Button">
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="Bd" />
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+                <Style x:Key="DeclaredAfterTheFirstStyle" TargetType="Button" />
+            </ResourceDictionary>
+            """);
+
+        Assert.Equal(SymbolKind.ResourceKey, Symbol(result, "RowButton").Kind);
+        Assert.Equal("Border", Symbol(result, "Bd").TypeText);
+        Assert.Equal(SymbolKind.ResourceKey, Symbol(result, "DeclaredAfterTheFirstStyle").Kind);
+    }
+
+    [Fact]
+    public void ASelfClosingStyleDoesNotSwallowTheRestOfTheFile()
+    {
+        // The same defect's worst case, and the one that made it hard to see: a
+        // self-closing <Style ... /> never reaches an end tag, so the raw-text scan ran to
+        // end of file and every later declaration vanished — again with no error. A file
+        // opening with one indexed zero names and reported nothing wrong.
+        var result = Analyze("""
+            <ResourceDictionary>
+                <Style x:Key="OnlyBasedOn" BasedOn="{StaticResource Caption}" />
+                <Style x:Key="AndTheOneAfterIt" TargetType="Button" />
+                <Border x:Name="AndThisToo" />
+            </ResourceDictionary>
+            """);
+
+        Assert.Equal(SymbolKind.ResourceKey, Symbol(result, "OnlyBasedOn").Kind);
+        Assert.Equal(SymbolKind.ResourceKey, Symbol(result, "AndTheOneAfterIt").Kind);
+        Assert.Equal(SymbolKind.MarkupElement, Symbol(result, "AndThisToo").Kind);
+    }
+
+    [Fact]
+    public void AXamlTagThatCollidesWithAnHtmlOneIsStillJustATag()
+    {
+        // HTML's tag table is matched case-insensitively, so <Button>, <Label> and <Menu>
+        // all hit rows in it — <Label> and <Menu> carry implicit-closing rules, and an
+        // implicit close would end an element the markup did not end. Nothing in XAML
+        // closes implicitly, which is why the variant forces every tag to CUSTOM rather
+        // than only turning off raw text.
+        var result = Analyze("""
+            <ResourceDictionary>
+                <Menu x:Name="Outer">
+                    <Label x:Name="First" />
+                    <Label x:Name="Second" />
+                    <Button x:Name="Inner" />
+                </Menu>
+            </ResourceDictionary>
+            """);
+
+        Assert.Equal(["First", "Second", "Inner"], MembersOf(result, "Outer"));
     }
 }

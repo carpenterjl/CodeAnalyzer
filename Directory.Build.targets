@@ -32,4 +32,33 @@
           OverwriteReadOnlyFiles="true" />
   </Target>
 
+  <!--
+    XAML is read by a grammar of our own: tree-sitter-html compiled a second time with
+    HTML's tag table switched off, because <Style> is a raw-text element in HTML and every
+    declaration written inside one was being discarded. grammars/xaml/README.md has the
+    measurement. Nothing in the package ships this file, so it is copied whenever the HTML
+    grammar it is built from is present.
+  -->
+  <PropertyGroup>
+    <VendoredXamlGrammar>$(MSBuildThisFileDirectory)grammars\xaml\lib\tree-sitter-xaml.dll</VendoredXamlGrammar>
+  </PropertyGroup>
+
+  <Target Name="CopyXamlGrammar"
+          AfterTargets="Build"
+          Condition="Exists('$(VendoredXamlGrammar)') And Exists('$(OutDir)tree-sitter-html.dll')">
+    <Copy SourceFiles="$(VendoredXamlGrammar)"
+          DestinationFolder="$(OutDir)"
+          SkipUnchangedFiles="true"
+          OverwriteReadOnlyFiles="true" />
+  </Target>
+
+  <Target Name="CopyXamlGrammarOnPublish"
+          AfterTargets="Publish"
+          Condition="Exists('$(VendoredXamlGrammar)') And Exists('$(PublishDir)tree-sitter-html.dll')">
+    <Copy SourceFiles="$(VendoredXamlGrammar)"
+          DestinationFolder="$(PublishDir)"
+          SkipUnchangedFiles="true"
+          OverwriteReadOnlyFiles="true" />
+  </Target>
+
 </Project>
