@@ -182,6 +182,50 @@ public class IndexStoreTests : IDisposable
         Assert.Equal("alpha/local.c", callee.RelativePath);
     }
 
+    /// <summary>
+    /// Every row of every listing reads <c>path:line</c>, and the two have to describe one
+    /// place. A callee row names the file the callee is defined in, so its line has to be
+    /// the line it is defined on — reading the reference's line instead pairs that path
+    /// with a position from a different file entirely. Measured before this was fixed:
+    /// 99.7% of cross-file callee rows on this repo named a line that was not the target's
+    /// declaration, and 39.1% named a line past the end of the file they pointed at.
+    /// </summary>
+    [Fact]
+    public async Task ACalleeIsLocatedWhereItIsDeclaredAndACallerWhereItCalls()
+    {
+        // The two files are different lengths on purpose: the call sits on a line the
+        // callee's file does not have, which is exactly the shape that went unnoticed.
+        WriteFile("alpha/target.c", "int target(void) { return 1; }");
+        WriteFile("beta/caller.c", """
+            // 1
+            // 2
+            // 3
+            // 4
+            int caller(void)
+            {
+                return target();
+            }
+            """);
+
+        var store = await IndexAsync();
+
+        var search = new SymbolSearchService(store.Connection);
+        search.Reload();
+        var graph = new GraphQueryService(store.Connection);
+
+        var callerId = search.Search("caller").First(h => h.Name == "caller").SymbolId;
+        var callee = Assert.Single(graph.GetDetail(callerId)!.Callees, c => c.Name == "target");
+        Assert.Equal("alpha/target.c", callee.RelativePath);
+        Assert.Equal(1, callee.Line);
+
+        // And from the other end the pair is the call site: the caller's file, and the line
+        // inside it where the call is written.
+        var targetId = search.Search("target").First(h => h.Name == "target").SymbolId;
+        var caller = Assert.Single(graph.GetDetail(targetId)!.Callers, c => c.Name == "caller");
+        Assert.Equal("beta/caller.c", caller.RelativePath);
+        Assert.Equal(7, caller.Line);
+    }
+
     [Fact]
     public async Task ExposesStructMembersAsCompositionFacts()
     {

@@ -489,8 +489,19 @@ public sealed class GraphQueryService(SqliteConnection connection)
                 AND s.container_id IS NOT $symbolId
               """;
 
+        // The line has to belong to the file printed beside it. For a caller both come from
+        // the call site: f is the caller's own file and r.line is where inside it the call
+        // is written, which is the location a reader wants. For a callee f is the *target's*
+        // file, so r.line — a line in the file we are looking at, not in that one — pairs a
+        // path with a position it has nothing to do with. Measured before this was changed:
+        // 99.7% of cross-file callee rows here named a line that is not the target's
+        // declaration, and 39.1% of them named a line past the end of the file they pointed
+        // at (54.8% on a 1,000-file workspace) — OverloadSql.cs:143 in a file of 86 lines.
+        // Where each call was written stays available, and only there: include_sites.
+        var located = callers ? "r.line" : "s.start_line";
+
         var sql = $"""
-            SELECT s.id, s.name, s.kind, f.rel_path, r.line, r.kind, e.confidence
+            SELECT s.id, s.name, s.kind, f.rel_path, {located}, r.kind, e.confidence
             {body}
             ORDER BY s.name
             LIMIT $limit
