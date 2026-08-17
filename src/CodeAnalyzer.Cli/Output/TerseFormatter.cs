@@ -644,6 +644,7 @@ internal static class TerseFormatter
     private static string RefusalText(UnresolvedRule rule) => rule switch
     {
         UnresolvedRule.External => "no workspace definition of a compatible kind",
+        UnresolvedRule.ReceiverUnknown => "receiver names nothing this workspace declares",
         UnresolvedRule.TooCommon => "name too common to guess, and no receiver given",
         UnresolvedRule.ReceiverNotTyped => "receiver named no type holding that member",
         UnresolvedRule.OutOfScope => "a local, or a member of a scope not written in",

@@ -975,4 +975,92 @@ public class ReceiverResolutionTests : IDisposable
             Assert.All(callers, c => Assert.Equal(EdgeConfidence.Ambiguous, c.Confidence));
         }
     }
+
+    /// <summary>
+    /// A receiver naming nothing the workspace declares takes its reference with it. The
+    /// field report that prompted this had <c>Parallel.For(…)</c> listed among the callers
+    /// of a workspace <c>JgsHandleRegistry.For</c>; the same shape here is
+    /// <c>Math.Clamp</c> against a workspace <c>Clamp</c>, and there is no Math.
+    /// </summary>
+    [Fact]
+    public async Task ACallOnAReceiverTheWorkspaceNeverDeclaresResolvesNowhere()
+    {
+        WriteFile("src/Geometry.cs", """
+            public class Geometry
+            {
+                public static double Clamp(double v) => v;
+            }
+            """);
+        WriteFile("src/Plotter.cs", """
+            public class Plotter
+            {
+                public double Draw(double v) => Math.Clamp(v, 0.0, 1.0);
+            }
+            """);
+
+        var store = await IndexAsync();
+        var clamp = SymbolId(store, "Clamp", "src/Geometry.cs");
+        var detail = new GraphQueryService(store.Connection).GetDetail(clamp);
+
+        // Not "no exact edge" — no edge. Math is not in this workspace, so no member of it
+        // is either, and a name match is not evidence against that.
+        Assert.DoesNotContain(detail!.Callers, c => c.Name == "Draw");
+    }
+
+    /// <summary>
+    /// The other half of the same rule, and the reason it tests the receiver's shape rather
+    /// than only its absence: an expression receiver names nothing either, and a name lookup
+    /// was never what would have settled it. Refusing those would cost the references that
+    /// read a value out of a collection — the largest single group on the workspace this
+    /// rule was measured against.
+    /// </summary>
+    [Fact]
+    public async Task AnExpressionReceiverIsNotRefusedForNamingNothing()
+    {
+        WriteFile("src/Value.cs", """
+            public class Value
+            {
+                public double AsNumber() => 0.0;
+            }
+            """);
+        WriteFile("src/Caller.cs", """
+            public class Caller
+            {
+                public double First(Value[] args) => args[0].AsNumber();
+            }
+            """);
+
+        var store = await IndexAsync();
+        var asNumber = SymbolId(store, "AsNumber", "src/Value.cs");
+        var detail = new GraphQueryService(store.Connection).GetDetail(asNumber);
+
+        Assert.Contains(detail!.Callers, c => c.Name == "First");
+    }
+
+    /// <summary>
+    /// And the rule must not fire when the receiver <em>is</em> declared here, which is the
+    /// case that separates "names nothing" from "names a type whose member this is not".
+    /// </summary>
+    [Fact]
+    public async Task AReceiverTheWorkspaceDoesDeclareIsUntouched()
+    {
+        WriteFile("src/Limits.cs", """
+            public static class Limits
+            {
+                public static double Clamp(double v) => v;
+            }
+            """);
+        WriteFile("src/Plotter.cs", """
+            public class Plotter
+            {
+                public double Draw(double v) => Limits.Clamp(v);
+            }
+            """);
+
+        var store = await IndexAsync();
+        var clamp = SymbolId(store, "Clamp", "src/Limits.cs");
+        var detail = new GraphQueryService(store.Connection).GetDetail(clamp);
+
+        Assert.Contains(detail!.Callers, c => c.Name == "Draw");
+    }
 }

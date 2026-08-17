@@ -47,25 +47,33 @@ public enum UnresolvedRule
     External = 0,
 
     /// <summary>
+    /// The receiver is a plain identifier this workspace never declares, so whatever it
+    /// denotes lives outside — and no member of it can be a workspace definition either.
+    /// Ranked above the hot-name gate because it is the binding constraint: a reference
+    /// this rule refuses would be refused whether its name were hot or not.
+    /// </summary>
+    ReceiverUnknown = 1,
+
+    /// <summary>
     /// More definitions carry the name than <c>MaxCandidatesPerReference</c> allows, and the
     /// reference wrote no receiver, so nothing narrows it to one of them.
     /// </summary>
-    TooCommon = 1,
+    TooCommon = 2,
 
     /// <summary>
     /// A hot name written against a receiver, admitted for that reason, but the receiver's
     /// type is not known — or the type it names holds no member of this name.
     /// </summary>
-    ReceiverNotTyped = 2,
+    ReceiverNotTyped = 3,
 
     /// <summary>
     /// Every definition of the name is a local, or a member of a scope this reference is not
     /// written inside — the container rule that keeps every loop counter out of the graph.
     /// </summary>
-    OutOfScope = 3,
+    OutOfScope = 4,
 
     /// <summary>Refused by no rule above. Expected to be zero; a gap in the partition if not.</summary>
-    Unexplained = 4,
+    Unexplained = 5,
 }
 
 /// <summary>One rule and the number of unresolved references it accounts for.</summary>
@@ -249,9 +257,9 @@ public static class IndexStatsQuery
 
     /// <summary>
     /// Splits the unresolved references by which rule refused them, in the order that makes
-    /// the four cases exclusive: kind-compatibility first because it is a fact about the
-    /// corpus and holds whatever the resolver does, then the hot-name gate, then the
-    /// container rule.
+    /// the cases exclusive: kind-compatibility first because it is a fact about the corpus
+    /// and holds whatever the resolver does, then the unknown-receiver rule, then the
+    /// hot-name gate, then the container rule.
     /// <para>
     /// Deliberately built from what this side can already see — kinds, containers, how many
     /// definitions carry the name, whether a receiver was written — and nothing else. The
@@ -275,6 +283,8 @@ public static class IndexStatsQuery
                                  WHERE s.name = r.name AND s.is_definition = 1
                                    AND {Resolution.ReferenceResolver.CompatibleKindSql("r", "s")})
                     THEN {(int)UnresolvedRule.External}
+                WHEN {Resolution.ReferenceResolver.UnknownReceiverSql("r")}
+                    THEN {(int)UnresolvedRule.ReceiverUnknown}
                 WHEN EXISTS (SELECT 1 FROM hot WHERE hot.name = r.name)
                     THEN CASE WHEN r.receiver_text IS NULL OR r.receiver_text = ''
                               THEN {(int)UnresolvedRule.TooCommon}

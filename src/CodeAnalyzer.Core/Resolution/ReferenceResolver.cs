@@ -430,6 +430,7 @@ public sealed class ReferenceResolver(SqliteConnection connection)
             WHERE r.kind NOT IN ({(int)ReferenceKind.Include}, {(int)ReferenceKind.Import})
               AND (r.receiver_text IS NOT NULL AND r.receiver_text <> ''
                    OR NOT EXISTS (SELECT 1 FROM hot_name h WHERE h.name = r.name))
+              AND NOT {UnknownReceiverSql("r")}
               AND NOT EXISTS (SELECT 1 FROM edge e WHERE e.ref_id = r.id)
             """));
 
@@ -1015,6 +1016,47 @@ public sealed class ReferenceResolver(SqliteConnection connection)
     private static string ForeignReceiverSql(string referenceAlias) =>
         $"({referenceAlias}.receiver_text IS NOT NULL " +
         $"AND {referenceAlias}.receiver_text NOT IN ('this', 'self'))";
+
+    /// <summary>
+    /// Whether a reference was written against a receiver that is a plain identifier and
+    /// that no workspace definition carries — <c>Math.Abs(x)</c> in a workspace with no
+    /// <c>Math</c>. Such a reference resolves to nothing: whatever <c>Math</c> is, it is
+    /// not something this workspace declares, so no member of it is either.
+    /// <para>
+    /// Before this rule, the receiver was simply ignored when it could not be typed —
+    /// <c>receiver_match</c> is a preference and MAX keeps the whole candidate set when
+    /// nothing matches — and the reference fell through to a bare-name match on the member.
+    /// The result was <c>Math.Abs</c> resolving to <c>Hdf5File.Abs</c>, <c>Console.Error</c>
+    /// to <c>ExitCodes.Error</c>, <c>Assert.Contains</c> to <c>AnalysisOfVariance.Contains</c>
+    /// — wrong answers wearing Unique, which is worse than no answer at all. Measured before
+    /// this was written: 23,676 such edges on a 1,000-file workspace and 1,946 here, and a
+    /// classification of every receiver above 4 edges put 14,722 against 458 on the first
+    /// and 966 against 449 on the second.
+    /// </para>
+    /// <para>
+    /// The 907 it costs are real and are the reason the test is on the identifier's shape.
+    /// A receiver that names nothing is usually an external type, but it can also be a
+    /// binding form this parser does not index — a lambda parameter, chiefly, as in
+    /// <c>Members.Select(m => m.Name)</c>. Those resolve correctly today and stop doing so
+    /// here. The trade was taken on the ratio and on which way the errors point: a missing
+    /// caller is a gap a reader can see, and a fabricated one is a fact they cannot.
+    /// </para>
+    /// <para>
+    /// Expression-shaped receivers are deliberately exempt. <c>args[0].AsNumber()</c> and
+    /// <c>detail!.Members</c> name nothing either, but a name lookup was never what would
+    /// have settled them — 1,588 references on the larger workspace — and refusing them
+    /// would be punishing the receiver for being an expression rather than for saying
+    /// something false.
+    /// </para>
+    /// </summary>
+    public static string UnknownReceiverSql(string referenceAlias) => $"""
+        ({ForeignReceiverSql(referenceAlias)}
+         AND {referenceAlias}.receiver_text GLOB '[A-Za-z_]*'
+         AND {referenceAlias}.receiver_text NOT GLOB '*[^A-Za-z0-9_]*'
+         AND NOT EXISTS (SELECT 1 FROM symbol rs
+                         WHERE rs.name = {referenceAlias}.receiver_text
+                           AND rs.is_definition = 1))
+        """;
 
     private static string In(params SymbolKind[] kinds) =>
         string.Join(", ", kinds.Select(k => (int)k));
