@@ -810,6 +810,11 @@ internal static class TerseFormatter
             + $"name a workspace file{reconciliation}");
         builder.AppendLine($"database: {stats.DatabaseBytes / 1024.0 / 1024.0:0.0} MB");
 
+        // Here rather than only behind `version`, because this block is what a field report
+        // pastes verbatim — and a build line inside the pasted text cannot be inherited from
+        // last week's report the way a hand-written header row was, three sittings running.
+        builder.AppendLine($"tool: {Commands.VersionCommand.Line()}");
+
         builder.AppendLine();
         builder.AppendLine("an unresolved reference is one no workspace definition matched — for a workspace "
             + "that leans on external libraries that is the normal shape, not a defect count. "

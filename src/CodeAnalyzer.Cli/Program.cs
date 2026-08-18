@@ -31,6 +31,7 @@ internal static class Program
         ReadCommands.Errors,
         ReadCommands.Stats,
         CacheCommand.Spec,
+        VersionCommand.Spec,
         IndexCommand.Spec,
         Mcp.McpCommand.Spec,
     ];
@@ -53,6 +54,14 @@ internal static class Program
         if (args[0] is "help" or "--help" or "-h")
         {
             PrintUsage(Console.Out);
+            return ExitCodes.Ok;
+        }
+
+        // The spellings people actually type. `--version` answering "unknown command" is
+        // what sent three field reports to the previous sitting's header for the number.
+        if (args[0] is "--version" or "-v")
+        {
+            Console.WriteLine(VersionCommand.Line());
             return ExitCodes.Ok;
         }
 
