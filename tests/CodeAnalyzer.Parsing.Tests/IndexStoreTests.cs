@@ -330,6 +330,76 @@ public class IndexStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task AConceptQueryThatNamesNothingIsRescuedByTheWordsOfIt()
+    {
+        // The shape every failing real query had: a concept spelled as a name the codebase
+        // does not use. "StatsCommand" is not a symbol here and never was; the words of it
+        // are both in the comment above the thing that was wanted.
+        WriteFile("src/session.cs", """
+            class Session
+            {
+                // How many files the stats command reports as imperfect.
+                public int ImperfectParseCount() => 0;
+
+                // Unrelated prose about transports.
+                public int Other() => 0;
+            }
+            """);
+
+        var store = await IndexAsync();
+        var search = new SymbolSearchService(store.Connection);
+        search.Reload();
+
+        // Searching the comments for the query VERBATIM finds nothing — nobody wrote
+        // "StatsCommand" in prose — which is why the rescue asks for the words instead.
+        Assert.Empty(search.Search("StatsCommand", new SymbolSearchOptions
+        {
+            Match = SymbolMatchMode.DocComment,
+        }));
+
+        var rescued = search.SearchDocCommentWords("StatsCommand");
+
+        var hit = Assert.Single(rescued);
+        Assert.Equal("ImperfectParseCount", hit.Name);
+        Assert.Contains("stats command", hit.DocComment);
+    }
+
+    [Fact]
+    public async Task EveryWordHasToBeThereNotJustOne()
+    {
+        // Requiring all of them is what keeps the rescue from being noise: on JGraph the
+        // word "axes" alone is in 944 comments, and a list of 944 is not an answer.
+        WriteFile("src/net.cs", """
+            class Transport
+            {
+                // Sends the frame again when the link is idle.
+                public void Push() { }
+            }
+            """);
+
+        var store = await IndexAsync();
+        var search = new SymbolSearchService(store.Connection);
+        search.Reload();
+
+        Assert.Single(search.SearchDocCommentWords("frame link"));
+        Assert.Empty(search.SearchDocCommentWords("frame satellite"));
+    }
+
+    [Fact]
+    public void ShortWordsAreNotRequiredOfAComment()
+    {
+        // "of" and "to" are in every English comment ever written and requiring them says
+        // nothing; two-letter words a query actually means exclude more than they find.
+        Assert.Equal(["stats", "command"], SymbolSearchService.Words("StatsCommand"));
+        Assert.Equal(["handle", "property", "table"], SymbolSearchService.Words("handle property table"));
+        Assert.Equal(["capture", "names", "receiver"], SymbolSearchService.Words("CaptureNames.Receiver"));
+
+        // Runs of capitals are one word, not one per letter.
+        Assert.Equal(["mcp", "server"], SymbolSearchService.Words("MCPServer"));
+        Assert.Empty(SymbolSearchService.Words("a of to"));
+    }
+
+    [Fact]
     public async Task ACommentHitWhoseNameAlsoMatchesComesFirst()
     {
         // Prose has no score, so the order is stated rather than left to the scan — round

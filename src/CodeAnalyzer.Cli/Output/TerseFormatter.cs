@@ -151,12 +151,63 @@ internal static class TerseFormatter
         }
 
         var at = comment.IndexOf(query, StringComparison.OrdinalIgnoreCase);
+        if (at < 0)
+        {
+            // A rescue hit matched the query's WORDS, not the query, so centring on the
+            // whole string would cut from the front and show a window with nothing in it
+            // the reader can recognise. The earliest word that is present is the one that
+            // explains the row.
+            foreach (var word in SymbolSearchService.Words(query))
+            {
+                var where = comment.IndexOf(word, StringComparison.OrdinalIgnoreCase);
+                if (where >= 0 && (at < 0 || where < at))
+                {
+                    at = where;
+                }
+            }
+        }
+
         var start = at < 0 ? 0 : Math.Max(0, at - (CommentExcerptLength / 3));
         var take = Math.Min(CommentExcerptLength, comment.Length - start);
 
         return (start > 0 ? "…" : string.Empty)
             + comment.Substring(start, take)
             + (start + take < comment.Length ? "…" : string.Empty);
+    }
+
+    /// <summary>
+    /// What to say after a name search that found nothing worth showing.
+    /// <para>
+    /// A name index cannot answer a question asked as a concept, and the queries that fail
+    /// here are concepts wearing a name's clothes — <c>StatsCommand</c> against a codebase
+    /// with no type of that shape, <c>handle property table</c>. Since round seventeen the
+    /// author's own prose is indexed, so there is a second place to look, and the reader
+    /// is told what was looked at either way: a silent second search that finds nothing is
+    /// indistinguishable from one that was never run.
+    /// </para>
+    /// </summary>
+    private static string Rescue(string query, IReadOnlyList<SymbolSearchHit>? rescue)
+    {
+        if (rescue is not { Count: > 0 })
+        {
+            return $"(nor does any comment above a declaration mention every word of "
+                + $"'{query}' — 'search <text> --in-comments' asks that on its own)";
+        }
+
+        var builder = new StringBuilder();
+        builder.AppendLine($"but the comment above {(rescue.Count == 1 ? "this declaration" : $"these {rescue.Count} declarations")} "
+            + "mentions every word of it:");
+
+        foreach (var hit in rescue)
+        {
+            builder.AppendLine(HitLine(hit));
+            if (hit.DocComment is { Length: > 0 } comment)
+            {
+                builder.AppendLine("    " + Excerpt(comment, query));
+            }
+        }
+
+        return builder.ToString().TrimEnd();
     }
 
     // ---- per-command bodies -------------------------------------------------
@@ -166,7 +217,8 @@ internal static class TerseFormatter
         IReadOnlyList<SymbolSearchHit> hits,
         string? kindFilter,
         bool exact = false,
-        bool inComments = false)
+        bool inComments = false,
+        IReadOnlyList<SymbolSearchHit>? commentRescue = null)
     {
         if (hits.Count == 0)
         {
@@ -179,7 +231,8 @@ internal static class TerseFormatter
                     ? $"no symbols contain '{query}' verbatim (exact match)"
                     : $"no symbols match '{query}'";
 
-            return kindFilter is null ? subject : $"{subject} with kinds {kindFilter}";
+            var head = kindFilter is null ? subject : $"{subject} with kinds {kindFilter}";
+            return inComments ? head : head + Environment.NewLine + Rescue(query, commentRescue);
         }
 
         if (inComments)
@@ -236,6 +289,11 @@ internal static class TerseFormatter
             {
                 builder.AppendLine("    " + Excerpt(comment, query));
             }
+        }
+
+        if (strong == 0)
+        {
+            builder.AppendLine(Rescue(query, commentRescue));
         }
 
         if (strong == 0 && !exact)

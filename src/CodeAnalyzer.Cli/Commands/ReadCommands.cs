@@ -132,13 +132,14 @@ internal static class ReadCommands
             var query = args.Positionals[0];
             var exact = args.Switch("exact");
             var inComments = args.Switch("in-comments");
-            var hits = toolset.Search(
+            var answer = toolset.Search(
                 query, kinds, limit, exact, inComments,
                 withComments: args.Switch("with-comments"), cancellationToken);
 
             Console.WriteLine(args.Switch("json")
-                ? JsonFormatter.Search(toolset.Session, query, hits)
-                : TerseFormatter.Search(query, hits, kindFilter, exact, inComments));
+                ? JsonFormatter.Search(toolset.Session, query, answer.Hits, answer.CommentRescue)
+                : TerseFormatter.Search(
+                    query, answer.Hits, kindFilter, exact, inComments, answer.CommentRescue));
 
             return Task.FromResult(ExitCodes.Ok);
         });

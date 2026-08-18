@@ -66,12 +66,19 @@ internal static class JsonFormatter
         confidence = KindLabels.TokenFor(related.Confidence),
     };
 
-    public static string Search(ReadOnlyIndexSession session, string query, IReadOnlyList<SymbolSearchHit> hits) =>
+    public static string Search(
+        ReadOnlyIndexSession session,
+        string query,
+        IReadOnlyList<SymbolSearchHit> hits,
+        IReadOnlyList<SymbolSearchHit>? commentRescue = null) =>
         JsonSerializer.Serialize(new
         {
             index = Index(session),
             query,
             hits = hits.Select(Hit),
+            // Always present, so a consumer can tell "the second search found nothing" from
+            // "the second search was not run" without inspecting the first list.
+            commentRescue = (commentRescue ?? []).Select(Hit),
         }, Options);
 
     public static string Locate(ReadOnlyIndexSession session, LocateResult result) => result switch

@@ -57,10 +57,11 @@ internal sealed class CodeAnalyzerTools(McpSessionHolder holder)
                 }
             }
 
-            var hits = toolset.Search(
+            var answer = toolset.Search(
                 query, kindSet, Math.Clamp(limit, 1, 200), exact, in_comments, with_comments,
                 cancellationToken);
-            return TerseFormatter.Search(query, hits, kinds, exact, in_comments);
+            return TerseFormatter.Search(
+                query, answer.Hits, kinds, exact, in_comments, answer.CommentRescue);
         });
 
     [McpServerTool(Name = "get_symbol")]

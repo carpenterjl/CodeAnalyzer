@@ -1,3 +1,4 @@
+using System.Text;
 using CodeAnalyzer.Core.Domain;
 using CodeAnalyzer.Core.Storage;
 using Microsoft.Data.Sqlite;
@@ -432,6 +433,125 @@ public sealed class SymbolSearchService
         // int.MinValue for the floor: the loose mark says a fuzzy match was weak, and
         // containment in prose is not weak, it is containment. A hit here always shows its
         // comment, whatever the caller asked for — a match a reader cannot see is a claim.
+        return Hydrate(ranked, int.MinValue, includeDocComments: true, cancellationToken);
+    }
+
+    /// <summary>
+    /// The words of a query, for matching prose: camel case split apart, punctuation
+    /// dropped, anything shorter than three characters discarded.
+    /// <para>
+    /// Three characters because the tokens this exists to drop are the <c>of</c>, <c>to</c>
+    /// and <c>a</c> that appear in every English comment ever written, and because the
+    /// two-letter tokens a query actually means — <c>id</c>, <c>io</c> — are worse than
+    /// useless as a conjunct: requiring them of every comment excludes the right answer
+    /// more often than it finds it.
+    /// </para>
+    /// </summary>
+    public static List<string> Words(string query)
+    {
+        var words = new List<string>();
+        var word = new StringBuilder();
+
+        for (var i = 0; i <= query.Length; i++)
+        {
+            var c = i < query.Length ? query[i] : ' ';
+
+            // A capital starts a new word after a lower-case letter (StatsCommand), and
+            // also at the end of a run of capitals when a lower-case letter follows it —
+            // otherwise MCPServer is one unsearchable word rather than "mcp" and "server".
+            var boundary = !char.IsLetterOrDigit(c)
+                || (char.IsUpper(c) && word.Length > 0
+                    && (!char.IsUpper(query[i - 1])
+                        || (i + 1 < query.Length && char.IsLower(query[i + 1]))));
+
+            if (boundary && word.Length > 0)
+            {
+                if (word.Length >= 3)
+                {
+                    words.Add(word.ToString().ToLowerInvariant());
+                }
+
+                word.Clear();
+            }
+
+            if (char.IsLetterOrDigit(c))
+            {
+                word.Append(c);
+            }
+        }
+
+        return words;
+    }
+
+    /// <summary>
+    /// The second question, asked only when the first one found nothing: which declarations
+    /// have every word of the query somewhere in the comment above them.
+    /// <para>
+    /// Every word, not the query verbatim, and that distinction is the whole feature.
+    /// Replaying the 70 distinct <c>search_symbols</c> queries this tool has ever been
+    /// asked, 15 returned no strong name hit; searching comments for the query verbatim
+    /// rescued <b>1</b> of them, and requiring each word separately rescued <b>10</b>.
+    /// The queries that fail are things like <c>StatsCommand</c> and
+    /// <c>handle property table</c> — a concept spelled as a name that the codebase does
+    /// not use, which no amount of matching against names can reach, and which the author
+    /// of the right symbol usually did write down in prose.
+    /// </para>
+    /// </summary>
+    public List<SymbolSearchHit> SearchDocCommentWords(
+        string query,
+        SymbolSearchOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        options ??= new SymbolSearchOptions();
+        var words = Words(query);
+        if (words.Count == 0 || _count == 0)
+        {
+            return [];
+        }
+
+        var kindFilter = options.Kinds is { Count: > 0 }
+            ? $"AND s.kind IN ({string.Join(",", options.Kinds.Select(k => (int)k))})"
+            : string.Empty;
+        var localFilter = options.ExcludeFunctionLocals
+            ? "AND (c.kind IS NULL OR c.kind NOT IN ($function, $method))"
+            : string.Empty;
+        var wordFilter = string.Concat(words.Select((_, i) =>
+            $"\n  AND LOWER(s.doc_comment) LIKE '%' || ${"w" + i} || '%' ESCAPE '\\'"));
+
+        using var command = _connection.CreateCommand();
+        command.CommandText = $"""
+            SELECT s.id
+            FROM symbol s
+            LEFT JOIN symbol c ON c.id = s.container_id
+            WHERE s.is_definition = 1
+              AND s.doc_comment IS NOT NULL{wordFilter}
+              {kindFilter}
+              {localFilter}
+            ORDER BY CASE WHEN {string.Join(" OR ", words.Select((_, i) =>
+                $"INSTR(LOWER(s.name), ${"w" + i}) > 0"))} THEN 0 ELSE 1 END,
+                     LENGTH(s.doc_comment),
+                     s.id
+            LIMIT $limit
+            """;
+        for (var i = 0; i < words.Count; i++)
+        {
+            command.Parameters.AddWithValue("$w" + i, EscapeForLike(words[i]));
+        }
+
+        command.Parameters.AddWithValue("$function", (int)SymbolKind.Function);
+        command.Parameters.AddWithValue("$method", (int)SymbolKind.Method);
+        command.Parameters.AddWithValue("$limit", options.Limit);
+
+        var ranked = new List<(long Id, int Score, int NameLength)>();
+        using (var reader = command.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                ranked.Add((reader.GetInt64(0), 0, 0));
+            }
+        }
+
         return Hydrate(ranked, int.MinValue, includeDocComments: true, cancellationToken);
     }
 

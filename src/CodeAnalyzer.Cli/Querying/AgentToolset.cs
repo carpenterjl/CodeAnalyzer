@@ -15,6 +15,19 @@ namespace CodeAnalyzer.Cli.Querying;
 internal sealed class IndexUnavailableException(string message) : Exception(message);
 
 /// <summary>
+/// What a search found, kept in two lists because they answer two different questions.
+/// </summary>
+/// <param name="Hits">Symbols matched by name — the question that was asked.</param>
+/// <param name="CommentRescue">
+/// Symbols matched by the words of the query appearing in the comment above them. Non-empty
+/// only when <paramref name="Hits"/> held nothing worth showing, so a caller may print it
+/// without checking anything: an empty list is the tool saying it tried.
+/// </param>
+internal sealed record SymbolSearchAnswer(
+    List<SymbolSearchHit> Hits,
+    List<SymbolSearchHit> CommentRescue);
+
+/// <summary>
 /// The one façade both entry points call: every CLI subcommand and every MCP tool is a
 /// thin wrapper over a method here, so the two can never answer the same question
 /// differently.
@@ -39,7 +52,7 @@ internal sealed class AgentToolset(ReadOnlyIndexSession session)
     /// the case where fuzzy's subsequence reach is the problem rather than the feature —
     /// a short common word matches letter-by-letter across half the test names in a repo.
     /// </summary>
-    public List<SymbolSearchHit> Search(
+    public SymbolSearchAnswer Search(
         string query,
         IReadOnlySet<SymbolKind>? kinds,
         int limit,
@@ -50,21 +63,31 @@ internal sealed class AgentToolset(ReadOnlyIndexSession session)
         Query(() =>
         {
             Session.EnsureSearchCurrent();
-            return Session.Search.Search(
-                query,
-                new SymbolSearchOptions
-                {
-                    Limit = limit,
-                    Kinds = kinds,
-                    // Searching comments is a mode rather than a widening, so it wins over
-                    // --exact instead of combining with it: exact says how to match a name,
-                    // and here there is no name being matched.
-                    Match = inComments
-                        ? SymbolMatchMode.DocComment
-                        : exact ? SymbolMatchMode.Substring : SymbolMatchMode.Fuzzy,
-                    IncludeDocComments = withComments,
-                },
-                cancellationToken);
+            var options = new SymbolSearchOptions
+            {
+                Limit = limit,
+                Kinds = kinds,
+                // Searching comments is a mode rather than a widening, so it wins over
+                // --exact instead of combining with it: exact says how to match a name,
+                // and here there is no name being matched.
+                Match = inComments
+                    ? SymbolMatchMode.DocComment
+                    : exact ? SymbolMatchMode.Substring : SymbolMatchMode.Fuzzy,
+                IncludeDocComments = withComments,
+            };
+
+            var hits = Session.Search.Search(query, options, cancellationToken);
+
+            // The rescue is asked only when the name search has nothing to show — no hits
+            // at all, or nothing but letters-appear-in-order ones. Asking it always would
+            // put prose matches under every successful query; asking it here costs one
+            // indexed LIKE on the path where the answer was going to be "nothing".
+            // Already-a-comment-search is excluded: it IS the second question.
+            var rescue = inComments || !hits.TrueForAll(hit => hit.LooseMatch)
+                ? []
+                : Session.Search.SearchDocCommentWords(query, options with { Limit = 5 }, cancellationToken);
+
+            return new SymbolSearchAnswer(hits, rescue);
         });
 
     public SymbolDetail? GetDetail(long symbolId, CancellationToken cancellationToken = default) =>

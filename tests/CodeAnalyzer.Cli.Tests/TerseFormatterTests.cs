@@ -660,6 +660,60 @@ public class TerseFormatterTests
     }
 
     [Fact]
+    public void AFailedNameSearchShowsWhatTheCommentsAnswered()
+    {
+        var rescue = new SymbolSearchHit(
+            9, "ImperfectParseCount", SymbolKind.Property, "Session.cs", 92, null, Score: 0,
+            DocComment: "How many files the stats command reports as imperfect.");
+
+        var text = TerseFormatter.Search(
+            "StatsCommand", [], kindFilter: null, commentRescue: [rescue]);
+
+        Assert.StartsWith("no symbols match 'StatsCommand'", text);
+        Assert.Contains("mentions every word of it", text);
+        Assert.Contains("ImperfectParseCount", text);
+
+        // The comment is shown, not merely counted: a row whose reason for being here
+        // cannot be read is a claim rather than a result.
+        Assert.Contains("stats command", text);
+    }
+
+    [Fact]
+    public void AFailedSearchWithNoCommentAnswerSaysTheSecondQuestionWasAsked()
+    {
+        // A silent second search that finds nothing reads exactly like one that never ran,
+        // and the next thing the reader needs is the name of the flag that asks it directly.
+        var text = TerseFormatter.Search("zzz", [], kindFilter: null, commentRescue: []);
+
+        Assert.Contains("nor does any comment", text);
+        Assert.Contains("--in-comments", text);
+    }
+
+    [Fact]
+    public void AListOfNothingButLooseHitsAlsoGetsTheCommentAnswer()
+    {
+        var rescue = new SymbolSearchHit(
+            9, "PeelAxes", SymbolKind.Method, "Handles.cs", 49, null, Score: 0,
+            DocComment: "Splits a leading axes handle off an argument list.");
+
+        var text = TerseFormatter.Search(
+            "TargetAxes", [Hit(1, "TheAppearanceTailReachesTheWedges", loose: true)],
+            kindFilter: null, commentRescue: [rescue]);
+
+        Assert.StartsWith("no symbol matches 'TargetAxes' well", text);
+        Assert.Contains("PeelAxes", text);
+    }
+
+    [Fact]
+    public void ASearchThatFoundSomethingIsNotToldAboutComments()
+    {
+        var text = TerseFormatter.Search(
+            "Xaml", [Hit(1, "XamlAnalyzer", loose: false)], kindFilter: null, commentRescue: []);
+
+        Assert.DoesNotContain("comment", text);
+    }
+
+    [Fact]
     public void StrongHitsAreListedPlainAndTheLooseTailIsMarkedOnce()
     {
         var text = TerseFormatter.Search(
