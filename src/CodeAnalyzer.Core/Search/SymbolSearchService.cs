@@ -85,7 +85,6 @@ public sealed class SymbolSearchService
     private string[] _names = [];
     private SymbolKind[] _kinds = [];
     private bool[] _isLocal = [];
-    private int[] _referencers = [];
     private int _count;
 
     public SymbolSearchService(SqliteConnection connection) => _connection = connection;
@@ -104,32 +103,18 @@ public sealed class SymbolSearchService
         var names = new string[capacity];
         var kinds = new SymbolKind[capacity];
         var isLocal = new bool[capacity];
-        var referencers = new int[capacity];
         var count = 0;
 
         using var command = _connection.CreateCommand();
-        // Referencers counts DISTINCT sources over UNIQUE edges only. Ambiguous edges land
-        // on every same-name candidate, so counting them makes all such candidates read as
-        // equally important — measured on this repo, the two fields named ReferenceKind
-        // carried 120 and 119 smeared referencers against the enum's 28, while unique-only
-        // reads 1, 0 and 28. Same-name symbols are exactly the group the tie-break below
-        // has to separate, so the smeared count is the one signal that cannot do it.
         command.CommandText = """
             SELECT s.id, s.name, s.kind,
-                   CASE WHEN c.kind IN ($function, $method) THEN 1 ELSE 0 END AS is_local,
-                   COALESCE(u.n, 0) AS referencers
+                   CASE WHEN c.kind IN ($function, $method) THEN 1 ELSE 0 END AS is_local
             FROM symbol s
             LEFT JOIN symbol c ON c.id = s.container_id
-            LEFT JOIN (SELECT e.target_symbol_id AS t, COUNT(DISTINCT r.from_symbol_id) AS n
-                       FROM edge e
-                       JOIN ref r ON r.id = e.ref_id
-                       WHERE e.confidence = $unique
-                       GROUP BY e.target_symbol_id) u ON u.t = s.id
             WHERE s.is_definition = 1
             """;
         command.Parameters.AddWithValue("$function", (int)SymbolKind.Function);
         command.Parameters.AddWithValue("$method", (int)SymbolKind.Method);
-        command.Parameters.AddWithValue("$unique", (int)EdgeConfidence.Unique);
 
         using var reader = command.ExecuteReader();
         while (reader.Read())
@@ -143,14 +128,12 @@ public sealed class SymbolSearchService
                 Array.Resize(ref names, grown);
                 Array.Resize(ref kinds, grown);
                 Array.Resize(ref isLocal, grown);
-                Array.Resize(ref referencers, grown);
             }
 
             ids[count] = reader.GetInt64(0);
             names[count] = reader.GetString(1);
             kinds[count] = (SymbolKind)reader.GetInt32(2);
             isLocal[count] = reader.GetInt32(3) == 1;
-            referencers[count] = reader.GetInt32(4);
             count++;
         }
 
@@ -158,8 +141,117 @@ public sealed class SymbolSearchService
         _names = names;
         _kinds = kinds;
         _isLocal = isLocal;
-        _referencers = referencers;
         _count = count;
+    }
+
+    /// <summary>
+    /// Reorders each run of equally-scored, equally-long hits by how much of the workspace
+    /// uniquely refers to each — the same importance signal <c>repo_map</c> ranks by.
+    /// <para>
+    /// This is asked per tie rather than held for every symbol, and the difference is the
+    /// whole cost of the tie-break. Loading it for all of them added 235 ms to every command
+    /// on a 63,000-symbol workspace — more than half the wall time of a search — to settle
+    /// an ordering that 15 of 51 real queries need and that never involves more than a
+    /// handful of rows. The targeted query is 0.02 ms warm. Narrowing the whole-table
+    /// version to names that could tie was measured and rejected: 78.5% of definitions there
+    /// share a name with another, so it saves nothing.
+    /// </para>
+    /// </summary>
+    private void BreakTiesByImportance(
+        List<(long Id, int Score, int NameLength)> scored,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        static bool SameRank(
+            (long Id, int Score, int NameLength) a,
+            (long Id, int Score, int NameLength) b)
+            => a.Score == b.Score && a.NameLength == b.NameLength;
+
+        // Only the returned window can be affected, extended through whatever run straddles
+        // its edge: a run's members can only be reordered among themselves, but when the cut
+        // falls inside one, that order decides which of them is returned at all.
+        var window = Math.Min(scored.Count, limit);
+        while (window > 0 && window < scored.Count && SameRank(scored[window], scored[window - 1]))
+        {
+            window++;
+        }
+
+        var runs = new List<(int Start, int Length)>();
+        for (var start = 0; start < window;)
+        {
+            var end = start + 1;
+            while (end < window && SameRank(scored[end], scored[start]))
+            {
+                end++;
+            }
+
+            if (end - start > 1)
+            {
+                runs.Add((start, end - start));
+            }
+
+            start = end;
+        }
+
+        if (runs.Count == 0)
+        {
+            return;
+        }
+
+        var tied = runs
+            .SelectMany(run => Enumerable.Range(run.Start, run.Length))
+            .Select(i => scored[i].Id)
+            .ToList();
+        var referencers = LoadUniqueReferencers(tied, cancellationToken);
+
+        var byImportance = Comparer<(long Id, int Score, int NameLength)>.Create((a, b) =>
+        {
+            var byReferencers = referencers.GetValueOrDefault(b.Id)
+                .CompareTo(referencers.GetValueOrDefault(a.Id));
+            return byReferencers != 0 ? byReferencers : a.Id.CompareTo(b.Id);
+        });
+
+        foreach (var (start, length) in runs)
+        {
+            scored.Sort(start, length, byImportance);
+        }
+    }
+
+    /// <summary>
+    /// How many distinct symbols refer to each of these, over UNIQUE edges only.
+    /// <para>
+    /// Ambiguous edges land on every same-name candidate, so counting them makes all such
+    /// candidates read as equally important — measured on this repo, the two fields named
+    /// <c>ReferenceKind</c> carried 120 and 119 smeared referencers against the enum's 28,
+    /// while unique-only reads 1, 0 and 28. Same-name symbols are exactly the group a tie
+    /// has to separate, so the smeared count is the one signal that cannot do it.
+    /// </para>
+    /// </summary>
+    private Dictionary<long, int> LoadUniqueReferencers(
+        List<long> ids,
+        CancellationToken cancellationToken)
+    {
+        var counts = new Dictionary<long, int>(ids.Count);
+
+        using var command = _connection.CreateCommand();
+        command.CommandText = $"""
+            SELECT e.target_symbol_id, COUNT(DISTINCT r.from_symbol_id)
+            FROM edge e
+            JOIN ref r ON r.id = e.ref_id
+            WHERE e.confidence = $unique
+              AND e.target_symbol_id IN ({string.Join(",", ids)})
+            GROUP BY e.target_symbol_id
+            """;
+        command.Parameters.AddWithValue("$unique", (int)EdgeConfidence.Unique);
+
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            counts[reader.GetInt64(0)] = reader.GetInt32(1);
+        }
+
+        return counts;
     }
 
     private int CountDefinitions()
@@ -188,7 +280,7 @@ public sealed class SymbolSearchService
 
         // A bounded min-heap would save little here: scoring dominates, and the result
         // list is capped well below the point where sorting matters.
-        var scored = new List<(long Id, int Score, int NameLength, int Referencers)>(Math.Min(_count, 4096));
+        var scored = new List<(long Id, int Score, int NameLength)>(Math.Min(_count, 4096));
 
         for (var i = 0; i < _count; i++)
         {
@@ -216,7 +308,7 @@ public sealed class SymbolSearchService
                 continue;
             }
 
-            scored.Add((_ids[i], score.Value, _names[i].Length, _referencers[i]));
+            scored.Add((_ids[i], score.Value, _names[i].Length));
         }
 
         if (scored.Count == 0)
@@ -224,11 +316,9 @@ public sealed class SymbolSearchService
             return [];
         }
 
-        // Equal score and equal length means same-name candidates (or as good as), and 15
-        // of the 51 real queries ever issued against this tool hit such a tie at rank 1 —
-        // which List.Sort, being unstable, resolved by partition luck. The tie goes to the
-        // symbol most workspaces symbols uniquely refer to (repo_map's own importance
-        // signal), and then to id, so one query always returns one order.
+        // Id last so that one query always returns one order: List.Sort is unstable, and 15
+        // of the 51 real queries ever issued against this tool hit a rank-1 tie, which it
+        // was resolving by partition luck.
         scored.Sort(static (a, b) =>
         {
             var byScore = b.Score.CompareTo(a.Score);
@@ -238,14 +328,10 @@ public sealed class SymbolSearchService
             }
 
             var byLength = a.NameLength.CompareTo(b.NameLength);
-            if (byLength != 0)
-            {
-                return byLength;
-            }
-
-            var byReferencers = b.Referencers.CompareTo(a.Referencers);
-            return byReferencers != 0 ? byReferencers : a.Id.CompareTo(b.Id);
+            return byLength != 0 ? byLength : a.Id.CompareTo(b.Id);
         });
+
+        BreakTiesByImportance(scored, options.Limit, cancellationToken);
 
         // Verbatim matching has no loose tier: a name that contains the query contains it.
         // Fuzzy matching does, and because every hit here was scored against the same
@@ -282,7 +368,7 @@ public sealed class SymbolSearchService
 
     /// <summary>Fetches display rows for the winning ids, preserving their ranked order.</summary>
     private List<SymbolSearchHit> Hydrate(
-        List<(long Id, int Score, int NameLength, int Referencers)> ranked,
+        List<(long Id, int Score, int NameLength)> ranked,
         int strongScoreFloor,
         CancellationToken cancellationToken)
     {

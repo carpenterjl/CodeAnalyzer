@@ -294,6 +294,44 @@ public class IndexStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task ATieIsBrokenEvenWhenTheLimitCutsThroughIt()
+    {
+        // The importance signal is fetched per tie rather than held for every symbol, which
+        // is what makes it free — but it means the fetch has to know which rows it needs
+        // before the list is truncated. A run of equally-ranked hits can only be reordered
+        // among themselves, so it matters nowhere except here: when the cut falls inside a
+        // run, that order decides which of its members is returned at all.
+        //
+        // Same fixture as the tie test above, asked for ONE hit. The field is declared
+        // first, so the unstable sort's own order would hand back the field.
+        WriteFile("src/widgets.cs", """
+            class Alpha
+            {
+                public int Widget;
+            }
+
+            class Widget
+            {
+            }
+
+            class UserOne
+            {
+                private Widget _fieldOne;
+            }
+            """);
+
+        var store = await IndexAsync();
+
+        var search = new SymbolSearchService(store.Connection);
+        search.Reload();
+
+        var hits = search.Search("Widget", new SymbolSearchOptions { Limit = 1 });
+        var only = Assert.Single(hits);
+        Assert.Equal("Widget", only.Name);
+        Assert.Equal(SymbolKind.Class, only.Kind);
+    }
+
+    [Fact]
     public async Task AChattyCallerDoesNotStarveTheListBelowItsCap()
     {
         // The LIMIT counts entries, not raw reference rows. Before it did, one caller with
