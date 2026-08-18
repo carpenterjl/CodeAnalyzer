@@ -199,7 +199,16 @@ public static class Schema
     /// as 12 and 26 — the source did not change, the analyzer did, and the incremental gate
     /// reads the file rather than the analyzer.
     /// </para>
-    public const int Version = 30;
+    /// <para>
+    /// 31 — M32.1 stops a declaration taking the comment written for the declaration it is
+    /// part of. A parameter begins on its method's line and a record's positional members
+    /// begin on the record's, so each of them walked up to the same block: 8,125 of the
+    /// 17,951 comments stored on JGraph (45.3%) and 488 of 2,343 here (20.8%) were copies,
+    /// and one record's summary answered a comment search six times over. Same reason as 12,
+    /// 26 and 27 — the analyzer moved and the source did not, so nothing but a version
+    /// change makes the incremental gate re-read these files.
+    /// </para>
+    public const int Version = 31;
 
     public const string MetaSchemaVersion = "schema_version";
     public const string MetaRootPath = "root_path";

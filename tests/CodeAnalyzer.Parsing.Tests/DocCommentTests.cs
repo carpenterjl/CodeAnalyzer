@@ -180,4 +180,75 @@ public class DocCommentTests : IDisposable
         Assert.Null(DocOf(result, "Send"));
         Assert.Null(DocOf(result, "Api"));
     }
+
+    [Fact]
+    public void AMethodsParametersDoNotEachTakeTheMethodsComment()
+    {
+        // Parameters begin on the line the method begins on, so walking up from each of
+        // them reaches the same block. Round seventeen shipped without this check and
+        // 45.3% of every comment stored on JGraph was a copy — most of them parameters.
+        var result = _csharp.Analyze("t.cs", """
+            class Api
+            {
+                /// Splits a leading axes handle off an argument list.
+                public void PeelAxes(int first, int second) { }
+            }
+            """, CancellationToken.None);
+
+        Assert.Equal("Splits a leading axes handle off an argument list.", DocOf(result, "PeelAxes"));
+        Assert.Null(DocOf(result, "first"));
+        Assert.Null(DocOf(result, "second"));
+    }
+
+    [Fact]
+    public void ARecordsPositionalMembersDoNotEachTakeTheRecordsComment()
+    {
+        var result = _csharp.Analyze("t.cs", """
+            /// One cell of a spreadsheet fixture.
+            record XCell(int Kind, double Num, string Str);
+            """, CancellationToken.None);
+
+        Assert.Equal("One cell of a spreadsheet fixture.", DocOf(result, "XCell"));
+        Assert.Null(DocOf(result, "Kind"));
+        Assert.Null(DocOf(result, "Num"));
+        Assert.Null(DocOf(result, "Str"));
+    }
+
+    [Fact]
+    public void FieldsDeclaredTogetherOnOneLineAllKeepTheirSharedComment()
+    {
+        // The other side of the same rule, and the reason it is written as "an ANCESTOR on
+        // this line" rather than "anything else on this line": these three are siblings,
+        // the comment is about all three, and dropping two of them would lose real text.
+        var result = _csharp.Analyze("t.cs", """
+            class Projection
+            {
+                // Rotation rows of the view matrix: screen-right, screen-up, depth.
+                private readonly double _ux, _uy, _uz;
+            }
+            """, CancellationToken.None);
+
+        const string shared = "Rotation rows of the view matrix: screen-right, screen-up, depth.";
+        Assert.Equal(shared, DocOf(result, "_ux"));
+        Assert.Equal(shared, DocOf(result, "_uy"));
+        Assert.Equal(shared, DocOf(result, "_uz"));
+    }
+
+    [Fact]
+    public void ANestedDeclarationOnTheSameLineDoesNotTakeTheOuterOnesComment()
+    {
+        // The general form, without relying on C# parameters: whatever begins inside a
+        // declaration that begins on the same line is that declaration's syntax.
+        var result = _csharp.Analyze("t.cs", """
+            class Api
+            {
+                /// Every retry policy the transport knows.
+                enum Policy { Once, Twice }
+            }
+            """, CancellationToken.None);
+
+        Assert.Equal("Every retry policy the transport knows.", DocOf(result, "Policy"));
+        Assert.Null(DocOf(result, "Once"));
+        Assert.Null(DocOf(result, "Twice"));
+    }
 }

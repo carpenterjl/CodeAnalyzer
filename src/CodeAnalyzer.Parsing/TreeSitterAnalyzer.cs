@@ -192,6 +192,17 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
         for (var i = 0; i < symbols.Count; i++)
         {
             var symbol = symbols[i];
+
+            // A comment is written for one declaration, and when several begin on one line
+            // the outermost is the one it was written for: `/// <summary>` above
+            // `Foo(int a, int b)` is about Foo, not about a and b, which begin on Foo's own
+            // line and would otherwise each walk up to the same block. Left unchecked this
+            // was 45.3% of every comment stored on JGraph and 20.8% here.
+            if (BelongsToADeclarationOnTheSameLine(symbols, i))
+            {
+                continue;
+            }
+
             var block = new List<Node>();
 
             // Span lines are 1-based, so the line directly above the declaration is
@@ -234,6 +245,46 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Whether this symbol is part of the syntax of a larger declaration that begins on the
+    /// same line — a method's parameter, a record's positional member — in which case the
+    /// comment above that line was written for the larger declaration and not for this.
+    /// <para>
+    /// The test is an ancestor on the same line <em>of a different kind</em>, and the second
+    /// half is what keeps <c>private readonly double _ux, _uy, _uz;</c> whole. Three fields
+    /// declared together nest inside the first one's span, so they are ancestor and
+    /// descendant by the letter of it, but the comment above really is about all three and
+    /// they are all Fields. A parameter's ancestor is a Method and a positional member's is
+    /// a Class, which is the difference this reads.
+    /// </para>
+    /// </summary>
+    private static bool BelongsToADeclarationOnTheSameLine(List<ExtractedSymbol> symbols, int index)
+    {
+        var self = symbols[index].Record;
+
+        // Bounded by the symbol count rather than trusting the chain to terminate: the
+        // walk is over indices this method does not own, and a cycle here would hang a
+        // parse rather than fail it.
+        var at = self.ContainerLocalIndex;
+        for (var hops = 0; at is { } container && hops < symbols.Count; hops++)
+        {
+            if (container < 0 || container >= symbols.Count)
+            {
+                return false;
+            }
+
+            var ancestor = symbols[container].Record;
+            if (ancestor.Span.Start.Line == self.Span.Start.Line && ancestor.Kind != self.Kind)
+            {
+                return true;
+            }
+
+            at = ancestor.ContainerLocalIndex;
+        }
+
+        return false;
     }
 
     /// <summary>
