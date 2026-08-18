@@ -50,6 +50,12 @@ public static class Schema
     /// declarations for nine rounds behind an error label naming only a position.
     /// </para>
     /// <para>
+    /// Version 29 (M32.3) adds <c>file.line_count</c>, the denominator that extent needs. It
+    /// turns "the construct runs to line 220" into "to line 220 of 222", which is the
+    /// difference between a clause a reader skims and an alarm that says the rest of the
+    /// file was never read. Written by the parser for every file, not only broken ones.
+    /// </para>
+    /// <para>
     /// Version 22 (M21.1) adds <c>file.error_line</c> and <c>file.error_text</c>: where the
     /// parser first lost its footing and the text it could not read. Needed by the rule
     /// below — the parser now writes a value it never wrote before, and an unchanged file
@@ -187,7 +193,7 @@ public static class Schema
     /// as 12 and 26 — the source did not change, the analyzer did, and the incremental gate
     /// reads the file rather than the analyzer.
     /// </para>
-    public const int Version = 28;
+    public const int Version = 29;
 
     public const string MetaSchemaVersion = "schema_version";
     public const string MetaRootPath = "root_path";
@@ -247,7 +253,13 @@ public static class Schema
             -- Last line of the construct the parse stopped inside. What a broken construct
             -- swallowed is not in the index and cannot be counted, but its extent can be
             -- stated, and a span reaching the end of the file is the shape of a swallow.
-            error_end_line INTEGER
+            error_end_line INTEGER,
+            -- Lines in the file as parsed. Stored so error_end_line can be read as a
+            -- fraction rather than an absolute: "runs to line 220" says nothing without
+            -- knowing whether the file ends at 222 or at 4,000. Zero rows have such a span
+            -- on either corpus today, which is exactly why the denominator goes in now —
+            -- the alarm that fires at zero is the one nobody has learned to ignore.
+            line_count   INTEGER
         );
 
         CREATE TABLE IF NOT EXISTS symbol (

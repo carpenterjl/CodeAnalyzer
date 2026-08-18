@@ -20,6 +20,11 @@ namespace CodeAnalyzer.Core.Storage;
 /// the honest proxy, and a span running far past <paramref name="Line"/> is the shape of a
 /// swallow. Null on indexes written before the column existed.
 /// </para>
+/// <para>
+/// <paramref name="LineCount"/> is what makes that extent readable. Reaching line 220 is
+/// unremarkable in a long file and means the rest was never read in a 222-line one, so the
+/// two are only ever worth reporting together — see <see cref="ConsumedTheRestOfTheFile"/>.
+/// </para>
 /// </summary>
 public sealed record FileErrorRecord(
     string RelativePath,
@@ -28,4 +33,24 @@ public sealed record FileErrorRecord(
     int SymbolCount,
     int? Line = null,
     string? Text = null,
-    int? EndLine = null);
+    int? EndLine = null,
+    int? LineCount = null)
+{
+    /// <summary>
+    /// The construct the parse stopped inside runs to the last line of the file.
+    /// <para>
+    /// This is the shape of a swallow rather than of a typo: a construct that ends where the
+    /// file ends did not end, and everything after the error is inside it and unread. It is
+    /// worth a line of its own precisely because it is currently true of nothing — 1,214
+    /// files across two workspaces and not one match. An alarm added while its population is
+    /// zero has no backlog to be ignored in, which is the state in which the first real one
+    /// gets read.
+    /// </para>
+    /// </summary>
+    /// <remarks>
+    /// Kept in step with <see cref="FileErrorQuery.ConsumedTheRestOfTheFileSql"/>, which is
+    /// the same test written for the header's COUNT.
+    /// </remarks>
+    public bool ConsumedTheRestOfTheFile =>
+        Line is { } from && EndLine is { } to && LineCount is { } total && to > from && to >= total;
+}

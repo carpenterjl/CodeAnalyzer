@@ -530,6 +530,20 @@ internal static class TerseFormatter
         builder.AppendLine(
             $"{report.Files.Count} of {report.TotalFiles} indexed files hold something the parser could not read");
 
+        // Above the tally, because it is the one thing here that is not reassurable. The
+        // tally exists to say "your workspace is fine, the grammar is old"; this says the
+        // opposite and must not be read as part of it. Silent at zero, which is what both
+        // corpora are today — an alarm with a standing population is one readers learn to
+        // scroll past, and adding it now is the whole point of adding it now.
+        var swallowed = report.Files.Count(f => f.ConsumedTheRestOfTheFile);
+        if (swallowed > 0)
+        {
+            builder.AppendLine(
+                $"!! {swallowed} of them stopped inside a construct that never ends, so the rest of "
+                + "each file was consumed as its body. Those lines were never read as code, and "
+                + "whatever they declared is missing from the index rather than merely flagged.");
+        }
+
         builder.AppendLine();
         builder.AppendLine("what it stopped at:");
         foreach (var group in report.Files
@@ -566,11 +580,21 @@ internal static class TerseFormatter
 
                 // "N indexed" alone is the gap that hid a swallow for nine rounds: the
                 // count says what survived and nothing about reach. The construct's extent
-                // is the honest proxy for what may not have — a span to the last line
-                // means everything after the error was consumed as its body.
-                var reach = file is { Line: { } from, EndLine: { } to } && to > from
-                    ? $" — the construct it stopped in runs to line {to}"
-                    : string.Empty;
+                // is the honest proxy for what may not have — and a span to the last line
+                // is not a longer clause but a different claim, so it gets different words.
+                // Everything after the error is inside a construct that never ended, which
+                // means it was never read as code at all.
+                var reach = file switch
+                {
+                    { ConsumedTheRestOfTheFile: true, Line: { } start, LineCount: { } total } =>
+                        $" — !! the construct it stopped in never ends: lines {start}–{total} "
+                        + "were consumed as its body and never read",
+                    { Line: { } from, EndLine: { } to, LineCount: { } total } when to > from =>
+                        $" — the construct it stopped in runs to line {to} of {total}",
+                    { Line: { } from, EndLine: { } to } when to > from =>
+                        $" — the construct it stopped in runs to line {to}",
+                    _ => string.Empty,
+                };
 
                 builder.AppendLine($"  {file.RelativePath}{where}{what}{reach}");
             }

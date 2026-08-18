@@ -343,16 +343,21 @@ internal static class JsonFormatter
             index = Index(session),
             totalFiles = report.TotalFiles,
             imperfectFiles = report.Files.Count,
+            swallowedFiles = report.Files.Count(f => f.ConsumedTheRestOfTheFile),
             note = "every file listed was still indexed; symbols is what survived. A null message "
                 + "means the parser recovered, and stoppedAt is where it lost its footing. "
-                + "endLine is the last line of the construct it stopped in — a span reaching "
-                + "the end of the file means everything after the error was consumed as its body.",
+                + "endLine is the last line of the construct it stopped in, against lineCount "
+                + "for the file. consumedRestOfFile is the case worth acting on: the construct "
+                + "never ended, so the lines after the error were read as its body and whatever "
+                + "they declared is absent from the index rather than merely flagged.",
             files = report.Files.Select(f => new
             {
                 path = f.RelativePath,
                 language = f.Language,
                 line = f.Line,
                 endLine = f.EndLine,
+                lineCount = f.LineCount,
+                consumedRestOfFile = f.ConsumedTheRestOfTheFile,
                 stoppedAt = f.Text,
                 symbols = f.SymbolCount,
                 message = f.Message,

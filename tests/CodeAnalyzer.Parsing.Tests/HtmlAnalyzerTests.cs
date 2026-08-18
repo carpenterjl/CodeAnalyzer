@@ -123,5 +123,26 @@ public class HtmlAnalyzerTests() : LanguagePackFixture(LanguageRegistry.Html, "i
         // "1 indexed" alone is the exact gap that hid the XAML swallow for nine rounds.
         Assert.Equal(2, result.ErrorLine);
         Assert.Equal(4, result.ErrorEndLine);
+
+        // And the denominator that makes those two numbers mean something. 4 is only
+        // alarming because the file ends at 4; the extent alone cannot say so, which is why
+        // it read as a mild clause for a round.
+        Assert.Equal(4, result.LineCount);
+    }
+
+    [Fact]
+    public void AFileThatParsesCleanlyStillCountsItsLines()
+    {
+        // Written for every file, not only broken ones — a denominator that only exists
+        // when something has already gone wrong is one more thing to be null at the moment
+        // it is needed.
+        var result = Analyze("""
+            <div id="one">x</div>
+            <div id="two">y</div>
+            <div id="three">z</div>
+            """);
+
+        Assert.Null(result.ErrorLine);
+        Assert.Equal(3, result.LineCount);
     }
 }

@@ -207,4 +207,12 @@ public sealed record ParseResult
     /// rounds behind a label naming only where the parse stopped.
     /// </summary>
     public int? ErrorEndLine { get; init; }
+
+    /// <summary>
+    /// Lines in the file as parsed, for every file and not only broken ones. It is the
+    /// denominator <see cref="ErrorEndLine"/> is meaningless without: an extent running to
+    /// line 220 is unremarkable in a 4,000-line file and means the rest of the file was
+    /// never read in a 222-line one, and only the second deserves an alarm.
+    /// </summary>
+    public int? LineCount { get; init; }
 }

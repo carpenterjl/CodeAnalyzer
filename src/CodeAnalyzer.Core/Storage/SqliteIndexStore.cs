@@ -206,8 +206,8 @@ public sealed class SqliteIndexStore : IParseResultSink, IIncrementalGate, IDisp
         using var deleteDependencies = CreateCommand(transaction, "DELETE FROM file_dep WHERE file_id = $fileId");
 
         using var upsertFile = CreateCommand(transaction, """
-            INSERT INTO file (id, rel_path, top_dir, base_name, dir_path, language, content_hash, size, mtime, status, error, error_line, error_text, error_end_line)
-            VALUES ($id, $relPath, $topDir, $baseName, $dirPath, $language, $hash, $size, $mtime, $status, $error, $errorLine, $errorText, $errorEndLine)
+            INSERT INTO file (id, rel_path, top_dir, base_name, dir_path, language, content_hash, size, mtime, status, error, error_line, error_text, error_end_line, line_count)
+            VALUES ($id, $relPath, $topDir, $baseName, $dirPath, $language, $hash, $size, $mtime, $status, $error, $errorLine, $errorText, $errorEndLine, $lineCount)
             ON CONFLICT(rel_path) DO UPDATE SET
                 top_dir = excluded.top_dir,
                 base_name = excluded.base_name,
@@ -220,7 +220,8 @@ public sealed class SqliteIndexStore : IParseResultSink, IIncrementalGate, IDisp
                 error = excluded.error,
                 error_line = excluded.error_line,
                 error_text = excluded.error_text,
-                error_end_line = excluded.error_end_line
+                error_end_line = excluded.error_end_line,
+                line_count = excluded.line_count
             """);
 
         using var insertSymbol = CreateCommand(transaction, """
@@ -284,6 +285,7 @@ public sealed class SqliteIndexStore : IParseResultSink, IIncrementalGate, IDisp
         Set(upsertFile, "$errorLine", result.ErrorLine);
         Set(upsertFile, "$errorText", result.ErrorText);
         Set(upsertFile, "$errorEndLine", result.ErrorEndLine);
+        Set(upsertFile, "$lineCount", result.LineCount);
         upsertFile.ExecuteNonQuery();
 
         // Replace rather than merge: re-parsing a file supersedes everything it declared.

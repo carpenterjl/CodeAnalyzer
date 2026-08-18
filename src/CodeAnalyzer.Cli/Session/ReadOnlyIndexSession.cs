@@ -91,6 +91,18 @@ internal sealed class ReadOnlyIndexSession : IDisposable
     /// </summary>
     public int ImperfectParseCount { get; private set; }
 
+    /// <summary>
+    /// Of those, the ones whose failing construct runs to the last line of the file.
+    /// <para>
+    /// A separate number because it is a separate claim. An imperfect parse usually means
+    /// the grammar is older than the code and every declaration was still indexed; this
+    /// means the rest of the file was swallowed as one construct's body and whatever it
+    /// declared is absent. Both were true of the XAML files that hid 33 declarations for
+    /// nine rounds, and only the first was ever printed.
+    /// </para>
+    /// </summary>
+    public int SwallowedFileCount { get; private set; }
+
     public static IndexOpenResult TryOpen(string rootPath)
     {
         var fullRoot = Path.GetFullPath(rootPath)
@@ -194,6 +206,11 @@ internal sealed class ReadOnlyIndexSession : IDisposable
         using var imperfect = Connection.CreateCommand();
         imperfect.CommandText = "SELECT COUNT(*) FROM file WHERE error_line IS NOT NULL";
         ImperfectParseCount = Convert.ToInt32(imperfect.ExecuteScalar() ?? 0);
+
+        using var swallowed = Connection.CreateCommand();
+        swallowed.CommandText =
+            $"SELECT COUNT(*) FROM file WHERE {FileErrorQuery.ConsumedTheRestOfTheFileSql}";
+        SwallowedFileCount = Convert.ToInt32(swallowed.ExecuteScalar() ?? 0);
     }
 
     /// <summary>
@@ -275,10 +292,18 @@ internal sealed class ReadOnlyIndexSession : IDisposable
             ? $", {ImperfectParseCount:N0} imperfect parses (see: errors)"
             : string.Empty;
 
+        // Silent at zero, and zero is what both corpora read today — 1,214 files, no match.
+        // That is the argument for putting it here rather than waiting for a case: an alarm
+        // introduced alongside its first real occurrence arrives in a header the reader has
+        // already learned to skim, while one that has never fired still reads as news.
+        var swallowed = SwallowedFileCount > 0
+            ? $", !! {SwallowedFileCount:N0} of them swallowed the rest of their file"
+            : string.Empty;
+
         // "definitions", not "symbols": this counts is_definition rows, while an index run
         // reports every symbol it parsed, prototypes and declarations included. Two honest
         // numbers that differ, so they must not share a word.
-        return $"index: {RootPath} ({DefinitionCount:N0} definitions{imperfect}, built {built}{drift}{advice})";
+        return $"index: {RootPath} ({DefinitionCount:N0} definitions{imperfect}{swallowed}, built {built}{drift}{advice})";
     }
 
     private static string Describe(IndexStaleness stale)

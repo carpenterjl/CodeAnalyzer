@@ -89,6 +89,10 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
                 ErrorLine = firstError is { } error ? error.Site.StartPosition.Row + 1 : null,
                 ErrorText = firstError?.Text,
                 ErrorEndLine = firstError?.EndLine,
+                // From the tree rather than by counting newlines in the text: this is the
+                // same coordinate space every other line number here comes from, and the two
+                // disagree by one on a file with no trailing newline.
+                LineCount = tree.RootNode.EndPosition.Row + 1,
             };
         }
         catch (OperationCanceledException)

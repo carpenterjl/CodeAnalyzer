@@ -76,17 +76,66 @@ public class TerseFormatterTests
         // a one-line error stays one line, and an old index without the column stays
         // silent rather than guessing.
         var report = new ParseErrorReport(3, [
-            new("eats.html", "HTML", null, SymbolCount: 1, Line: 3, Text: "<script>", EndLine: 40),
-            new("narrow.cs", "C#", null, SymbolCount: 12, Line: 7, Text: "= ;", EndLine: 7),
+            new("eats.html", "HTML", null, SymbolCount: 1, Line: 3, Text: "<script>", EndLine: 40,
+                LineCount: 900),
+            new("narrow.cs", "C#", null, SymbolCount: 12, Line: 7, Text: "= ;", EndLine: 7,
+                LineCount: 400),
             new("old.cs", "C#", null, SymbolCount: 5, Line: 9, Text: "[]", EndLine: null),
         ]);
 
         var text = TerseFormatter.ParseErrors(report, limit: 10);
 
-        Assert.Contains("eats.html:3  1 indexed — the construct it stopped in runs to line 40", text);
+        Assert.Contains(
+            "eats.html:3  1 indexed — the construct it stopped in runs to line 40 of 900", text);
         Assert.Contains("narrow.cs:7  12 indexed", text);
         Assert.DoesNotContain("runs to line 7", text);
         Assert.DoesNotContain("runs to line 9", text);
+
+        // Reaching line 40 of 900 is a clause. None of these reaches the end of its file, so
+        // none of them earns the alarm.
+        Assert.DoesNotContain("!!", text);
+    }
+
+    [Fact]
+    public void AConstructThatNeverEndsIsAnAlarmRatherThanALongerClause()
+    {
+        // Two files with the SAME extent and the same error line. The only difference is the
+        // denominator, and it is the whole difference between "the grammar is older than
+        // this code" and "the rest of this file was never read". Before line_count existed
+        // both printed the identical mild sentence.
+        var report = new ParseErrorReport(2, [
+            new("swallowed.html", "HTML", null, SymbolCount: 0, Line: 3, Text: "<script>",
+                EndLine: 40, LineCount: 40),
+            new("survived.html", "HTML", null, SymbolCount: 31, Line: 3, Text: "<script>",
+                EndLine: 40, LineCount: 900),
+        ]);
+
+        var text = TerseFormatter.ParseErrors(report, limit: 10);
+
+        Assert.Contains("!! 1 of them stopped inside a construct that never ends", text);
+        Assert.Contains(
+            "swallowed.html:3  0 indexed — !! the construct it stopped in never ends: "
+            + "lines 3–40 were consumed as its body and never read", text);
+        Assert.Contains(
+            "survived.html:3  31 indexed — the construct it stopped in runs to line 40 of 900",
+            text);
+    }
+
+    [Fact]
+    public void AnIndexWrittenBeforeTheDenominatorExistedRaisesNoAlarm()
+    {
+        // The extent is there and the file length is not, so whether the construct reached
+        // the end is unknown. Unknown prints the weaker true sentence rather than the
+        // stronger guess — an alarm that fires on a null is one nobody can act on.
+        var report = new ParseErrorReport(1, [
+            new("old.html", "HTML", null, SymbolCount: 2, Line: 3, Text: "<script>", EndLine: 40),
+        ]);
+
+        var text = TerseFormatter.ParseErrors(report, limit: 10);
+
+        Assert.Contains("the construct it stopped in runs to line 40", text);
+        Assert.DoesNotContain("of ", text[text.IndexOf("runs to line 40", StringComparison.Ordinal)..]);
+        Assert.DoesNotContain("!!", text);
     }
 
     [Fact]

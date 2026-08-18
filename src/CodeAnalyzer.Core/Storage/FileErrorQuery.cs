@@ -20,13 +20,25 @@ public sealed record ParseErrorReport(int TotalFiles, IReadOnlyList<FileErrorRec
 /// </summary>
 public static class FileErrorQuery
 {
+    /// <summary>
+    /// The SQL form of <see cref="FileErrorRecord.ConsumedTheRestOfTheFile"/>, single-sourced
+    /// beside it so the count in the provenance header and the flag on each row cannot come
+    /// to disagree — the same reason <c>CompatibleKindSql</c> lives on the resolver.
+    /// </summary>
+    public const string ConsumedTheRestOfTheFileSql = """
+        error_line IS NOT NULL
+        AND error_end_line > error_line
+        AND line_count IS NOT NULL
+        AND error_end_line >= line_count
+        """;
+
     public static ParseErrorReport Read(SqliteConnection connection)
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT rel_path, language, error,
                    (SELECT COUNT(*) FROM symbol s WHERE s.file_id = file.id),
-                   error_line, error_text, error_end_line
+                   error_line, error_text, error_end_line, line_count
             FROM file
             WHERE status <> 0
             ORDER BY rel_path
@@ -44,7 +56,8 @@ public static class FileErrorQuery
                     reader.GetInt32(3),
                     reader.IsDBNull(4) ? null : reader.GetInt32(4),
                     reader.IsDBNull(5) ? null : reader.GetString(5),
-                    reader.IsDBNull(6) ? null : reader.GetInt32(6)));
+                    reader.IsDBNull(6) ? null : reader.GetInt32(6),
+                    reader.IsDBNull(7) ? null : reader.GetInt32(7)));
             }
         }
 
