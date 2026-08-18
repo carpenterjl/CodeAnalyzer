@@ -229,12 +229,12 @@ public sealed class SqliteIndexStore : IParseResultSink, IIncrementalGate, IDisp
                 (id, file_id, name, kind, container_id, scope_path, signature, value,
                  value_num, value_str, type_text,
                  modifiers, language, start_line, start_col, end_line, end_col, start_offset,
-                 end_offset, is_definition, param_count, param_text)
+                 end_offset, is_definition, param_count, param_text, doc_comment)
             VALUES
                 ($id, $fileId, $name, $kind, $containerId, $scopePath, $signature, $value,
                  $valueNum, $valueStr, $typeText,
                  $modifiers, $language, $startLine, $startCol, $endLine, $endCol, $startOffset,
-                 $endOffset, $isDefinition, $paramCount, $paramText)
+                 $endOffset, $isDefinition, $paramCount, $paramText, $docComment)
             """);
 
         using var insertReference = CreateCommand(transaction, """
@@ -334,6 +334,7 @@ public sealed class SqliteIndexStore : IParseResultSink, IIncrementalGate, IDisp
             Set(insertSymbol, "$isDefinition", symbol.IsDefinition ? 1 : 0);
             Set(insertSymbol, "$paramCount", symbol.ParameterCount);
             Set(insertSymbol, "$paramText", symbol.ParameterText);
+            Set(insertSymbol, "$docComment", symbol.DocComment);
             insertSymbol.ExecuteNonQuery();
         }
 

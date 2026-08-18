@@ -132,24 +132,75 @@ internal static class TerseFormatter
         return builder.Finish();
     }
 
+    /// <summary>
+    /// How much of a doc comment a result row shows. A listing is scanned, not read.
+    /// </summary>
+    private const int CommentExcerptLength = 150;
+
+    /// <summary>
+    /// A window of a doc comment around the query. Centred on the match rather than cut from
+    /// the front, because in a paragraph the sentence that made a symbol match is rarely in
+    /// its first eighty characters — and a row that shows an excerpt not containing the
+    /// query is asking the reader to take the match on faith.
+    /// </summary>
+    private static string Excerpt(string comment, string query)
+    {
+        if (comment.Length <= CommentExcerptLength)
+        {
+            return comment;
+        }
+
+        var at = comment.IndexOf(query, StringComparison.OrdinalIgnoreCase);
+        var start = at < 0 ? 0 : Math.Max(0, at - (CommentExcerptLength / 3));
+        var take = Math.Min(CommentExcerptLength, comment.Length - start);
+
+        return (start > 0 ? "…" : string.Empty)
+            + comment.Substring(start, take)
+            + (start + take < comment.Length ? "…" : string.Empty);
+    }
+
     // ---- per-command bodies -------------------------------------------------
 
     public static string Search(
         string query,
         IReadOnlyList<SymbolSearchHit> hits,
         string? kindFilter,
-        bool exact = false)
+        bool exact = false,
+        bool inComments = false)
     {
         if (hits.Count == 0)
         {
             // Every narrowing that was applied gets named. An active filter is the likeliest
             // reason a query that ought to match does not, and exact matching is the newest
             // way to get an empty list from a query that fuzzily found plenty.
-            var subject = exact
-                ? $"no symbols contain '{query}' verbatim (exact match)"
-                : $"no symbols match '{query}'";
+            var subject = inComments
+                ? $"no comment above a declaration mentions '{query}'"
+                : exact
+                    ? $"no symbols contain '{query}' verbatim (exact match)"
+                    : $"no symbols match '{query}'";
 
             return kindFilter is null ? subject : $"{subject} with kinds {kindFilter}";
+        }
+
+        if (inComments)
+        {
+            // A different question was asked, so the list says so before it is read: these
+            // hits are not named anything like the query and a reader scanning the names
+            // would otherwise conclude the search had gone wrong.
+            var comments = new StringBuilder();
+            comments.AppendLine(
+                $"{hits.Count} declaration{(hits.Count == 1 ? "" : "s")} whose own comment "
+                + $"mentions '{query}':");
+            foreach (var hit in hits)
+            {
+                comments.AppendLine(HitLine(hit));
+                if (hit.DocComment is { Length: > 0 } text)
+                {
+                    comments.AppendLine("    " + Excerpt(text, query));
+                }
+            }
+
+            return comments.Finish();
         }
 
         // Loose hits are the tail of the list by construction — one query, so one floor,
@@ -177,6 +228,14 @@ internal static class TerseFormatter
             }
 
             builder.AppendLine(HitLine(hits[i]));
+
+            // Only when asked for. Four definitions in five have no comment, so switched on
+            // always this either doubles the height of every result list or has to be cut so
+            // short it says nothing.
+            if (hits[i].DocComment is { Length: > 0 } comment)
+            {
+                builder.AppendLine("    " + Excerpt(comment, query));
+            }
         }
 
         if (strong == 0 && !exact)
@@ -291,6 +350,12 @@ internal static class TerseFormatter
             + $"{location} [{detail.Language}]");
 
         AppendFact(builder, "signature", Clip(Flatten(detail.Signature), 200));
+
+        // Unconditional here, unlike in a result list: a fact sheet exists to save opening
+        // the file, and what the author wrote about a symbol is the part of it no signature
+        // can carry. Clipped further than the stored cap, since a fact sheet is still a
+        // summary — `get_context` quotes the body when the whole paragraph is wanted.
+        AppendFact(builder, "comment", Clip(Flatten(detail.DocComment), 400));
         AppendFact(builder, "modifiers", detail.Modifiers);
         AppendFact(builder, "type", detail.TypeText);
         AppendFact(builder, "value", Clip(Flatten(detail.Value)));

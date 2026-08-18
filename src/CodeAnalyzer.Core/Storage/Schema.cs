@@ -56,6 +56,12 @@ public static class Schema
     /// file was never read. Written by the parser for every file, not only broken ones.
     /// </para>
     /// <para>
+    /// Version 30 (M32.6) adds <c>symbol.doc_comment</c>: the comment written immediately
+    /// above a declaration, which is where a codebase says what a name cannot. 20.3% of this
+    /// repo's definitions carry one and 28.3% of JGraph's, and until now the index could
+    /// locate a symbol precisely and not repeat a word of what its author wrote about it.
+    /// </para>
+    /// <para>
     /// Version 22 (M21.1) adds <c>file.error_line</c> and <c>file.error_text</c>: where the
     /// parser first lost its footing and the text it could not read. Needed by the rule
     /// below — the parser now writes a value it never wrote before, and an unchanged file
@@ -193,7 +199,7 @@ public static class Schema
     /// as 12 and 26 — the source did not change, the analyzer did, and the incremental gate
     /// reads the file rather than the analyzer.
     /// </para>
-    public const int Version = 29;
+    public const int Version = 30;
 
     public const string MetaSchemaVersion = "schema_version";
     public const string MetaRootPath = "root_path";
@@ -295,7 +301,12 @@ public static class Schema
             -- parameter list at all, which is how a non-callable is told from a callable
             -- that happens to take nothing.
             param_count   INTEGER,
-            param_text    TEXT
+            param_text    TEXT,
+            -- The comment written immediately above the declaration, punctuation removed and
+            -- lines joined, so it can be matched without knowing whether the file writes
+            -- `///`, `#` or `<!--`. NULL when the declaration has no adjacent comment, which
+            -- is about four definitions in five.
+            doc_comment   TEXT
         );
 
         CREATE TABLE IF NOT EXISTS ref (

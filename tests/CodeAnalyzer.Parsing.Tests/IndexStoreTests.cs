@@ -294,6 +294,96 @@ public class IndexStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task ACommentSearchFindsWhatANameSearchCannot()
+    {
+        // The point of the whole feature: you remember what a thing does and not what it is
+        // called. Neither name contains "retry", so a name search of any mode returns
+        // nothing at all.
+        WriteFile("src/net.cs", """
+            class Transport
+            {
+                // Sends the frame again when the far end answers 502.
+                public void Push() { }
+
+                // Blocks until the link is idle.
+                public void Drain() { }
+            }
+            """);
+
+        var store = await IndexAsync();
+        var search = new SymbolSearchService(store.Connection);
+        search.Reload();
+
+        Assert.Empty(search.Search("502"));
+
+        var found = search.Search("502", new SymbolSearchOptions
+        {
+            Match = SymbolMatchMode.DocComment,
+        });
+
+        var hit = Assert.Single(found);
+        Assert.Equal("Push", hit.Name);
+
+        // A comment match always carries its comment, whatever the caller asked for: a hit
+        // whose reason for being in the list cannot be read is a claim, not a result.
+        Assert.Contains("502", hit.DocComment);
+    }
+
+    [Fact]
+    public async Task ACommentHitWhoseNameAlsoMatchesComesFirst()
+    {
+        // Prose has no score, so the order is stated rather than left to the scan — round
+        // sixteen's lesson. A symbol CALLED retry whose comment mentions retrying is more
+        // likely to be what "retry" meant than one that mentions it in passing.
+        WriteFile("src/net.cs", """
+            class Transport
+            {
+                // Mentions retry only in passing.
+                public void Drain() { }
+
+                // Retry policy for the transport.
+                public void RetryPolicy() { }
+            }
+            """);
+
+        var store = await IndexAsync();
+        var search = new SymbolSearchService(store.Connection);
+        search.Reload();
+
+        var found = search.Search("retry", new SymbolSearchOptions
+        {
+            Match = SymbolMatchMode.DocComment,
+        });
+
+        Assert.Equal(2, found.Count);
+        Assert.Equal("RetryPolicy", found[0].Name);
+        Assert.Equal("Drain", found[1].Name);
+    }
+
+    [Fact]
+    public async Task AnOrdinarySearchCarriesNoCommentUntilItIsAskedTo()
+    {
+        // The flag exists so a result list does not double in height for a fact four
+        // definitions in five do not have.
+        WriteFile("src/net.cs", """
+            class Transport
+            {
+                // Sends the frame again when the far end answers 502.
+                public void Push() { }
+            }
+            """);
+
+        var store = await IndexAsync();
+        var search = new SymbolSearchService(store.Connection);
+        search.Reload();
+
+        Assert.Null(Assert.Single(search.Search("Push")).DocComment);
+
+        var asked = search.Search("Push", new SymbolSearchOptions { IncludeDocComments = true });
+        Assert.Contains("502", Assert.Single(asked).DocComment);
+    }
+
+    [Fact]
     public async Task ATieIsBrokenEvenWhenTheLimitCutsThroughIt()
     {
         // The importance signal is fetched per tie rather than held for every symbol, which

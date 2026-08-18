@@ -62,6 +62,7 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
 
             var symbols = ExtractSymbols(tree, cancellationToken, out var symbolMatchesDropped);
             AssignContainers(symbols);
+            AttachDocComments(tree.RootNode, source, symbols);
 
             var references = ExtractReferences(tree, symbols, cancellationToken, out var referenceMatchesDropped);
 
@@ -145,6 +146,193 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
     /// zero-width node inside the brackets and the quote is <c>[]</c>.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// Longest doc comment kept on a symbol. Generous — the median block is four lines —
+    /// and present for the same reason <see cref="Snippet"/> caps: one machine-generated
+    /// file with a licence header repeated per declaration should not decide how big an
+    /// index is. Measured before choosing: 2,289 blocks here totalling 516 KB, 17,867 on
+    /// JGraph totalling 3.3 MB, against a 66 MB index.
+    /// </summary>
+    private const int MaxDocCommentLength = 4_000;
+
+    /// <summary>
+    /// Attaches to each declaration the comment written immediately above it.
+    /// <para>
+    /// "Immediately" is the entire rule and it is deliberately strict: the walk goes upward
+    /// from the declaration and stops at the first line that is not a comment, so a blank
+    /// line ends the block. A comment separated from a declaration by whitespace is about
+    /// the section or the file, and attaching it would put a paragraph about threading on
+    /// whichever method happened to be written next.
+    /// </para>
+    /// <para>
+    /// Comments are found as tree nodes rather than by matching <c>//</c> and <c>#</c>
+    /// against the text, so every language the tool reads is covered by the same code and a
+    /// <c>//</c> inside a string literal is not mistaken for one.
+    /// </para>
+    /// </summary>
+    private static void AttachDocComments(Node root, string source, List<ExtractedSymbol> symbols)
+    {
+        if (symbols.Count == 0)
+        {
+            return;
+        }
+
+        // Indexed by the line each comment ENDS on, so walking upward from a declaration is
+        // a lookup per line rather than a scan of the tree per symbol.
+        var byEndLine = new Dictionary<int, Node>();
+        Collect(root);
+
+        if (byEndLine.Count == 0)
+        {
+            return;
+        }
+
+        var lines = source.Split('\n');
+
+        for (var i = 0; i < symbols.Count; i++)
+        {
+            var symbol = symbols[i];
+            var block = new List<Node>();
+
+            // Span lines are 1-based, so the line directly above the declaration is
+            // StartLine - 2 once converted to the 0-based rows tree-sitter reports.
+            var row = symbol.Record.Span.Start.Line - 2;
+            while (row >= 0 && byEndLine.TryGetValue(row, out var comment)
+                   && IsFirstOnItsLine(comment, lines))
+            {
+                block.Add(comment);
+                row = comment.StartPosition.Row - 1;
+            }
+
+            if (block.Count == 0)
+            {
+                continue;
+            }
+
+            block.Reverse();
+            if (Readable(block) is { } text)
+            {
+                symbols[i] = symbol with { Record = symbol.Record with { DocComment = text } };
+            }
+        }
+
+        void Collect(Node node)
+        {
+            foreach (var child in node.Children)
+            {
+                // Every grammar the tool loads names its comment node with the word in it —
+                // `comment` in all six, `line_comment`/`block_comment` in dialects of them.
+                // Matching on the substring rather than a list of exact names means a new
+                // grammar arrives working rather than arrives silent.
+                if (child.Type.Contains("comment", StringComparison.Ordinal))
+                {
+                    byEndLine[child.EndPosition.Row] = child;
+                }
+                else
+                {
+                    Collect(child);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Whether a comment is the first thing on its line. A comment sharing its line with
+    /// code is about that code — <c>int a; // about a</c> sits directly above <c>int b</c>
+    /// and is not b's doc.
+    /// <para>
+    /// Compared as text rather than by column because tree-sitter reports columns in bytes
+    /// while a C# string is indexed in UTF-16 units, and the two part company on the first
+    /// non-ASCII character in the line.
+    /// </para>
+    /// </summary>
+    private static bool IsFirstOnItsLine(Node comment, string[] lines)
+    {
+        var row = comment.StartPosition.Row;
+        if (row < 0 || row >= lines.Length || comment.Text is not { Length: > 0 } text)
+        {
+            return false;
+        }
+
+        var opening = text.Split('\n')[0].TrimEnd('\r');
+        return lines[row].TrimStart().StartsWith(opening, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The block as prose: comment punctuation removed, tag-only lines dropped, the rest
+    /// joined by single spaces. This is the form that can be searched — someone looking for
+    /// "retry" should not have to know whether the file writes <c>///</c> or <c>#</c> — and
+    /// the verbatim text remains one <c>get_context</c> away. Null when nothing survives,
+    /// which is what a row of dashes used as a separator comes to.
+    /// </summary>
+    private static string? Readable(List<Node> block)
+    {
+        var parts = new List<string>();
+
+        foreach (var node in block)
+        {
+            foreach (var raw in (node.Text ?? string.Empty).Split('\n'))
+            {
+                var line = StripCommentMarkers(raw);
+
+                // A line holding nothing but an XML doc tag is structure, not prose. Inline
+                // tags stay: `<see cref="WorkspaceSession"/>` carries a name worth finding.
+                if (line.Length == 0 || (line.StartsWith('<') && line.EndsWith('>')
+                                         && line.IndexOf(' ') < 0))
+                {
+                    continue;
+                }
+
+                // A rule of dashes is a separator drawn in comment syntax. Keeping it would
+                // put a line in the searchable text that says nothing and answers "-----".
+                if (!line.Any(char.IsLetterOrDigit))
+                {
+                    continue;
+                }
+
+                parts.Add(line);
+            }
+        }
+
+        if (parts.Count == 0)
+        {
+            return null;
+        }
+
+        var text = string.Join(' ', parts);
+        return text.Length <= MaxDocCommentLength ? text : text[..MaxDocCommentLength] + "…";
+    }
+
+    private static string StripCommentMarkers(string raw)
+    {
+        var text = raw.Trim();
+
+        // Closing marker first. A block comment's last line is ` */`, and stripping openings
+        // first reads its `*` as the star that continues a block and leaves a bare `/`
+        // behind — which is what the test for this found.
+        foreach (var closing in (ReadOnlySpan<string>)["-->", "*/"])
+        {
+            if (text.EndsWith(closing, StringComparison.Ordinal))
+            {
+                text = text[..^closing.Length];
+                break;
+            }
+        }
+
+        // Longest first: `///` must not be read as `//` with a stray slash, and `/*` must
+        // not be read as the `*` that continues a block.
+        foreach (var opening in (ReadOnlySpan<string>)["<!--", "///", "//", "/*", "*", "#"])
+        {
+            if (text.StartsWith(opening, StringComparison.Ordinal))
+            {
+                text = text[opening.Length..];
+                break;
+            }
+        }
+
+        return text.Trim();
+    }
+
     private static (Node Site, string? Text, int EndLine) FirstError(Node root)
     {
         var node = root;

@@ -35,6 +35,15 @@ internal sealed class CodeAnalyzerTools(McpSessionHolder holder)
             + "word returns hits that merely contain its letters in order — 'export' fuzzily "
             + "matches 'AnExtraIgnoredDirectoryIsNotReported'.")]
         bool exact = false,
+        [Description("Search the comment written directly above each declaration instead of its "
+            + "name. Use it when you know what a thing does but not what it is called — 'the one "
+            + "that retries on a 502'. Matched verbatim, since a comment is prose.")]
+        bool in_comments = false,
+        [Description("Add each hit's own doc comment to an ordinary name search. Off by default "
+            + "because four definitions in five have none and it doubles the list's height; "
+            + "in_comments turns it on regardless, since a comment match you cannot read is a "
+            + "claim rather than a result.")]
+        bool with_comments = false,
         CancellationToken cancellationToken = default) =>
         WithToolset(toolset =>
         {
@@ -49,8 +58,9 @@ internal sealed class CodeAnalyzerTools(McpSessionHolder holder)
             }
 
             var hits = toolset.Search(
-                query, kindSet, Math.Clamp(limit, 1, 200), exact, cancellationToken);
-            return TerseFormatter.Search(query, hits, kinds, exact);
+                query, kindSet, Math.Clamp(limit, 1, 200), exact, in_comments, with_comments,
+                cancellationToken);
+            return TerseFormatter.Search(query, hits, kinds, exact, in_comments);
         });
 
     [McpServerTool(Name = "get_symbol")]

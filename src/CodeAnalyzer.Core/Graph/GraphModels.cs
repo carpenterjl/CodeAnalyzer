@@ -115,6 +115,14 @@ public sealed record SymbolDetail
     /// <summary>The parameter list as written, or null where the declaration has none.</summary>
     public string? ParameterText { get; init; }
 
+    /// <summary>
+    /// The comment written immediately above the declaration, punctuation stripped and lines
+    /// joined, or null where there is none. On the fact sheet unconditionally, because a
+    /// fact sheet's job is to save opening the file and what the author wrote about a symbol
+    /// is the part of it no signature can carry.
+    /// </summary>
+    public string? DocComment { get; init; }
+
     /// <summary>Verbatim modifier keywords in source order, where the pack captured any.</summary>
     public string? Modifiers { get; init; }
 

@@ -299,7 +299,8 @@ public sealed class GraphQueryService(SqliteConnection connection)
         using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT s.id, s.name, s.kind, f.rel_path, s.language, s.start_line, s.end_line,
-                   s.signature, s.value, s.type_text, s.scope_path, s.modifiers, s.param_text
+                   s.signature, s.value, s.type_text, s.scope_path, s.modifiers, s.param_text,
+                   s.doc_comment
             FROM symbol s
             JOIN file f ON f.id = s.file_id
             WHERE s.id = $symbolId
@@ -330,6 +331,7 @@ public sealed class GraphQueryService(SqliteConnection connection)
                 ScopePath = reader.GetString(10),
                 Modifiers = reader.IsDBNull(11) ? null : reader.GetString(11),
                 ParameterText = reader.IsDBNull(12) ? null : reader.GetString(12),
+                DocComment = reader.IsDBNull(13) ? null : reader.GetString(13),
             };
         }
 

@@ -41,6 +41,8 @@ internal static class JsonFormatter
         line = hit.Line,
         descriptor = hit.Descriptor,
         looseMatch = hit.LooseMatch,
+        // Null unless it was asked for, or unless the comment is why this hit is here.
+        comment = hit.DocComment,
     };
 
     private static object Located(LocatedSymbol symbol) => new
@@ -112,6 +114,7 @@ internal static class JsonFormatter
                 startLine = detail.StartLine,
                 endLine = detail.EndLine,
                 language = detail.Language,
+                comment = detail.DocComment,
                 signature = detail.Signature,
                 modifiers = detail.Modifiers,
                 type = detail.TypeText,

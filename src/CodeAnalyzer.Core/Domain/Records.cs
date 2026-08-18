@@ -102,6 +102,23 @@ public sealed record SymbolRecord
     /// is not the same as <c>()</c>, and the two must stay distinguishable.
     /// </summary>
     public string? ParameterText { get; init; }
+
+    /// <summary>
+    /// The comment written immediately above this declaration, or null when there is none.
+    /// <para>
+    /// "Immediately" is the whole rule: comment lines are walked upward from the declaration
+    /// and stop at the first blank line, so a comment separated by whitespace belongs to the
+    /// file or to the section, not to this symbol. A trailing comment on the line above
+    /// (<c>int a; // about a</c>) is excluded too — it is about the statement it sits on.
+    /// </para>
+    /// <para>
+    /// Stored with the comment punctuation removed and the lines joined by single spaces,
+    /// which is the form that can be searched: a reader looking for "retry" should not have
+    /// to know whether the file writes <c>///</c>, <c>#</c> or <c>&lt;!--</c>. The verbatim
+    /// text is still one <c>get_context</c> away. Capped like <see cref="ErrorText"/>.
+    /// </para>
+    /// </summary>
+    public string? DocComment { get; init; }
 }
 
 /// <summary>A use of a name at a source location, before resolution.</summary>

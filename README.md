@@ -110,6 +110,7 @@ run rebuilds every edge from scratch, so a resolver change lands in full either 
 | Command | Answers |
 |---|---|
 | `search <query>` | fuzzy symbol search (`--kinds fn,type,…`, `--limit N`, `--exact` for verbatim containment instead of subsequence) |
+| `search <text> --in-comments` | the same search against what was written *above* each declaration, for when you know what a thing does but not what it is called; `--with-comments` adds those comments to an ordinary search instead |
 | `detail <symbol>` | one symbol's fact sheet — signature, members, overloads, unresolved refs |
 | `report <symbol>` | the fact sheet as a markdown document — callers/callees with call sites, I/O boundaries, same-value matches, source excerpt |
 | `callers <symbol>` / `callees <symbol>` | who references it / what it references (`--sites` adds each call's line and verbatim arguments) |

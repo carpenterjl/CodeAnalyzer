@@ -44,6 +44,8 @@ internal sealed class AgentToolset(ReadOnlyIndexSession session)
         IReadOnlySet<SymbolKind>? kinds,
         int limit,
         bool exact = false,
+        bool inComments = false,
+        bool withComments = false,
         CancellationToken cancellationToken = default) =>
         Query(() =>
         {
@@ -54,7 +56,13 @@ internal sealed class AgentToolset(ReadOnlyIndexSession session)
                 {
                     Limit = limit,
                     Kinds = kinds,
-                    Match = exact ? SymbolMatchMode.Substring : SymbolMatchMode.Fuzzy,
+                    // Searching comments is a mode rather than a widening, so it wins over
+                    // --exact instead of combining with it: exact says how to match a name,
+                    // and here there is no name being matched.
+                    Match = inComments
+                        ? SymbolMatchMode.DocComment
+                        : exact ? SymbolMatchMode.Substring : SymbolMatchMode.Fuzzy,
+                    IncludeDocComments = withComments,
                 },
                 cancellationToken);
         });

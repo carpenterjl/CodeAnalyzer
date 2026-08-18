@@ -23,7 +23,8 @@ public sealed record SymbolSearchHit(
     string? TypeText = null,
     int OverloadCount = 1,
     int OverloadOrdinal = 1,
-    bool LooseMatch = false)
+    bool LooseMatch = false,
+    string? DocComment = null)
 {
     /// <summary>
     /// What this hit is, in one line. Two overloads of one method otherwise produce two
@@ -42,6 +43,16 @@ public enum SymbolMatchMode
 
     /// <summary>The name must contain the query verbatim, case-insensitively.</summary>
     Substring = 1,
+
+    /// <summary>
+    /// The query is matched against the comment written above each declaration rather than
+    /// against its name. A separate mode rather than a widening of the other two, because
+    /// the two populations are not comparable: a name is a few characters chosen to be
+    /// unique and a comment is prose, and one fuzzy scorer over both would rank a symbol
+    /// whose comment happens to contain the query's letters in order above the symbol
+    /// actually called that. Verbatim containment is what prose deserves.
+    /// </summary>
+    DocComment = 2,
 }
 
 public sealed record SymbolSearchOptions
@@ -65,6 +76,15 @@ public sealed record SymbolSearchOptions
     /// already knows the name they want should be able to say so.
     /// </summary>
     public SymbolMatchMode Match { get; init; } = SymbolMatchMode.Fuzzy;
+
+    /// <summary>
+    /// Carries each hit's doc comment back with it. Off by default: a comment is prose and
+    /// four definitions in five have none, so switched on always it would either double the
+    /// height of every result list or be printed truncated to the point of saying nothing.
+    /// Searching comments turns it on by itself — a hit found by its comment that does not
+    /// show the comment is asking to be taken on faith.
+    /// </summary>
+    public bool IncludeDocComments { get; init; }
 }
 
 /// <summary>
@@ -278,6 +298,11 @@ public sealed class SymbolSearchService
             return [];
         }
 
+        if (options.Match == SymbolMatchMode.DocComment)
+        {
+            return SearchDocComments(query, options, cancellationToken);
+        }
+
         // A bounded min-heap would save little here: scoring dominates, and the result
         // list is capped well below the point where sorting matters.
         var scored = new List<(long Id, int Score, int NameLength)>(Math.Min(_count, 4096));
@@ -341,8 +366,83 @@ public sealed class SymbolSearchService
             : FuzzyMatcher.StrongScoreFloor(query);
 
         var top = scored.Take(options.Limit).ToList();
-        return Hydrate(top, floor, cancellationToken);
+        return Hydrate(top, floor, options.IncludeDocComments, cancellationToken);
     }
+
+    /// <summary>
+    /// Finds symbols by what was written about them rather than by what they are called.
+    /// <para>
+    /// Straight to SQL rather than through the in-memory table, which holds names only.
+    /// Holding 3.3 MB of prose in memory and fuzzy-scoring it on every keystroke would be
+    /// the wrong shape twice over: comment search is a deliberate act, not a search-box
+    /// default, and prose wants containment rather than subsequence matching.
+    /// </para>
+    /// <para>
+    /// Order is stated rather than left to the scan, which is round sixteen's lesson: a hit
+    /// whose NAME also contains the query comes first, because a symbol called
+    /// <c>RetryPolicy</c> whose comment explains retries is more likely to be what "retry"
+    /// meant than one that mentions retries in passing; then by where in the comment the
+    /// match falls, an opening sentence being about the symbol more often than a closing
+    /// aside; then by id, so one query always returns one order.
+    /// </para>
+    /// </summary>
+    private List<SymbolSearchHit> SearchDocComments(
+        string query,
+        SymbolSearchOptions options,
+        CancellationToken cancellationToken)
+    {
+        var kindFilter = options.Kinds is { Count: > 0 }
+            ? $"AND s.kind IN ({string.Join(",", options.Kinds.Select(k => (int)k))})"
+            : string.Empty;
+        var localFilter = options.ExcludeFunctionLocals
+            ? "AND (c.kind IS NULL OR c.kind NOT IN ($function, $method))"
+            : string.Empty;
+
+        using var command = _connection.CreateCommand();
+        command.CommandText = $"""
+            SELECT s.id
+            FROM symbol s
+            LEFT JOIN symbol c ON c.id = s.container_id
+            WHERE s.is_definition = 1
+              AND s.doc_comment IS NOT NULL
+              AND s.doc_comment LIKE '%' || $pattern || '%' ESCAPE '\'
+              {kindFilter}
+              {localFilter}
+            ORDER BY CASE WHEN INSTR(LOWER(s.name), LOWER($raw)) > 0 THEN 0 ELSE 1 END,
+                     INSTR(LOWER(s.doc_comment), LOWER($raw)),
+                     s.id
+            LIMIT $limit
+            """;
+        command.Parameters.AddWithValue("$pattern", EscapeForLike(query));
+        command.Parameters.AddWithValue("$raw", query);
+        command.Parameters.AddWithValue("$function", (int)SymbolKind.Function);
+        command.Parameters.AddWithValue("$method", (int)SymbolKind.Method);
+        command.Parameters.AddWithValue("$limit", options.Limit);
+
+        var ranked = new List<(long Id, int Score, int NameLength)>();
+        using (var reader = command.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                ranked.Add((reader.GetInt64(0), 0, 0));
+            }
+        }
+
+        // int.MinValue for the floor: the loose mark says a fuzzy match was weak, and
+        // containment in prose is not weak, it is containment. A hit here always shows its
+        // comment, whatever the caller asked for — a match a reader cannot see is a claim.
+        return Hydrate(ranked, int.MinValue, includeDocComments: true, cancellationToken);
+    }
+
+    /// <summary>
+    /// Neutralises the wildcards in a user's query so LIKE matches it literally. Without
+    /// this, searching comments for <c>%</c> returns every commented symbol in the index.
+    /// </summary>
+    private static string EscapeForLike(string query) => query
+        .Replace("\\", "\\\\", StringComparison.Ordinal)
+        .Replace("%", "\\%", StringComparison.Ordinal)
+        .Replace("_", "\\_", StringComparison.Ordinal);
 
     /// <summary>
     /// Ranks a verbatim, case-insensitive containment match: the whole name first, then a
@@ -370,6 +470,7 @@ public sealed class SymbolSearchService
     private List<SymbolSearchHit> Hydrate(
         List<(long Id, int Score, int NameLength)> ranked,
         int strongScoreFloor,
+        bool includeDocComments,
         CancellationToken cancellationToken)
     {
         var scoreById = ranked.ToDictionary(r => r.Id, r => r.Score);
@@ -377,11 +478,16 @@ public sealed class SymbolSearchService
         using var command = _connection.CreateCommand();
         // The container name is what tells two same-named members apart in the result
         // list — Device.Send vs Radio.Send — without opening either.
+        //
+        // The comment is selected as NULL rather than skipped when it was not asked for, so
+        // one query shape serves both and the column indices below stay put.
+        var docComment = includeDocComments ? "s.doc_comment" : "NULL";
         command.CommandText = $"""
             SELECT s.id, s.name, s.kind, f.rel_path, s.start_line, s.signature, c.name,
                    s.param_text, s.modifiers, s.type_text,
                    ({OverloadSql.Count}) AS overload_count,
-                   ({OverloadSql.Ordinal}) AS overload_ordinal
+                   ({OverloadSql.Ordinal}) AS overload_ordinal,
+                   {docComment} AS doc_comment
             FROM symbol s
             JOIN file f ON f.id = s.file_id
             LEFT JOIN symbol c ON c.id = s.container_id
@@ -410,7 +516,8 @@ public sealed class SymbolSearchService
                 reader.IsDBNull(9) ? null : reader.GetString(9),
                 reader.GetInt32(10),
                 reader.GetInt32(11),
-                scoreById[id] < strongScoreFloor);
+                scoreById[id] < strongScoreFloor,
+                reader.IsDBNull(12) ? null : reader.GetString(12));
         }
 
         return ranked

@@ -13,9 +13,12 @@ internal static class ReadCommands
 {
     public static CommandSpec Search { get; } = new(
         "search",
-        "search <query> [--exact] [--kinds fn,type,…] [--limit N] [--root path] [--json]",
+        "search <query> [--exact] [--in-comments] [--with-comments] [--kinds fn,type,…] "
+            + "[--limit N] [--root path] [--json]",
         "fuzzy symbol search over the index, weak hits set apart from real ones; "
-            + "--exact matches the text verbatim instead",
+            + "--exact matches the text verbatim instead; --in-comments searches what was "
+            + "written above each declaration rather than its name; --with-comments adds "
+            + "those comments to an ordinary search's results",
         (args, ct) => RunSearch(args, ct));
 
     public static CommandSpec Detail { get; } = new(
@@ -96,7 +99,8 @@ internal static class ReadCommands
 
     private static Task<int> RunSearch(string[] rawArgs, CancellationToken cancellationToken)
     {
-        var args = ArgReader.Parse(rawArgs, ["root", "kinds", "limit"], ["json", "exact"]);
+        var args = ArgReader.Parse(
+            rawArgs, ["root", "kinds", "limit"], ["json", "exact", "in-comments", "with-comments"]);
 
         return CommandEnvironment.WithSession(args, toolset =>
         {
@@ -127,11 +131,14 @@ internal static class ReadCommands
 
             var query = args.Positionals[0];
             var exact = args.Switch("exact");
-            var hits = toolset.Search(query, kinds, limit, exact, cancellationToken);
+            var inComments = args.Switch("in-comments");
+            var hits = toolset.Search(
+                query, kinds, limit, exact, inComments,
+                withComments: args.Switch("with-comments"), cancellationToken);
 
             Console.WriteLine(args.Switch("json")
                 ? JsonFormatter.Search(toolset.Session, query, hits)
-                : TerseFormatter.Search(query, hits, kindFilter, exact));
+                : TerseFormatter.Search(query, hits, kindFilter, exact, inComments));
 
             return Task.FromResult(ExitCodes.Ok);
         });
