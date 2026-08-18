@@ -102,12 +102,68 @@ static void deserialize(Scanner *scanner, const char *buffer, unsigned length) {
 
 static String scan_tag_name(TSLexer *lexer) {
     String tag_name = array_new();
-    while (iswalnum(lexer->lookahead) || lexer->lookahead == '-' || lexer->lookahead == ':') {
+    while (iswalnum(lexer->lookahead) || lexer->lookahead == '-' || lexer->lookahead == ':'
+#ifdef TREE_SITTER_XAML
+           // XAML writes a property as an element: <Grid.RowDefinitions>, <Style.Triggers>,
+           // <Setter.Value>. HTML has no such form and must keep rejecting the dot, which is
+           // why this is the second #ifdef rather than an edit.
+           || lexer->lookahead == '.'
+#endif
+    ) {
         array_push(&tag_name, towupper(lexer->lookahead));
         advance(lexer);
     }
     return tag_name;
 }
+
+#ifdef TREE_SITTER_XAML
+// XAML is XML, and two XML constructs have no rule in the HTML grammar this one is compiled
+// from: the `<?xml …?>` prologue and a `<![CDATA[…]]>` section. Neither holds anything an
+// index wants, so the cheapest correct treatment is the one HTML already gives a comment —
+// consume the span and report COMMENT, which grammar.js declares as an extra and therefore
+// admits anywhere, so no generated table has to change.
+//
+// The CDATA case is not only an alarm: measured on a probe, the element holding the section
+// failed to parse and took its own `x:Key` with it (2 declared, 1 indexed).
+static bool scan_xaml_cdata(TSLexer *lexer) {
+    for (const char *expect = "[CDATA["; *expect; expect++) {
+        if (lexer->lookahead != *expect) {
+            return false;
+        }
+        advance(lexer);
+    }
+
+    unsigned brackets = 0;
+    while (lexer->lookahead) {
+        if (lexer->lookahead == '>' && brackets >= 2) {
+            advance(lexer);
+            lexer->mark_end(lexer);
+            lexer->result_symbol = COMMENT;
+            return true;
+        }
+        brackets = lexer->lookahead == ']' ? brackets + 1 : 0;
+        advance(lexer);
+    }
+    return false;
+}
+
+static bool scan_xaml_processing_instruction(TSLexer *lexer) {
+    advance(lexer);  // the '?' that got us here
+
+    bool question = false;
+    while (lexer->lookahead) {
+        if (lexer->lookahead == '>' && question) {
+            advance(lexer);
+            lexer->mark_end(lexer);
+            lexer->result_symbol = COMMENT;
+            return true;
+        }
+        question = lexer->lookahead == '?';
+        advance(lexer);
+    }
+    return false;
+}
+#endif
 
 static bool scan_comment(TSLexer *lexer) {
     if (lexer->lookahead != '-') {
@@ -302,8 +358,19 @@ static bool scan(Scanner *scanner, TSLexer *lexer, const bool *valid_symbols) {
 
             if (lexer->lookahead == '!') {
                 advance(lexer);
+#ifdef TREE_SITTER_XAML
+                if (lexer->lookahead == '[') {
+                    return scan_xaml_cdata(lexer);
+                }
+#endif
                 return scan_comment(lexer);
             }
+
+#ifdef TREE_SITTER_XAML
+            if (lexer->lookahead == '?') {
+                return scan_xaml_processing_instruction(lexer);
+            }
+#endif
 
             if (valid_symbols[IMPLICIT_END_TAG]) {
                 return scan_implicit_end_tag(scanner, lexer);

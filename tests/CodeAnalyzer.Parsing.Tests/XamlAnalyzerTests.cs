@@ -350,11 +350,15 @@ public class XamlAnalyzerTests() : LanguagePackFixture(LanguageRegistry.Xaml, "V
     }
 
     [Fact]
-    public void NamesInsideAPropertyElementSurviveTheParseError()
+    public void APropertyElementIsReadRatherThanReported()
     {
-        // <Grid.RowDefinitions> is valid XAML and invalid HTML, so the grammar reports an
-        // error at it. Everything around it still extracts — which is the whole reason
-        // this pack is worth having rather than refusing the language.
+        // <Grid.RowDefinitions> is valid XAML and invalid HTML: a tag name took letters,
+        // digits, '-' and ':' but not '.', so the dot ended the tag and raised an error.
+        // The names around it always survived — what did not was the file's good name, and
+        // for three rounds this was the only thing four of this repo's files were flagged
+        // for. Measured before it was fixed: the same file with and without the property
+        // element indexed the same declarations, and 303 of 661 XAML references already sat
+        // inside one.
         var result = Analyze("""
             <Grid>
                 <Grid.RowDefinitions>
@@ -364,31 +368,57 @@ public class XamlAnalyzerTests() : LanguagePackFixture(LanguageRegistry.Xaml, "V
             </Grid>
             """);
 
+        Assert.Null(result.ErrorLine);
         Assert.Equal("RowDefinition", Symbol(result, "TopRow").TypeText);
         Assert.Equal("Button", Symbol(result, "AfterTheProperty").TypeText);
     }
 
     [Fact]
-    public void ThePropertyElementErrorIsRewordedRatherThanBlamedOnTheAuthor()
+    public void TheXmlPrologueIsNotAnError()
     {
-        var note = GrammarNotes.For(LanguageNames.Xaml);
+        // XAML is XML and may open with one. HTML has no rule for a processing
+        // instruction, so this used to be an error on line 1 of any file carrying it.
+        var result = Analyze("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <ResourceDictionary>
+                <Border x:Name="AfterTheXmlDeclaration" />
+            </ResourceDictionary>
+            """);
 
-        Assert.NotNull(note);
-        Assert.Contains("valid XAML but not valid HTML", note);
-
-        // It used to say the names were "still indexed", which was a hope rather than a
-        // measurement — and while it was being said, 32 declarations in this repo's own
-        // Controls.xaml were in fact being dropped, by a different mechanism nobody had
-        // looked for. The claim is now the stronger one, and it is checked: the property
-        // element produces an error node and costs no declaration, before or after it.
-        Assert.Contains("No declaration is lost", note);
+        Assert.Null(result.ErrorLine);
+        Assert.Equal("Border", Symbol(result, "AfterTheXmlDeclaration").TypeText);
     }
 
     [Fact]
-    public void ALanguageReadByItsOwnGrammarGetsNoSuchExcuse()
+    public void ACDataSectionDoesNotTakeItsOwnElementsKeyWithIt()
     {
-        // If this ever returns a sentence, a real syntax error in a real C# file would be
-        // explained away as somebody else's fault.
+        // The one of the three that cost data rather than credibility: with no rule for
+        // <![CDATA[…]]>, the element holding the section failed to parse and its x:Key went
+        // with it — two declared, one indexed. Same shape as the <Style> swallow, which is
+        // why it is asserted on the key of the element containing the section, not on the
+        // one after it.
+        var result = Analyze("""
+            <ResourceDictionary>
+                <sys:String x:Key="TheKeyOnTheElementHoldingIt"><![CDATA[a < b && c > d]]></sys:String>
+                <Border x:Name="AndTheOneAfterIt" />
+            </ResourceDictionary>
+            """);
+
+        Assert.Null(result.ErrorLine);
+        Assert.Equal(SymbolKind.ResourceKey, Symbol(result, "TheKeyOnTheElementHoldingIt").Kind);
+        Assert.Equal("Border", Symbol(result, "AndTheOneAfterIt").TypeText);
+    }
+
+    [Fact]
+    public void NoLanguageGetsAnExcuseForItsParseErrors()
+    {
+        // If this ever returns a sentence, a real syntax error in a real file is explained
+        // away as somebody else's fault. XAML held the only excuse there had ever been,
+        // and lost it in round seventeen when the last of the three divergences was closed
+        // in the grammar. Closing the gap is strictly better than annotating it: an excuse
+        // that fires on every error is what let a genuine swallow read as a known
+        // limitation for nine rounds.
+        Assert.Null(GrammarNotes.For(LanguageNames.Xaml));
         Assert.Null(GrammarNotes.For(LanguageNames.CSharp));
         Assert.Null(GrammarNotes.For(LanguageNames.Html));
     }

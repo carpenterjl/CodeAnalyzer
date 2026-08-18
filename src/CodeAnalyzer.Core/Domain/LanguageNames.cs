@@ -22,11 +22,17 @@ public static class LanguageNames
 /// <summary>
 /// What to say about a language whose grammar was written for a different one.
 /// <para>
-/// One language here is read with a borrowed grammar, and the borrowing shows: the parser
-/// reports errors on syntax that is perfectly valid in the language it is actually reading.
-/// Left alone, the error list would tell a user their file is broken when it is not —
-/// which is worse than saying nothing, because it is the kind of claim this tool exists
-/// to avoid. So the note replaces the generic wording wherever a parse error is described.
+/// A language read with a borrowed grammar can have the borrowing show: the parser reports
+/// errors on syntax that is perfectly valid in the language it is actually reading. Left
+/// alone, the error list would tell a user their file is broken when it is not — which is
+/// worse than saying nothing, because it is the kind of claim this tool exists to avoid.
+/// So the note replaces the generic wording wherever a parse error is described.
+/// </para>
+/// <para>
+/// No language needs one today. XAML did until the divergences were closed in the grammar
+/// itself, which is the better place: an excuse explains an error away, and this returning
+/// null is what makes a XAML error worth reading again. The hook stays because the next
+/// borrowed grammar will arrive before the argument for it is re-derived.
 /// </para>
 /// <para>
 /// It lives beside <see cref="LanguageNames"/> for the same reason those do: the wording
@@ -42,16 +48,16 @@ public static class GrammarNotes
     /// </summary>
     public static string? For(string language) => language switch
     {
-        // Measured before this sentence was rewritten: with the raw-text behaviour gone,
-        // the four files this repo still reports lose nothing. Controls.xaml declares 92
-        // names and indexes 93, MainWindow.xaml declares 8 and indexes 9. So the note can
-        // now say "no declaration is lost" as a fact rather than a hope — which is what
-        // the old wording ("still indexed") was reaching for without having checked.
-        LanguageNames.Xaml =>
-            "XAML is read with a grammar derived from HTML's — property elements such as "
-            + "<Grid.RowDefinitions> are valid XAML but not valid HTML, so the parser "
-            + "reports them. No declaration is lost to this: every name in the file is "
-            + "indexed, before and after the reported line.",
+        // XAML used to need an excuse here. It no longer does: the grammar it is read with
+        // now accepts the property element (<Grid.RowDefinitions>), the XML prologue and a
+        // CDATA section, which were the three constructs HTML has no rule for. This repo
+        // and JGraph together hold 23 XAML files and report zero parse errors between them,
+        // where before they reported fifteen.
+        //
+        // Deliberately not replaced with a softer note. A note that fires on every error is
+        // a standing excuse, and a standing excuse is what let a real swallow read as a
+        // known limitation for nine rounds. An error reported here now is unexplained, and
+        // should be — that is the state in which someone goes and looks.
         _ => null,
     };
 }

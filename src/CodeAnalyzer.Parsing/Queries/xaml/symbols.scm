@@ -5,10 +5,12 @@
 ;   @name        the identifier (falls back to the @def node when absent)
 ;   @type        verbatim declared type
 ;
-; XAML is read with the HTML grammar — there is no XAML or XML grammar in the bundle.
-; The two languages agree on elements, attributes, quoted values and self-closing tags,
-; which is everything these patterns touch. Verified against this repo's own .xaml files
-; before this pack was written, rather than assumed.
+; XAML is read with a grammar derived from HTML's — there is no XAML or XML grammar in the
+; bundle. The two languages agree on elements, attributes, quoted values and self-closing
+; tags, which is everything these patterns touch. Verified against this repo's own .xaml
+; files before this pack was written, rather than assumed. Where they disagree, the
+; divergence lives in grammars/xaml (four #ifdefs, all documented in its README) rather
+; than in these patterns, which is why this pack has never needed a change for it.
 ;
 ; What counts as a declaration, exactly as the HTML pack argues for id: the name the rest
 ; of the codebase addresses the element by. In XAML that is three attributes and no
@@ -32,12 +34,6 @@
 ; what the named thing actually is.
 ;
 ; Known limits, all of them omissions rather than inventions:
-;   - A <Style> element is HTML's CSS <style>, so its children arrive as one raw_text
-;     blob and Setters and Triggers inside it are invisible. The Style's own x:Key is
-;     captured, which is the part anything else refers to.
-;   - A property element (<Grid.RowDefinitions>) is parsed as a tag plus an error. Names
-;     nested inside one are still found; the file is flagged as having a parse error, and
-;     GrammarNotes is what stops that being reported as the author's mistake.
 ;   - A markup extension is still one opaque token to this grammar, but it is no longer
 ;     only stored: refs.scm flags it and MarkupExtensionPath reads the binding path or
 ;     resource key out of it (M19.3). Extensions the parser cannot read with certainty
@@ -105,24 +101,9 @@
         (attribute_value) @name)))
   (#eq? @attribute "x:Class")) @def.markup_element
 
-; A <Style x:Key="…"> lands here rather than in the rules above: the grammar routes it to
-; style_element because HTML's <style> is CSS. Its key is still the name a StaticResource
-; reference is written against, so it is still a declaration — and it is where most of
-; this repo's resource keys actually live.
-(style_element
-  (start_tag
-    (tag_name) @type
-    (attribute
-      (attribute_name) @attribute
-      (quoted_attribute_value
-        (attribute_value) @name)))
-  (#eq? @attribute "x:Key")) @def.resource_key
-
-(style_element
-  (start_tag
-    (tag_name) @type
-    (attribute
-      (attribute_name) @attribute
-      (quoted_attribute_value
-        (attribute_value) @name)))
-  (#match? @attribute "^(x:Name|Name)$")) @def.markup_element
+; A <Style x:Key="…"> once needed two patterns of its own, because HTML routes <style> to
+; style_element and reads its body as CSS. The XAML grammar forces every tag to CUSTOM, and
+; only a SCRIPT or STYLE tag type can make the scanner emit the token style_element is built
+; from — so that node can no longer appear in a XAML tree and the patterns that matched it
+; were dead. A <Style> is now an ordinary element and the rules above claim its key.
+; Removing them was checked, not assumed: 214 XAML definitions before and after.

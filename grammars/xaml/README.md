@@ -1,8 +1,11 @@
 # tree-sitter-xaml
 
 `tree-sitter-html`, compiled a second time under a different name, with HTML's tag table
-switched off. One `#ifdef` in `vendor/src/tag.h` is the entire difference; `parser.c` and
-`scanner.c` are byte-identical to upstream and are renamed at compile time by `-D`.
+switched off and three XML constructs added. Four `#ifdef TREE_SITTER_XAML` blocks — one in
+`vendor/src/tag.h` and three in `vendor/src/scanner.c` — are the entire difference; nothing
+is edited outside them, `parser.c` is byte-identical to upstream, and the exports are
+renamed at compile time by `-D`. **No generated table changes**, which is why this needs
+neither node nor the tree-sitter CLI.
 
 | | |
 |---|---|
@@ -38,6 +41,21 @@ Two more table-driven behaviours are wrong for XAML and were switched off with t
 - **implicit closing** — HTML lets `<p>` be closed by the next block tag. XAML does not, and
   `<Button>`, `<Label>`, `<Menu>` and `<Style>` all hit rows in that table.
 
+## What XAML has that HTML does not
+
+Three constructs, all added in round seventeen after the tag table had been off for three
+rounds. Each was reproduced on a one-file probe before it was written, and the probe files
+are the tests in `XamlAnalyzerTests`.
+
+| Construct | What HTML did | What it cost |
+|---|---|---|
+| `<Grid.RowDefinitions>` — a property element | tag names take letters, digits, `-` and `:`, so the `.` ended the tag and raised an error | **nothing but the alarm.** Same file with and without one indexes the same declarations, and 303 of this repo's 661 XAML references already sat inside one |
+| `<?xml version="1.0"?>` — the XML prologue | no rule for a processing instruction | the alarm, on the first line |
+| `<![CDATA[…]]>` | no rule for a CDATA section | **a declaration.** The element holding the section failed to parse and took its own `x:Key` with it — 2 declared, 1 indexed |
+
+The last is the one that mattered, and it is the same shape as the `<Style>` swallow three
+rounds earlier: data lost quietly, with an error pointing at the wrong thing.
+
 ## The whole diff
 
 ```diff
@@ -52,11 +70,20 @@ Two more table-driven behaviours are wrong for XAML and were switched off with t
 ```
 
 `tag_is_void`, `tag_can_contain` and the `SCRIPT`/`STYLE` arms of `scan_start_tag_name` all
-test `tag.type`, so forcing `CUSTOM` turns off all three behaviours at once and leaves every
-other part of the grammar — including the node names the query pack is written against —
-exactly as upstream. That is why `Queries/xaml/` needed no changes.
+test `tag.type`, so forcing `CUSTOM` turns off raw text, void elements and implicit closing
+at once, all three of which are wrong for XAML.
 
-`.html` files still use the stock grammar, where raw text is correct.
+That has one consequence worth knowing: `style_element` is built from a token only a `STYLE`
+tag type can produce, so **that node can never appear in a XAML tree**. `Queries/xaml/` used
+to carry two patterns for it; round seventeen deleted them as dead and checked the count did
+not move.
+
+The other three blocks are in `scanner.c`: `.` joins the tag-name character set, and `<?…?>`
+and `<![CDATA[…]]>` are consumed and reported as `COMMENT`, which `grammar.js` declares as an
+extra and therefore admits anywhere. Reporting an existing token is what keeps the generated
+parser untouched.
+
+`.html` files still use the stock grammar, where raw text is correct and none of this applies.
 
 ## Rebuilding
 
