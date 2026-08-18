@@ -420,6 +420,46 @@ public class TerseFormatterTests
     };
 
     [Fact]
+    public void CalleeSiteLinesSayWhichFileTheyAreIn()
+    {
+        // A callee row is headed by the TARGET's file and the site lines under it are in the
+        // FOCUS's, so ":7" sits directly beneath a path it is not in. Left alone for a round
+        // on the grounds that the two files are rarely different; they differ on 61.0% of
+        // this repo's callee rows and 67.0% of JGraph's, which is the common case.
+        var callee = new RelatedSymbol(3, "omega", SymbolKind.Function, "b.c", 9,
+            ReferenceKind.Call, EdgeConfidence.Unique);
+        var sites = new Dictionary<long, List<EdgeCallSite>>
+        {
+            [3] = [new EdgeCallSite(7, "()", EdgeConfidence.Unique, null, "omega")],
+        };
+
+        var callees = TerseFormatter.Related(From, [callee], TerseFormatter.Callees, 100, sites);
+
+        Assert.Contains("indented lines are sites in a.c", callees);
+        Assert.Contains("b.c:9", callees);
+        Assert.Contains(":7 omega()", callees);
+    }
+
+    [Fact]
+    public void ACallerListingDoesNotBorrowTheCalleeNote()
+    {
+        // Both ends of a caller row are the call site, so there is nothing to disambiguate
+        // and the line would be false. Nor does it belong on a callee listing that was not
+        // asked for sites — there are no indented lines to explain.
+        var caller = new RelatedSymbol(3, "omega", SymbolKind.Function, "b.c", 9,
+            ReferenceKind.Call, EdgeConfidence.Unique);
+        var sites = new Dictionary<long, List<EdgeCallSite>>
+        {
+            [3] = [new EdgeCallSite(7, "()", EdgeConfidence.Unique, null, "alpha")],
+        };
+
+        Assert.DoesNotContain("indented lines are sites",
+            TerseFormatter.Related(From, [caller], TerseFormatter.Callers, 100, sites));
+        Assert.DoesNotContain("indented lines are sites",
+            TerseFormatter.Related(From, [caller], TerseFormatter.Callees, 100, null));
+    }
+
+    [Fact]
     public void TheConfidenceFooterOnlyAppearsWhenSomethingWasUncertain()
     {
         var certain = new RelatedSymbol(3, "callee", SymbolKind.Function, "c.c", 4,

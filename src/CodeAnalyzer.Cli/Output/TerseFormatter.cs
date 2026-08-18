@@ -406,6 +406,22 @@ internal static class TerseFormatter
         var builder = new StringBuilder();
         builder.AppendLine($"{direction} of {SymbolLine(focus)}:");
 
+        // Asking for callees, each row is headed by the TARGET's file and the site lines
+        // under it are in the FOCUS's — so `:202` sits directly beneath a path it is not in.
+        // Measured before this line was written, because "rare enough to be noise" was the
+        // stated reason to leave it alone: the two files differ on 61.0% of this repo's
+        // callee rows and 67.0% of JGraph's. It is the common case, not the corner.
+        //
+        // Said once per listing rather than per row: the focus's path is already on the line
+        // above, and repeating it against every site would bury the arguments that are the
+        // reason to ask for sites at all.
+        if (sites is not null && !siteNamesFocus)
+        {
+            builder.AppendLine(
+                $"  (indented lines are sites in {focus.RelativePath}, the file above — "
+                + "each row's own path:line is where that callee is declared)");
+        }
+
         var anyUncertain = false;
         foreach (var entry in related)
         {
