@@ -102,7 +102,10 @@ internal sealed class CodeAnalyzerTools(McpSessionHolder holder)
         + "notation: 0xA5 also finds 165 in C, 0xA5 in Python and 8'hA5 in Verilog. This is the "
         + "one query that crosses a language boundary no call or import connects — use it to "
         + "trace a protocol command byte, a baud rate or a port name between a sender and a "
-        + "receiver. A shared value is evidence of an agreement, not proof of one.")]
+        + "receiver. A shared value is evidence of an agreement, not proof of one. For a quoted "
+        + "string it ALSO lists every call that passes it as an argument, which is where a "
+        + "registration table lives: Define(\"contour\", …) is a call, not a declaration, and "
+        + "two of them for one key is a shadowed entry.")]
     public string FindByValue(
         [Description("A literal: 165, 0xA5, 0b1010, 0o755, 8'hA5, or a quoted string like \"COM3\"")]
         string literal,

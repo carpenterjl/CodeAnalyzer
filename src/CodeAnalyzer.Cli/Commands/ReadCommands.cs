@@ -67,7 +67,9 @@ internal static class ReadCommands
     public static CommandSpec Value { get; } = new(
         "value",
         "value <literal> [--limit N] [--root path] [--json]",
-        "definitions whose literal denotes this value, in any language (0xA5 finds 165 and 8'hA5)",
+        "definitions whose literal denotes this value, in any language (0xA5 finds 165 and "
+        + "8'hA5); for a quoted string, also every call that passes it as an argument — "
+        + "which is how a registration table is written",
         (args, ct) => RunValue(args, ct));
 
     public static CommandSpec Constants { get; } = new(

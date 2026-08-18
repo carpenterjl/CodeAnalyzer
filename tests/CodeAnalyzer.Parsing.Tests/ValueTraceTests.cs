@@ -47,6 +47,34 @@ public sealed class ValueTraceFixture : IDisposable
             TIMEOUT = 1.5
             """);
 
+        // A registration table, the shape JGraph writes its builtins in: the key is a
+        // string literal handed to a call, never a declaration, and the same key given
+        // twice from two files is a shadowed entry with the later one silently winning.
+        WriteFile("software/Builtins.cs", """
+            namespace Software;
+
+            public static class Builtins
+            {
+                public static void Register()
+                {
+                    Define("contour", Contour);
+                    Define("surf", Surface);
+                }
+            }
+            """);
+
+        WriteFile("software/Builtins.Extra.cs", """
+            namespace Software;
+
+            public static class BuiltinsExtra
+            {
+                public static void RegisterMore()
+                {
+                    DefineSilent("contour", ContourAgain);
+                }
+            }
+            """);
+
         WriteFile("rtl/decoder.v", """
             module decoder;
               parameter CMD_READ = 8'hA5;
@@ -180,6 +208,46 @@ public class ValueTraceTests(ValueTraceFixture fixture) : IClassFixture<ValueTra
 
         // Neither does a symbol that is not a constant at all.
         Assert.Null(SameValue(fixture.SymbolId("decoder", "rtl/")));
+    }
+
+    [Fact]
+    public void AStringHandedToACallIsFoundWhereNoDefinitionCarriesIt()
+    {
+        // JGraph's third report ranked "flag two definitions registering the same key"
+        // second. There are no definitions here to flag — a registration key is an
+        // ARGUMENT — and the tool answered "no definition carries the value" while the
+        // argument text sat indexed. Both sites, no heuristic, no guess about which is dead.
+        var set = fixture.Session.Read(() => fixture.Session.Values.FindByValue("\"contour\"", 20));
+
+        Assert.NotNull(set);
+        Assert.Empty(set.Matches);
+        Assert.Equal(2, set.ArgumentSites.Count);
+        Assert.Contains(set.ArgumentSites, a => a.CalleeName == "Define");
+        Assert.Contains(set.ArgumentSites, a => a.CalleeName == "DefineSilent");
+
+        // Two files is what makes it a shadow rather than a sequence; the reader is given
+        // the paths and judges, because the tool cannot see which insert wins.
+        Assert.Equal(2, set.ArgumentSites.Select(a => a.RelativePath).Distinct().Count());
+    }
+
+    [Fact]
+    public void AKeyRegisteredOnceIsListedOnce()
+    {
+        var set = fixture.Session.Read(() => fixture.Session.Values.FindByValue("\"surf\"", 20));
+
+        Assert.NotNull(set);
+        Assert.Single(set.ArgumentSites);
+    }
+
+    [Fact]
+    public void ANumberIsNotChasedThroughArgumentLists()
+    {
+        // A number in an argument list is arithmetic, not a key. Listing every call that
+        // passes 165 would bury the five definitions that are the actual answer.
+        var set = fixture.Session.Read(() => fixture.Session.Values.FindByValue("165", 20));
+
+        Assert.NotNull(set);
+        Assert.Empty(set.ArgumentSites);
     }
 
     [Fact]

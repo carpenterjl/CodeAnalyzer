@@ -345,6 +345,15 @@ internal static class JsonFormatter
             path = m.RelativePath,
             line = m.Line,
         }),
+        argumentSitesTruncated = set.ArgumentSitesTruncated,
+        argumentSites = set.ArgumentSites.Select(a => new
+        {
+            callee = a.CalleeName,
+            arguments = a.ArgumentText,
+            owner = a.OwnerName,
+            path = a.RelativePath,
+            line = a.Line,
+        }),
     };
 
     public static string ParseErrors(ReadOnlyIndexSession session, ParseErrorReport report) =>

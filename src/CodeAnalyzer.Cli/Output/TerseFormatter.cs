@@ -321,24 +321,51 @@ internal static class TerseFormatter
                 + "(try 0xA5, 165, 0b1010, 0o755, 8'hA5 or \"COM3\")";
         }
 
-        if (set.Matches.Count == 0)
+        if (set.Matches.Count == 0 && set.ArgumentSites.Count == 0)
         {
-            return $"no definition carries the value {set.Canonical}";
+            return $"no definition carries the value {set.Canonical}, and no call passes it";
         }
 
         var builder = new StringBuilder();
-        builder.AppendLine($"{set.Canonical} — {set.Matches.Count} "
-            + (set.Matches.Count == 1 ? "definition" : "definitions")
-            + " in " + string.Join(", ", set.OtherLanguages));
 
-        foreach (var match in set.Matches)
+        if (set.Matches.Count > 0)
         {
-            builder.AppendLine("  " + ValueLine(match));
+            builder.AppendLine($"{set.Canonical} — {set.Matches.Count} "
+                + (set.Matches.Count == 1 ? "definition" : "definitions")
+                + " in " + string.Join(", ", set.OtherLanguages));
+
+            foreach (var match in set.Matches)
+            {
+                builder.AppendLine("  " + ValueLine(match));
+            }
+
+            if (set.Truncated)
+            {
+                builder.AppendLine($"  … list capped at {set.Limit}; more definitions carry this value");
+            }
         }
 
-        if (set.Truncated)
+        if (set.ArgumentSites.Count > 0)
         {
-            builder.AppendLine($"  … list capped at {set.Limit}; more definitions carry this value");
+            // A separate block with its own header: these are not definitions, and a reader
+            // who skims one list of rows would otherwise read a registration site as a
+            // declaration of the key.
+            builder.AppendLine($"{set.Canonical} — passed to {set.ArgumentSites.Count} "
+                + (set.ArgumentSites.Count == 1 ? "call" : "calls")
+                + " (an argument, not a declaration):");
+
+            foreach (var site in set.ArgumentSites)
+            {
+                var owner = site.OwnerName is null ? string.Empty : $" in {site.OwnerName}";
+                builder.AppendLine(
+                    $"  {site.CalleeName}{Clip(Flatten(site.ArgumentText), 80)} "
+                    + $"{site.RelativePath}:{site.Line}{owner}");
+            }
+
+            if (set.ArgumentSitesTruncated)
+            {
+                builder.AppendLine($"  … list capped at {set.Limit}; more calls pass this value");
+            }
         }
 
         return builder.Finish();

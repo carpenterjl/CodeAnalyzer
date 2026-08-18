@@ -28,11 +28,37 @@ public sealed record ValueMatch(
 }
 
 /// <summary>
+/// One place a string literal is handed to a call rather than stored in a definition.
+/// <para>
+/// A registration table is written this way — <c>Define("contour", …)</c> — and until the
+/// arguments were searchable the only way to find one was to grep the text. That grep was
+/// the single largest fallback in both of JGraph's last two field reports, and it is what
+/// found a builtin registered twice in two files with the later one silently winning.
+/// </para>
+/// </summary>
+public sealed record ValueArgumentSite(
+    string CalleeName,
+    string ArgumentText,
+    string RelativePath,
+    int Line,
+    string? OwnerName);
+
+/// <summary>
 /// Definitions sharing one value, with the honesty flag that says the list was cut.
 /// </summary>
 public sealed record ValueMatchSet
 {
     public required IReadOnlyList<ValueMatch> Matches { get; init; }
+
+    /// <summary>
+    /// Calls that pass this literal as an argument. Only ever populated for a text value —
+    /// a number appearing in an argument list is arithmetic, not a key, and listing every
+    /// site of <c>0</c> would bury the answer.
+    /// </summary>
+    public IReadOnlyList<ValueArgumentSite> ArgumentSites { get; init; } = [];
+
+    /// <summary>More calls pass this literal than the limit allowed through.</summary>
+    public bool ArgumentSitesTruncated { get; init; }
 
     /// <summary>The value both sides share, in its plain form: <c>165</c> or <c>"COM3"</c>.</summary>
     public required string Canonical { get; init; }
@@ -186,9 +212,22 @@ public sealed class ValueQueryService(SqliteConnection connection)
             matches.RemoveRange(limit, matches.Count - limit);
         }
 
+        // Kinds filter definitions, so a caller narrowing to types has said nothing about
+        // call sites and gets none — rather than a list the filter silently did not apply to.
+        var sites = value.Text is { Length: > 0 } text && kinds is null
+            ? ReadArgumentSites(text, limit + 1, cancellationToken)
+            : [];
+        var sitesTruncated = sites.Count > limit;
+        if (sitesTruncated)
+        {
+            sites.RemoveRange(limit, sites.Count - limit);
+        }
+
         return new ValueMatchSet
         {
             Matches = matches,
+            ArgumentSites = sites,
+            ArgumentSitesTruncated = sitesTruncated,
             Canonical = ValueFacts.Canonical(value.Number, value.Text) ?? string.Empty,
             Truncated = truncated,
             Limit = limit,
@@ -198,6 +237,57 @@ public sealed class ValueQueryService(SqliteConnection connection)
                 .Order(StringComparer.Ordinal)
                 .ToList(),
         };
+    }
+
+    /// <summary>
+    /// Every call that passes this text as an argument, found by looking for it quoted
+    /// inside the verbatim argument list the parser already stores.
+    /// <para>
+    /// Quoted deliberately: <c>"contour"</c> and not <c>contour</c>, so a call to a method
+    /// whose name merely contains the word is not a hit, and a substring of a longer
+    /// literal is not either. The two quote characters cover every language the tool reads.
+    /// </para>
+    /// </summary>
+    private List<ValueArgumentSite> ReadArgumentSites(
+        string text,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT r.name, r.arg_text, f.rel_path, r.line, o.name
+            FROM ref r
+            JOIN file f ON f.id = r.file_id
+            LEFT JOIN symbol o ON o.id = r.from_symbol_id
+            WHERE r.arg_text IS NOT NULL
+              AND (r.arg_text LIKE '%' || $doubled || '%' ESCAPE '\'
+                OR r.arg_text LIKE '%' || $singled || '%' ESCAPE '\')
+            ORDER BY f.rel_path, r.line
+            LIMIT $limit
+            """;
+
+        var quoted = text
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("%", "\\%", StringComparison.Ordinal)
+            .Replace("_", "\\_", StringComparison.Ordinal);
+        command.Parameters.AddWithValue("$doubled", $"\"{quoted}\"");
+        command.Parameters.AddWithValue("$singled", $"'{quoted}'");
+        command.Parameters.AddWithValue("$limit", limit);
+
+        var sites = new List<ValueArgumentSite>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            sites.Add(new ValueArgumentSite(
+                reader.GetString(0),
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.GetInt32(3),
+                reader.IsDBNull(4) ? null : reader.GetString(4)));
+        }
+
+        return sites;
     }
 
     /// <summary>
