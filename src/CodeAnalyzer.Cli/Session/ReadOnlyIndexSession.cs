@@ -47,6 +47,7 @@ internal sealed class ReadOnlyIndexSession : IDisposable
         Graph = new GraphQueryService(connection);
         Paths = new PathQueryService(connection);
         IoBoundaries = new IoBoundaryService(connection);
+        CallFlows = new CallFlowService(connection);
         Values = new ValueQueryService(connection);
         Settings = SqliteIndexStore.ReadSettings(connection);
     }
@@ -68,6 +69,8 @@ internal sealed class ReadOnlyIndexSession : IDisposable
     public PathQueryService Paths { get; }
 
     public IoBoundaryService IoBoundaries { get; }
+
+    public CallFlowService CallFlows { get; }
 
     /// <summary>Definitions found by what their literal denotes, across languages.</summary>
     public ValueQueryService Values { get; }
