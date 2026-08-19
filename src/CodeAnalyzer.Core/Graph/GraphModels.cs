@@ -186,6 +186,21 @@ public sealed record SymbolDetail
     /// <inheritdoc cref="CallerTotal"/>
     public int CalleeTotal { get; init; }
 
+    /// <summary>
+    /// How many places call or reference this symbol's <em>members</em>, as distinct from
+    /// this symbol itself.
+    /// <para>
+    /// A container's caller count is not the sum of its members', and the difference is
+    /// load-bearing rather than pedantic: <c>PrimitiveFactory</c> is a static class nobody
+    /// names, whose two factory methods the application calls, and <c>callers: 0</c> on the
+    /// class read as "this is dead". A field report acted on exactly that shape three times
+    /// in one session — correctly, on three genuinely unreachable features — which is what
+    /// made the fourth reading so expensive. The count stays what it is; this number is what
+    /// lets the sheet say so out loud.
+    /// </para>
+    /// </summary>
+    public int MemberCallerTotal { get; init; }
+
     /// <summary>References from this symbol that matched no definition, e.g. libc calls.</summary>
     public IReadOnlyList<UnresolvedReference> UnresolvedReferences { get; init; } = [];
 

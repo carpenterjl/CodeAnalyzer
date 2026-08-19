@@ -232,6 +232,7 @@ internal static class TerseFormatter
                     : $"no symbols match '{query}'";
 
             var head = kindFilter is null ? subject : $"{subject} with kinds {kindFilter}";
+
             return inComments ? head : head + Environment.NewLine + Rescue(query, commentRescue);
         }
 
@@ -519,6 +520,21 @@ internal static class TerseFormatter
             + $"callees: {detail.Callees.Count}{CrossLanguageNote(detail.Callees)}"
             + "  (list with: callers/callees #" + detail.Id + ")");
 
+        // A container's callers are not its members' callers, and a reader who stops at the
+        // zero gets the opposite of the truth. "Every caller is a test" is the most useful
+        // shape this tool produces — it is how a session proves a feature is implemented and
+        // unreachable — and a static factory nobody names by name wears the identical shape
+        // while its methods are called from the application. So the zero stays, and says
+        // what it does not cover.
+        if (detail.MemberCallerTotal > 0)
+        {
+            builder.AppendLine(
+                $"  nothing references {detail.Name} itself; its {detail.Members.Count} "
+                + $"member{(detail.Members.Count == 1 ? " is" : "s are")} reached from "
+                + $"{detail.MemberCallerTotal} place{(detail.MemberCallerTotal == 1 ? string.Empty : "s")}"
+                + " — list them with: composition #" + detail.Id);
+        }
+
         if (detail.UnresolvedReferences.Count > 0)
         {
             builder.AppendLine($"unresolved ({detail.UnresolvedReferences.Count}):");
@@ -789,6 +805,20 @@ internal static class TerseFormatter
         {
             builder.AppendLine($"scope: {stats.ScopePath} "
                 + "(every count below is limited to this file or subtree)");
+
+            // A scope naming nothing the index holds produced a complete report of zeros,
+            // which is a different claim from the true one: not "this subtree contains no
+            // code" but "there is no such subtree here". Every row below would be 0 and
+            // every one of them would look like an answer.
+            if (stats.TotalFiles == 0)
+            {
+                return builder.Finish() + Environment.NewLine
+                    + $"no indexed file lies under '{stats.ScopePath}' — the zeros below "
+                    + "would be about a path this index does not have, so they are not printed."
+                    + Environment.NewLine
+                    + "(scope takes a workspace-relative file or directory; 'stats' with no "
+                    + "argument reports the whole workspace)";
+            }
         }
 
         builder.AppendLine($"files: {stats.TotalFiles} ({Tally(stats.FilesByLanguage)})"

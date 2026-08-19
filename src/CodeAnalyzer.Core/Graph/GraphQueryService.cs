@@ -346,6 +346,7 @@ public sealed class GraphQueryService(SqliteConnection connection)
             CallerTotal = callers.Total,
             Callees = callees.Listed,
             CalleeTotal = callees.Total,
+            MemberCallerTotal = callers.Total > 0 ? 0 : LoadMemberCallerTotal(symbolId),
             UnresolvedReferences = LoadUnresolved(symbolId),
             BaseTypes = LoadBaseTypes(symbolId),
             // Already loaded — a derived type is a caller whose reference is an inherit.
@@ -461,6 +462,37 @@ public sealed class GraphQueryService(SqliteConnection connection)
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Distinct caller-and-member pairs reaching this symbol's members from outside the
+    /// symbol itself — what a container has instead of callers.
+    /// <para>
+    /// Only asked when the symbol's own caller count is zero, which is the only case where
+    /// the answer changes what a reader concludes. A member calling a sibling is excluded:
+    /// a class whose methods only call each other is exactly as unreached as one whose
+    /// methods are never called, and counting the internal traffic would turn the honest
+    /// zero into a reassuring number.
+    /// </para>
+    /// </summary>
+    private int LoadMemberCallerTotal(long symbolId)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT COUNT(*) FROM (
+                SELECT DISTINCT r.from_symbol_id, e.target_symbol_id
+                FROM edge e
+                JOIN ref r ON r.id = e.ref_id
+                JOIN symbol m ON m.id = e.target_symbol_id
+                LEFT JOIN symbol c ON c.id = r.from_symbol_id
+                WHERE m.container_id = $symbolId
+                  AND r.from_symbol_id IS NOT NULL
+                  AND r.from_symbol_id <> m.id
+                  AND (c.container_id IS NULL OR c.container_id <> $symbolId)
+            )
+            """;
+        command.Parameters.AddWithValue("$symbolId", symbolId);
+        return Convert.ToInt32(command.ExecuteScalar());
     }
 
     /// <summary>

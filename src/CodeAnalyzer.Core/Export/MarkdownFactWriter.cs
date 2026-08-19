@@ -58,6 +58,24 @@ public static class MarkdownFactWriter
         WriteInheritance(text, detail);
         WriteOverloads(text, detail);
         WriteRelated(text, "Callers", detail.Callers, report.RelatedLimit, incoming: true);
+
+        // A container with no callers of its own but reachable members: without this the
+        // sheet has no Callers section at all, which reads as "nothing uses this".
+        if (detail.MemberCallerTotal > 0)
+        {
+            text.Append("\n## Callers (0 — but its members have ")
+                .Append(detail.MemberCallerTotal)
+                .Append(")\n\nNothing references `")
+                .Append(detail.Name)
+                .Append("` by name. Its ")
+                .Append(detail.Members.Count)
+                .Append(" members are reached from ")
+                .Append(detail.MemberCallerTotal)
+                .Append(" place")
+                .Append(detail.MemberCallerTotal == 1 ? string.Empty : "s")
+                .Append(", so the zero above is about the name, not about the code.\n");
+        }
+
         WriteRelated(text, "Callees", detail.Callees, report.RelatedLimit, incoming: false,
             report.CalleeSites);
         WriteIoSites(text, report.IoSites);
