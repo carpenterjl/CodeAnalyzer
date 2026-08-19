@@ -321,7 +321,7 @@
                                 ToolTip="Export the picture as a PNG image (Ctrl+E)" />
                         <Button Style="{StaticResource ToolbarButton}"
                                 Content="JSON" Command="{Binding ExportJsonCommand}" Margin="0,0,6,0"
-                                Visibility="{Binding Graph.IsGraphView, Converter={StaticResource BoolToVisibility}}"
+                                Visibility="{Binding Graph.IsFactsExportableView, Converter={StaticResource BoolToVisibility}}"
                                 ToolTip="Export the graph's facts as JSON (Ctrl+Shift+E)" />
                         <Button Style="{StaticResource ToolbarButton}"
                                 Content="Mermaid" Command="{Binding CopyMermaidCommand}" Margin="0,0,6,0"

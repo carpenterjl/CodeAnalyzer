@@ -1,4 +1,4 @@
-using CodeAnalyzer.App.Services;
+﻿using CodeAnalyzer.App.Services;
 using CodeAnalyzer.Core.Domain;
 using CodeAnalyzer.Core.Graph;
 using CodeAnalyzer.Core.Workspaces;
@@ -247,6 +247,7 @@ public sealed partial class GraphViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsCanvasView))]
     [NotifyPropertyChangedFor(nameof(IsFlowView))]
     [NotifyPropertyChangedFor(nameof(IsExportableView))]
+    [NotifyPropertyChangedFor(nameof(IsFactsExportableView))]
     private GraphViewMode _viewMode = GraphViewMode.Graph;
 
     /// <summary>Drives the toolbar controls that only make sense over one of the views.</summary>
@@ -269,6 +270,12 @@ public sealed partial class GraphViewModel : ObservableObject
     /// up (the page says "nothing to export" otherwise, which is the honest reply).
     /// </summary>
     public bool IsExportableView => IsCanvasView || IsFlowView;
+
+    /// <summary>
+    /// The views whose facts a JSON export can speak for. Narrower than the picture
+    /// exports: the paths canvas answers a question, not a document.
+    /// </summary>
+    public bool IsFactsExportableView => IsGraphView || IsFlowView;
 
     partial void OnViewModeChanged(GraphViewMode value)
     {

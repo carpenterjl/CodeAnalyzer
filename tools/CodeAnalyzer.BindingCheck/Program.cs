@@ -1,4 +1,4 @@
-// System.IO explicitly: a UseWPF project's implicit usings do not include it.
+﻿// System.IO explicitly: a UseWPF project's implicit usings do not include it.
 using System.IO;
 using System.Reflection;
 using CodeAnalyzer.BindingCheck;
@@ -134,13 +134,33 @@ if (selfTest)
     return 1;
 }
 
-if (unresolved.Count == 0)
+// The second silent failure in a WPF view: a command that is bound correctly, spelled
+// correctly, and never re-asked whether it may run.
+var viewModels = Path.Combine(root, "src", "CodeAnalyzer.App", "ViewModels");
+var unnotified = Directory.Exists(viewModels)
+    ? CommandNotifyScanner.Scan(viewModels, root)
+    : [];
+
+Console.WriteLine($"command check: {unnotified.Count} command(s) sharing a predicate their siblings are notified for");
+
+foreach (var finding in unnotified)
+{
+    Console.WriteLine(
+        $"  {finding.File}  {finding.Command} shares {finding.Predicate}() with "
+        + $"{string.Join(", ", finding.Siblings)} but is never notified — it stays disabled");
+}
+
+if (unresolved.Count == 0 && unnotified.Count == 0)
 {
     Console.WriteLine("  all resolved");
     return 0;
 }
 
-Console.WriteLine($"  {unresolved.Count} unresolved");
+if (unresolved.Count > 0)
+{
+    Console.WriteLine($"  {unresolved.Count} unresolved");
+}
+
 return 1;
 
 static List<Type> CandidateContextTypes(Assembly assembly) =>

@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -208,6 +208,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             await RefreshCurrentViewAsync().ConfigureAwait(true);
             SetPathStartCommand.NotifyCanExecuteChanged();
             SetPathEndCommand.NotifyCanExecuteChanged();
+            SetFlowRootCommand.NotifyCanExecuteChanged();
 
             // Asked once per workspace, before the tree loads and before any index run,
             // so the very first crawl already follows the answer. The stored answer means
@@ -610,6 +611,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             Detail.EmptyMessage = $"{name} is no longer defined in {path}.";
             SetPathStartCommand.NotifyCanExecuteChanged();
             SetPathEndCommand.NotifyCanExecuteChanged();
+            SetFlowRootCommand.NotifyCanExecuteChanged();
             await Graph.ClearAsync($"{name} is no longer in the index.").ConfigureAwait(true);
             return;
         }
@@ -1608,6 +1610,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         SetPathStartCommand.NotifyCanExecuteChanged();
         SetPathEndCommand.NotifyCanExecuteChanged();
+        SetFlowRootCommand.NotifyCanExecuteChanged();
 
         // The composition inspector follows the selection the same way the detail pane
         // does, so switching symbols while it is open keeps it in step.
@@ -1963,7 +1966,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         if (result.Data is null)
         {
-            Status.Message = "Nothing to export — the graph is empty.";
+            // A picture the flow has but this layout cannot draw is not an empty flow, and
+            // saying so would send the reader looking for a trace that is already on screen.
+            Status.Message = Graph.IsFlowView && result.Format == GraphExportFormat.Png
+                ? "A flow PNG is drawn from the flowchart layout — switch to it and export again."
+                : "Nothing to export — the graph is empty.";
             return;
         }
 

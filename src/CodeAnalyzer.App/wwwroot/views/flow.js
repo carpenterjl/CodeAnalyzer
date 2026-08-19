@@ -231,6 +231,11 @@
         elements.empty.hidden = hasFlow;
         elements.depthValue.textContent = String(ui.depth);
         elements.rankdir.hidden = ui.layout !== "flowchart";
+
+        // A pane swap pulls the hovered row out from under the cursor, so nothing is
+        // left to fire the leave that would take these down. Close them here instead.
+        hideTip();
+        hidePicker();
         renderCrumbs();
 
         Object.keys(PANES).forEach(function (layout) {

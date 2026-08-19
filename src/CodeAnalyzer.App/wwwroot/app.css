@@ -223,8 +223,10 @@ button,
     position: absolute;
     inset: 0;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 8px;
     padding: 32px;
     pointer-events: none;
     background: var(--bg);
@@ -1259,6 +1261,11 @@ button,
 }
 
 .flow-crumbs {
+    /* .crumbs pins itself over the paths canvas. In the flow toolbar the trail is a
+       normal row item, so hand back the space it would otherwise cover. */
+    position: static;
+    height: auto;
+    padding: 0;
     margin-left: auto;
 }
 
