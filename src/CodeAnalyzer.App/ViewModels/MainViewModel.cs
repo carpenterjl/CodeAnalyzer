@@ -1900,11 +1900,15 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     // ---- Export ------------------------------------------------------------
 
-    private bool CanExport() => _session is not null && Graph.IsGraphView;
+    private bool CanExport() => _session is not null
+        && (Graph.IsGraphView || Graph.IsFlowView);
 
-    /// <summary>PNG and Mermaid work for both canvas pictures: the graph and the paths.</summary>
+    /// <summary>
+    /// PNG and Mermaid work for the two canvas pictures and the flow. A flow PNG answers
+    /// only from its flowchart layout; the page says "nothing to export" otherwise.
+    /// </summary>
     private bool CanExportPicture() => _session is not null
-        && (Graph.IsGraphView || Graph.ViewMode == GraphViewMode.Paths);
+        && (Graph.IsGraphView || Graph.ViewMode == GraphViewMode.Paths || Graph.IsFlowView);
 
     private bool CanCopyBoundaries() =>
         _session is not null && Graph.ViewMode == GraphViewMode.Boundaries;
@@ -1939,7 +1943,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             string mermaid;
             try
             {
-                mermaid = MermaidGraphWriter.Write(ExportedGraphDocument.Parse(result.Data));
+                // The flow page exports the flat trace document; the canvases export the
+                // graph document. Each has its own writer — a trace is not a canvas.
+                mermaid = Graph.ViewMode == GraphViewMode.Flow
+                    ? MermaidFlowWriter.Write(ExportedFlowDocument.Parse(result.Data))
+                    : MermaidGraphWriter.Write(ExportedGraphDocument.Parse(result.Data));
             }
             catch (JsonException ex)
             {

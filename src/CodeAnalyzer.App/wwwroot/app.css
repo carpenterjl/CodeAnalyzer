@@ -1401,3 +1401,44 @@ button.flow-badge {
     font-size: 12px;
     max-width: 46ch;
 }
+
+.flow-rankdir {
+    width: auto;
+    padding: 0 8px;
+    font-family: var(--font-mono);
+}
+
+.flow-pane[hidden] {
+    display: none;
+}
+
+.flow-canvas {
+    padding: 0;
+    overflow: hidden;
+}
+
+.flow-flame {
+    overflow: auto;
+    padding: 8px;
+}
+
+.flow-seq-head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    height: 26px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--control-border);
+}
+
+.flow-seq-head span {
+    position: absolute;
+    top: 5px;
+    transform: translateX(-50%);
+    font-size: 11px;
+    color: var(--fg-muted);
+    white-space: nowrap;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}

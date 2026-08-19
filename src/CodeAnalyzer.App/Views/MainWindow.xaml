@@ -317,7 +317,7 @@
 
                         <Button Style="{StaticResource ToolbarButton}"
                                 Content="PNG" Command="{Binding ExportPngCommand}" Margin="0,0,6,0"
-                                Visibility="{Binding Graph.IsCanvasView, Converter={StaticResource BoolToVisibility}}"
+                                Visibility="{Binding Graph.IsExportableView, Converter={StaticResource BoolToVisibility}}"
                                 ToolTip="Export the picture as a PNG image (Ctrl+E)" />
                         <Button Style="{StaticResource ToolbarButton}"
                                 Content="JSON" Command="{Binding ExportJsonCommand}" Margin="0,0,6,0"
@@ -325,7 +325,7 @@
                                 ToolTip="Export the graph's facts as JSON (Ctrl+Shift+E)" />
                         <Button Style="{StaticResource ToolbarButton}"
                                 Content="Mermaid" Command="{Binding CopyMermaidCommand}" Margin="0,0,6,0"
-                                Visibility="{Binding Graph.IsCanvasView, Converter={StaticResource BoolToVisibility}}"
+                                Visibility="{Binding Graph.IsExportableView, Converter={StaticResource BoolToVisibility}}"
                                 ToolTip="Copy the picture as Mermaid flowchart text for a PR comment or markdown (Ctrl+M)" />
                         <Button Style="{StaticResource ToolbarButton}"
                                 Content="Copy table" Command="{Binding CopyBoundariesMarkdownCommand}" Margin="0,0,6,0"

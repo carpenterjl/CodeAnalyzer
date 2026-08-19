@@ -246,6 +246,7 @@ public sealed partial class GraphViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsBoundariesView))]
     [NotifyPropertyChangedFor(nameof(IsCanvasView))]
     [NotifyPropertyChangedFor(nameof(IsFlowView))]
+    [NotifyPropertyChangedFor(nameof(IsExportableView))]
     private GraphViewMode _viewMode = GraphViewMode.Graph;
 
     /// <summary>Drives the toolbar controls that only make sense over one of the views.</summary>
@@ -261,6 +262,13 @@ public sealed partial class GraphViewModel : ObservableObject
 
     /// <summary>The two cytoscape pictures — the views PNG and Mermaid exports speak for.</summary>
     public bool IsCanvasView => ViewMode is GraphViewMode.Graph or GraphViewMode.Paths;
+
+    /// <summary>
+    /// The views the export buttons speak for. Flow joins the two canvases: its Mermaid
+    /// and JSON exports always answer, and its PNG answers when the flowchart layout is
+    /// up (the page says "nothing to export" otherwise, which is the honest reply).
+    /// </summary>
+    public bool IsExportableView => IsCanvasView || IsFlowView;
 
     partial void OnViewModeChanged(GraphViewMode value)
     {

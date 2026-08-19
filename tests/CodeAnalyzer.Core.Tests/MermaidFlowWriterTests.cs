@@ -20,6 +20,36 @@ public class MermaidFlowWriterTests
     };
 
     [Fact]
+    public void ThePagesExportSpellingParsesAndRenders()
+    {
+        // The exact field names flow.js writes. If this test breaks, the page and the
+        // host have drifted on the export contract.
+        var document = ExportedFlowDocument.Parse("""
+            {
+              "root": { "id": "86", "name": "Run", "kind": "method", "path": "src/App.cs", "line": 12 },
+              "steps": [
+                { "ordinal": "1", "name": "LoadConfig", "receiver": null, "args": "(path)",
+                  "fate": "assigned", "fateName": "cfg", "confidence": "unique", "candidates": 0,
+                  "targetName": "LoadConfig", "targetPath": "src/Config.cs", "cycle": false,
+                  "cycleOf": null, "unresolved": false, "collapsedAt": null,
+                  "ioDirection": null, "ioFamily": null, "stepTruncated": false,
+                  "callSites": 0, "line": 14 }
+              ],
+              "truncated": true
+            }
+            """);
+
+        Assert.Equal("Run", document.Root!.Name);
+        Assert.True(document.Truncated);
+        var step = Assert.Single(document.Steps);
+        Assert.Equal("cfg", step.FateName);
+
+        var text = MermaidFlowWriter.Write(document);
+        Assert.Contains("flowchart TD", text);
+        Assert.Contains("s1 -.->|\"→ cfg\"| root", text);
+    }
+
+    [Fact]
     public void HostileArgumentTextIsEscapedNotInterpreted()
     {
         var text = MermaidFlowWriter.Write(Document(new ExportedFlowStep

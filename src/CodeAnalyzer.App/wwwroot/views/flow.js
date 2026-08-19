@@ -31,6 +31,10 @@
         crumbs: document.getElementById("flow-crumbs"),
         note: document.getElementById("flow-note"),
         tree: document.getElementById("flow-tree"),
+        canvas: document.getElementById("flow-canvas"),
+        seq: document.getElementById("flow-seq"),
+        flame: document.getElementById("flow-flame"),
+        rankdir: document.getElementById("flow-rankdir"),
         tip: document.getElementById("flow-tip"),
         picker: document.getElementById("flow-picker"),
         empty: document.getElementById("flow-empty")
@@ -43,13 +47,20 @@
         collapsed: Object.create(null),     // ordinal -> true, user-folded subtrees
         selection: null,                    // ordinal
         depth: 3,
+        rankDir: "TB",                      // flowchart only
         crumbs: [],                         // previous roots [{ id, name }]
         pendingRoot: null                   // a crumb click in flight: do not re-push
     };
 
     /* Renderers by layout id. Flowchart, sequence and flame register here as they
        arrive; the picker is built from this table so it can never offer a dead button. */
-    var RENDERERS = { tree: renderTree };
+    var RENDERERS = {
+        tree: renderTree,
+        flowchart: renderFlowchart,
+        sequence: renderSequence,
+        flame: renderFlame
+    };
+    var PANES = { tree: "tree", flowchart: "canvas", sequence: "seq", flame: "flame" };
     var LAYOUT_LABELS = { tree: "Tree", flowchart: "Flowchart", sequence: "Sequence", flame: "Flame" };
     var LAYOUT_ORDER = ["tree", "flowchart", "sequence", "flame"];
 
@@ -187,6 +198,14 @@
     elements.depthDown.addEventListener("click", function () { stepDepth(-1); });
     elements.depthUp.addEventListener("click", function () { stepDepth(1); });
 
+    elements.rankdir.addEventListener("click", function () {
+        ui.rankDir = ui.rankDir === "TB" ? "LR" : "TB";
+        elements.rankdir.textContent = ui.rankDir;
+        if (ui.layout === "flowchart") {
+            render();
+        }
+    });
+
     function renderCrumbs() {
         util.clear(elements.crumbs);
         ui.crumbs.forEach(function (crumb, index) {
@@ -211,7 +230,12 @@
         var hasFlow = !!(model && model.root);
         elements.empty.hidden = hasFlow;
         elements.depthValue.textContent = String(ui.depth);
+        elements.rankdir.hidden = ui.layout !== "flowchart";
         renderCrumbs();
+
+        Object.keys(PANES).forEach(function (layout) {
+            elements[PANES[layout]].hidden = layout !== ui.layout;
+        });
 
         if (!hasFlow) {
             util.clear(elements.tree);
@@ -532,6 +556,594 @@
         }
     });
 
+    // ---- Flowchart (cytoscape + dagre) -------------------------------------
+
+    var cy = null;
+
+    function flowchartStyle() {
+        return [
+            {
+                selector: "node",
+                style: {
+                    label: "data(label)",
+                    "text-valign": "center",
+                    "text-halign": "center",
+                    "font-family": util.cssVar("--font-mono"),
+                    "font-size": 10,
+                    color: util.cssVar("--node-text"),
+                    "text-wrap": "wrap",
+                    "text-max-width": 190,
+                    width: "label",
+                    height: "label",
+                    padding: 8,
+                    shape: "round-rectangle",
+                    "background-color": "data(colour)",
+                    "background-opacity": 0.18,
+                    "border-width": 1.5,
+                    "border-color": "data(colour)"
+                }
+            },
+            {
+                selector: "node.root",
+                style: { "border-width": 3, "border-color": util.cssVar("--accent"), "font-weight": "bold" }
+            },
+            {
+                selector: "node.io",
+                style: { shape: "rhomboid" }
+            },
+            {
+                selector: "node.unresolved",
+                style: { "background-opacity": 0.06, color: util.cssVar("--fg-faint"), "border-style": "dotted" }
+            },
+            {
+                selector: "node.cut",
+                style: {
+                    shape: "round-rectangle",
+                    "background-opacity": 0,
+                    "border-style": "dashed",
+                    color: util.cssVar("--fg-muted"),
+                    "font-size": 9
+                }
+            },
+            {
+                selector: "edge",
+                style: {
+                    width: 1.6,
+                    "curve-style": "bezier",
+                    "target-arrow-shape": "triangle",
+                    "arrow-scale": 0.8,
+                    "line-color": util.cssVar("--edge"),
+                    "target-arrow-color": util.cssVar("--edge"),
+                    label: "data(label)",
+                    "font-size": 8.5,
+                    color: util.cssVar("--fg-muted"),
+                    "text-rotation": "autorotate",
+                    "text-background-color": util.cssVar("--panel"),
+                    "text-background-opacity": 0.85,
+                    "text-background-padding": 2
+                }
+            },
+            { selector: "edge.ambiguous", style: { "line-style": "dashed" } },
+            {
+                selector: "edge.weak",
+                style: {
+                    "line-style": "dotted",
+                    "line-color": util.cssVar("--edge-weak"),
+                    "target-arrow-color": util.cssVar("--edge-weak")
+                }
+            },
+            {
+                selector: "edge.back",
+                style: {
+                    "line-style": "dashed",
+                    width: 1.1,
+                    "line-color": util.cssVar("--fg-faint"),
+                    "target-arrow-color": util.cssVar("--fg-faint"),
+                    "arrow-scale": 0.6
+                }
+            },
+            {
+                selector: "edge.cycle",
+                style: {
+                    "line-style": "dashed",
+                    "line-color": util.cssVar("--warning"),
+                    "target-arrow-color": util.cssVar("--warning")
+                }
+            }
+        ];
+    }
+
+    function ensureCy() {
+        if (cy) {
+            return cy;
+        }
+
+        cy = cytoscape({
+            container: elements.canvas,
+            style: flowchartStyle(),
+            minZoom: 0.1,
+            maxZoom: 3
+        });
+
+        cy.on("tap", "node", function (event) {
+            var step = event.target.data("step");
+            if (step) {
+                selectStep(step);
+            }
+        });
+        cy.on("dbltap", "node", function (event) {
+            var step = event.target.data("step");
+            if (step && step.target) {
+                bridge.post("flowRoot", { id: step.target.id });
+            }
+        });
+        cy.on("mouseover", "node", function (event) {
+            var step = event.target.data("step");
+            if (step && event.originalEvent) {
+                showTip(step, event.originalEvent);
+            }
+        });
+        cy.on("mouseout", "node", hideTip);
+
+        return cy;
+    }
+
+    /* Walks the steps the current fold state leaves visible. */
+    function visibleSteps(steps, visit) {
+        steps.forEach(function (step) {
+            visit(step);
+            if (step.steps && step.steps.length && !ui.collapsed[step.ordinal]) {
+                visibleSteps(step.steps, visit);
+            }
+        });
+    }
+
+    function nodeIdFor(ordinal) {
+        return "s" + ordinal;
+    }
+
+    function parentIdFor(ordinal) {
+        var dot = ordinal.lastIndexOf(".");
+        return dot < 0 ? "root" : "s" + ordinal.slice(0, dot);
+    }
+
+    function renderFlowchart() {
+        var graph = ensureCy();
+        var nodes = [];
+        var edges = [];
+        var present = Object.create(null);
+        present.root = true;
+
+        nodes.push({
+            data: {
+                id: "root",
+                label: (model.root.name || "?") + " · " + (model.root.kind || ""),
+                colour: util.groupColour(model.root.group)
+            },
+            classes: "root"
+        });
+
+        visibleSteps(model.steps, function (step) {
+            var id = nodeIdFor(step.ordinal);
+            present[id] = true;
+
+            var classes = [];
+            if (step.io) { classes.push("io"); }
+            if (step.unresolved) { classes.push("unresolved"); }
+
+            nodes.push({
+                data: {
+                    id: id,
+                    label: step.ordinal + " " + util.truncate(callText(step), 48),
+                    colour: step.io
+                        ? util.cssVar("--kind-io")
+                        : util.groupColour(step.target ? step.target.group : "variable"),
+                    step: step
+                },
+                classes: classes.join(" ")
+            });
+
+            if (step.truncated && step.truncated.total > 0 && !ui.collapsed[step.ordinal]) {
+                nodes.push({
+                    data: { id: id + "_cut", label: "… " + step.truncated.total + " more" },
+                    classes: "cut"
+                });
+                edges.push({
+                    data: { id: id + "_cutE", source: id, target: id + "_cut", label: "" },
+                    classes: "back"
+                });
+            }
+        });
+
+        visibleSteps(model.steps, function (step) {
+            var id = nodeIdFor(step.ordinal);
+            var parent = parentIdFor(step.ordinal);
+            if (!present[parent]) {
+                return;
+            }
+
+            var callClass = step.unresolved || step.confidence === "ambiguous"
+                ? "ambiguous"
+                : step.confidence === "weak" ? "weak" : "";
+            var callLabel = step.unresolved
+                ? "unresolved"
+                : step.candidates && step.candidates.length
+                    ? "1 of " + (step.candidates.length + 1)
+                    : "";
+            edges.push({
+                data: { id: id + "_call", source: parent, target: id, label: callLabel },
+                classes: callClass
+            });
+
+            var fate = fateText(step);
+            if (fate && step.fate !== "discarded") {
+                edges.push({
+                    data: { id: id + "_ret", source: id, target: parent, label: fate },
+                    classes: "back"
+                });
+            }
+
+            if (step.cycle) {
+                var loopTarget = step.cycleOf === "root" || !step.cycleOf
+                    ? "root"
+                    : nodeIdFor(step.cycleOf);
+                if (present[loopTarget]) {
+                    edges.push({
+                        data: { id: id + "_loop", source: id, target: loopTarget, label: "↺ recursion" },
+                        classes: "cycle"
+                    });
+                }
+            }
+
+            if (step.collapsedAt && present[nodeIdFor(step.collapsedAt)]) {
+                edges.push({
+                    data: {
+                        id: id + "_ref",
+                        source: id,
+                        target: nodeIdFor(step.collapsedAt),
+                        label: "= subtree at " + step.collapsedAt
+                    },
+                    classes: "back"
+                });
+            }
+        });
+
+        graph.elements().remove();
+        graph.add(nodes.concat(edges));
+        graph.style().fromJson(flowchartStyle()).update();
+        graph.resize();
+        graph.layout({
+            name: "dagre",
+            rankDir: ui.rankDir,
+            nodeSep: 26,
+            rankSep: 58,
+            animate: nodes.length <= 120,
+            animationDuration: 300
+        }).run();
+        graph.fit(undefined, 30);
+    }
+
+    // ---- Sequence diagram ---------------------------------------------------
+
+    var SVG_NS = "http://www.w3.org/2000/svg";
+
+    function svgEl(tag, attrs) {
+        var node = document.createElementNS(SVG_NS, tag);
+        Object.keys(attrs || {}).forEach(function (key) {
+            node.setAttribute(key, attrs[key]);
+        });
+        return node;
+    }
+
+    function laneKeyFor(step) {
+        return step.target ? "t" + step.target.id : "u" + step.name;
+    }
+
+    function renderSequence() {
+        util.clear(elements.seq);
+
+        var lanes = [];
+        var laneByKey = Object.create(null);
+
+        function lane(key, label) {
+            if (!laneByKey[key]) {
+                laneByKey[key] = { key: key, label: label, index: lanes.length };
+                lanes.push(laneByKey[key]);
+            }
+            return laneByKey[key];
+        }
+
+        lane("t" + model.root.id, model.root.name || ("#" + model.root.id));
+        visibleSteps(model.steps, function (step) {
+            lane(laneKeyFor(step), (step.target && step.target.name) || step.name);
+        });
+
+        // One lifeline per distinct function: a repeat is a repeated arrow, which is what
+        // a sequence diagram means by a repeat.
+        var events = [];
+        var time = 0;
+        var bars = [];
+
+        function walk(steps, callerKey) {
+            steps.forEach(function (step) {
+                var key = laneKeyFor(step);
+                var callTime = ++time;
+                events.push({
+                    kind: "call", time: callTime,
+                    from: callerKey, to: key,
+                    label: util.truncate(callText(step), 42),
+                    step: step
+                });
+
+                if (step.steps && step.steps.length && !ui.collapsed[step.ordinal]) {
+                    walk(step.steps, key);
+                }
+
+                var fate = fateText(step);
+                if (fate && step.fate !== "discarded" && !step.cycle) {
+                    events.push({
+                        kind: "return", time: ++time,
+                        from: key, to: callerKey,
+                        label: fate,
+                        step: step
+                    });
+                }
+
+                if (key !== callerKey) {
+                    bars.push({ lane: key, from: callTime, to: time });
+                }
+            });
+        }
+
+        walk(model.steps, "t" + model.root.id);
+
+        var laneGap = 170;
+        var left = 90;
+        var rowH = 24;
+        var topPad = 12;
+        var width = left + lanes.length * laneGap;
+        var height = topPad + (time + 2) * rowH;
+
+        var head = el("div", "flow-seq-head");
+        head.style.width = width + "px";
+        lanes.forEach(function (entry) {
+            var label = el("span", null, entry.label);
+            label.style.left = (left + entry.index * laneGap) + "px";
+            head.appendChild(label);
+        });
+        elements.seq.appendChild(head);
+
+        var svg = svgEl("svg", { width: width, height: height });
+
+        lanes.forEach(function (entry) {
+            var x = left + entry.index * laneGap;
+            svg.appendChild(svgEl("line", {
+                x1: x, y1: 4, x2: x, y2: height - 6,
+                stroke: util.cssVar("--control-border"), "stroke-width": 1
+            }));
+        });
+
+        bars.forEach(function (bar) {
+            var x = left + laneByKey[bar.lane].index * laneGap;
+            svg.appendChild(svgEl("rect", {
+                x: x - 4, y: topPad + bar.from * rowH - 8,
+                width: 8, height: Math.max(10, (bar.to - bar.from) * rowH + 12),
+                fill: util.cssVar("--panel-raised"),
+                stroke: util.cssVar("--control-border")
+            }));
+        });
+
+        events.forEach(function (evt) {
+            var y = topPad + evt.time * rowH;
+            var x1 = left + laneByKey[evt.from].index * laneGap;
+            var x2 = left + laneByKey[evt.to].index * laneGap;
+            var isReturn = evt.kind === "return";
+            var colour = isReturn
+                ? util.cssVar("--fg-faint")
+                : evt.step.cycle
+                    ? util.cssVar("--warning")
+                    : evt.step.unresolved || evt.step.confidence !== "unique"
+                        ? util.cssVar("--edge-weak")
+                        : util.cssVar("--edge");
+
+            if (x1 === x2) {
+                // A self call: the little hook every sequence notation uses.
+                svg.appendChild(svgEl("path", {
+                    d: "M " + x1 + " " + (y - 8) + " h 30 v 12 h -26",
+                    fill: "none", stroke: colour,
+                    "stroke-dasharray": isReturn || evt.step.cycle ? "4 3" : "0"
+                }));
+                svg.appendChild(svgEl("path", {
+                    d: "M " + (x1 + 10) + " " + (y + 1) + " l 8 3 l -2 -6 z", fill: colour
+                }));
+            } else {
+                svg.appendChild(svgEl("line", {
+                    x1: x1, y1: y, x2: x2, y2: y,
+                    stroke: colour, "stroke-width": 1.3,
+                    "stroke-dasharray": isReturn || evt.step.cycle ? "4 3" : "0"
+                }));
+                var tipX = x2 > x1 ? x2 - 7 : x2 + 7;
+                svg.appendChild(svgEl("path", {
+                    d: "M " + x2 + " " + y + " L " + tipX + " " + (y - 4) + " L " + tipX + " " + (y + 4) + " z",
+                    fill: colour
+                }));
+            }
+
+            var text = svgEl("text", {
+                x: Math.min(x1, x2) + Math.abs(x2 - x1) / 2,
+                y: y - 5,
+                "text-anchor": "middle",
+                "font-size": 10,
+                "font-family": util.cssVar("--font-mono"),
+                fill: isReturn ? util.cssVar("--fg-muted") : util.cssVar("--fg")
+            });
+            text.textContent = (evt.step.cycle && !isReturn ? "↺ " : "") + evt.label;
+            svg.appendChild(text);
+
+            var hit = svgEl("rect", {
+                x: Math.min(x1, x2) - 4, y: y - 16,
+                width: Math.max(28, Math.abs(x2 - x1) + 8), height: 22,
+                fill: "transparent"
+            });
+            hit.style.cursor = "pointer";
+            hit.addEventListener("click", function () { selectStep(evt.step); });
+            hit.addEventListener("dblclick", function () {
+                if (evt.step.target) {
+                    bridge.post("flowRoot", { id: evt.step.target.id });
+                }
+            });
+            hit.addEventListener("mousemove", function (event) { showTip(evt.step, event); });
+            hit.addEventListener("mouseleave", hideTip);
+            svg.appendChild(hit);
+        });
+
+        elements.seq.appendChild(svg);
+    }
+
+    // ---- Flame / icicle -----------------------------------------------------
+
+    function renderFlame() {
+        util.clear(elements.flame);
+
+        var width = Math.max(320, elements.flame.clientWidth - 20);
+        var bandH = 26;
+
+        var hierarchy = d3.hierarchy(
+            { __rootBand: true, steps: model.steps },
+            function (d) { return d.steps && d.steps.length ? d.steps : null; });
+        hierarchy.sum(function () { return 1; });
+
+        var height = (hierarchy.height + 1) * bandH;
+        d3.partition().size([width, height])(hierarchy);
+
+        var svg = svgEl("svg", { width: width, height: height + 4 });
+
+        hierarchy.each(function (node) {
+            var step = node.data.__rootBand ? null : node.data;
+            var w = node.x1 - node.x0;
+            if (w < 1) {
+                return;
+            }
+
+            var fill = step
+                ? (step.io
+                    ? util.cssVar("--kind-io")
+                    : step.unresolved
+                        ? util.cssVar("--control")
+                        : util.groupColour(step.target ? step.target.group : "variable"))
+                : util.cssVar("--accent");
+
+            var rect = svgEl("rect", {
+                x: node.x0, y: node.y0,
+                width: Math.max(1, w - 1), height: bandH - 2,
+                fill: fill,
+                "fill-opacity": step && (step.unresolved || step.confidence !== "unique") ? 0.35 : 0.75,
+                stroke: util.cssVar("--bg"),
+                "stroke-width": 1
+            });
+            rect.style.cursor = "pointer";
+            if (step) {
+                rect.addEventListener("click", function () { selectStep(step); });
+                rect.addEventListener("dblclick", function () {
+                    if (step.target) {
+                        bridge.post("flowRoot", { id: step.target.id });
+                    }
+                });
+                rect.addEventListener("mousemove", function (event) { showTip(step, event); });
+                rect.addEventListener("mouseleave", hideTip);
+            }
+            svg.appendChild(rect);
+
+            if (w > 56) {
+                var label = svgEl("text", {
+                    x: node.x0 + 5, y: node.y0 + bandH / 2 + 3,
+                    "font-size": 10.5,
+                    "font-family": util.cssVar("--font-mono"),
+                    fill: util.cssVar("--fg"),
+                    "pointer-events": "none"
+                });
+                label.textContent = util.truncate(
+                    step ? step.ordinal + " " + step.name : (model.root.name || "root"),
+                    Math.floor(w / 7));
+                svg.appendChild(label);
+            }
+        });
+
+        elements.flame.appendChild(svg);
+    }
+
+    // ---- Export -------------------------------------------------------------
+
+    /* The flat trace document — the shape ExportedFlowDocument parses host-side, for
+       both the Mermaid writer and the JSON file. */
+    function buildExportDoc() {
+        var steps = [];
+
+        function walk(list) {
+            list.forEach(function (step) {
+                steps.push({
+                    ordinal: step.ordinal,
+                    name: step.name,
+                    receiver: step.receiver || null,
+                    args: step.args || null,
+                    fate: step.fate || null,
+                    fateName: step.fateName || null,
+                    confidence: step.confidence,
+                    candidates: step.candidates ? step.candidates.length : 0,
+                    targetName: step.target ? step.target.name : null,
+                    targetPath: step.target ? step.target.path : null,
+                    cycle: !!step.cycle,
+                    cycleOf: step.cycleOf || null,
+                    unresolved: !!step.unresolved,
+                    collapsedAt: step.collapsedAt || null,
+                    ioDirection: step.io ? step.io.direction : null,
+                    ioFamily: step.io ? step.io.family : null,
+                    stepTruncated: !!(step.truncated && step.truncated.total > 0),
+                    callSites: step.truncated ? step.truncated.total : 0,
+                    line: step.line
+                });
+                if (step.steps && step.steps.length) {
+                    walk(step.steps);
+                }
+            });
+        }
+
+        walk(model.steps);
+
+        return {
+            root: {
+                id: model.root.id,
+                name: model.root.name,
+                kind: model.root.kind,
+                path: model.root.path,
+                line: model.root.line
+            },
+            steps: steps,
+            truncated: !!model.truncated
+        };
+    }
+
+    function exportView(format) {
+        if (!model) {
+            bridge.post("exportResult", { format: format, data: null });
+            return;
+        }
+
+        if (format === "png") {
+            // Only the flowchart has pixels; the honest answer elsewhere is nothing.
+            var data = ui.layout === "flowchart" && cy && cy.nodes().length > 0
+                ? cy.png({ full: true, scale: 2, bg: util.cssVar("--bg") })
+                : null;
+            bridge.post("exportResult", { format: format, data: data });
+            return;
+        }
+
+        bridge.post("exportResult", {
+            format: format,
+            data: JSON.stringify(buildExportDoc(), null, 2)
+        });
+    }
+
     // ---- Registration ------------------------------------------------------
 
     buildLayoutButtons();
@@ -545,12 +1157,21 @@
             hideTip();
             hidePicker();
         },
-        onResize: function () { /* the HTML tree reflows on its own */ },
-        onTheme: function () { /* colours come from CSS custom properties */ },
-        onExport: function (format) {
-            // PNG belongs to the flowchart layout; Mermaid/JSON to the flat document.
-            // Both arrive with those renderers; until then the honest answer is nothing.
-            bridge.post("exportResult", { format: format, data: null });
-        }
+        onResize: function () {
+            if (ui.layout === "flowchart" && cy) {
+                cy.resize();
+            } else if (ui.layout === "sequence" || ui.layout === "flame") {
+                render();
+            }
+        },
+        onTheme: function () {
+            if (cy) {
+                cy.style().fromJson(flowchartStyle()).update();
+            }
+            if (ui.layout !== "tree") {
+                render();
+            }
+        },
+        onExport: exportView
     });
 })();
