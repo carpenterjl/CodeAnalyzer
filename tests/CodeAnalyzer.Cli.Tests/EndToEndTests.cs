@@ -50,6 +50,52 @@ public class EndToEndTests(CliWorkspaceFixture fixture)
         Assert.Equal(fixture.Root, document.RootElement.GetProperty("index").GetProperty("root").GetString());
     }
 
+    [Fact]
+    public async Task FlowJsonRoundTripsAndRefusesTwoDocumentsAtOnce()
+    {
+        static ProcessStartInfo Psi(params string[] arguments)
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "dotnet",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            psi.ArgumentList.Add("exec");
+            psi.ArgumentList.Add(CliDllPath);
+            foreach (var argument in arguments)
+            {
+                psi.ArgumentList.Add(argument);
+            }
+
+            return psi;
+        }
+
+        using (var process = Process.Start(Psi("flow", "main", "--json", "--root", fixture.Root))!)
+        {
+            var stdout = await process.StandardOutput.ReadToEndAsync().WaitAsync(TimeSpan.FromSeconds(60));
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(60));
+
+            Assert.Equal(0, process.ExitCode);
+
+            using var document = JsonDocument.Parse(stdout);
+            var steps = document.RootElement.GetProperty("steps");
+            Assert.True(steps.GetArrayLength() >= 1);
+            Assert.Equal("1", steps[0].GetProperty("ordinal").GetString());
+            Assert.Equal("main", document.RootElement.GetProperty("root").GetProperty("name").GetString());
+        }
+
+        using (var process = Process.Start(Psi("flow", "main", "--json", "--mermaid", "--root", fixture.Root))!)
+        {
+            var stderr = await process.StandardError.ReadToEndAsync().WaitAsync(TimeSpan.FromSeconds(60));
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(60));
+
+            Assert.NotEqual(0, process.ExitCode);
+            Assert.Contains("pick one", stderr);
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

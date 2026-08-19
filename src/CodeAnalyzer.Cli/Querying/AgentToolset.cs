@@ -134,6 +134,19 @@ internal sealed class AgentToolset(ReadOnlyIndexSession session)
         Query(() => Session.Paths.FindPaths(fromId, toId, maxDepth, cancellationToken));
 
     /// <summary>
+    /// The depth-first call trace from one symbol, I/O boundaries stamped — the same
+    /// answer the flow view draws, in the same pass.
+    /// </summary>
+    public CallFlow Flow(long rootId, int? depth, CancellationToken cancellationToken = default) =>
+        Query(() => Session.CallFlows.GetCallFlow(
+            rootId,
+            depth,
+            Session.IoBoundaries,
+            IoCatalog.BuiltIn.Entries,
+            Session.Settings.IoMarks,
+            cancellationToken: cancellationToken));
+
+    /// <summary>
     /// Every I/O boundary site in the workspace: built-in catalog matches plus the user's
     /// own marks, exactly as the GUI's Boundaries view computes them — the marks stored
     /// with the index are honoured here too.

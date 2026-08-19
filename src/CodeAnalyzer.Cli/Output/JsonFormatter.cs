@@ -215,6 +215,63 @@ internal static class JsonFormatter
             }),
         }, Options);
 
+    public static string Flow(ReadOnlyIndexSession session, LocatedSymbol root, CallFlow flow)
+    {
+        object StepJson(CallFlowStep step) => new
+        {
+            ordinal = step.Ordinal,
+            refId = step.RefId,
+            name = step.Name,
+            receiver = step.ReceiverText,
+            args = step.ArgumentText,
+            reference = KindLabels.For(step.Kind),
+            line = step.Line,
+            col = step.Col,
+            fate = step.Fate is { } f ? KindLabels.TokenFor(f) : null,
+            fateName = step.FateName,
+            target = step.TargetId is { } id
+                ? new
+                {
+                    id,
+                    name = step.TargetName,
+                    kind = KindTokens.For(step.TargetKind),
+                    path = step.TargetPath,
+                    line = step.TargetLine,
+                }
+                : null,
+            confidence = KindLabels.TokenFor(step.Confidence),
+            candidates = step.OtherCandidates.Select(c => new
+            {
+                id = c.Id,
+                name = c.Name,
+                kind = KindTokens.For(c.Kind),
+                path = c.RelativePath,
+                line = c.Line,
+            }),
+            cycle = step.IsCycle,
+            unresolved = step.IsUnresolved,
+            collapsedAt = step.CollapsedAt,
+            io = step.IsIoBoundary
+                ? new { direction = IoDirectionLabels.For(step.IoDirection), family = step.IoFamily }
+                : null,
+            childrenTruncated = step.ChildrenTruncated,
+            callSitesInBody = step.CallSitesInBody,
+            steps = step.Children.Select(StepJson),
+        };
+
+        return JsonSerializer.Serialize(new
+        {
+            index = Index(session),
+            root = Located(root),
+            depth = flow.DepthUsed,
+            totalSteps = flow.TotalSteps,
+            rootTruncated = flow.RootTruncated,
+            rootCallSites = flow.RootCallSites,
+            truncated = flow.WasTruncated,
+            steps = flow.Steps.Select(StepJson),
+        }, Options);
+    }
+
     public static string Trace(
         ReadOnlyIndexSession session, LocatedSymbol from, LocatedSymbol to, PathTrace trace) =>
         JsonSerializer.Serialize(new

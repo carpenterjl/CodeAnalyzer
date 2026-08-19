@@ -1,6 +1,7 @@
 using CodeAnalyzer.Cli.Output;
 using CodeAnalyzer.Cli.Querying;
 using CodeAnalyzer.Core.Domain;
+using CodeAnalyzer.Core.Export;
 using CodeAnalyzer.Core.Graph;
 
 namespace CodeAnalyzer.Cli.Commands;
@@ -51,6 +52,14 @@ internal static class ReadCommands
         "trace <from> <to> [--depth N] [--root path] [--json]",
         "all shortest routes between two symbols through resolved references",
         (args, ct) => RunTrace(args, ct));
+
+    public static CommandSpec Flow { get; } = new(
+        "flow",
+        "flow <symbol> [--depth N] [--mermaid] [--root path] [--json]",
+        "depth-first trace of every call the symbol makes, in source order, transitively — "
+        + "each step says how its result is used; repeated subtrees collapse to a reference "
+        + "and recursion is marked",
+        (args, ct) => RunFlow(args, ct));
 
     public static CommandSpec Boundaries { get; } = new(
         "boundaries",
@@ -352,6 +361,55 @@ internal static class ReadCommands
             Console.WriteLine(json
                 ? JsonFormatter.Trace(toolset.Session, from, to, trace)
                 : TerseFormatter.Trace(from, to, trace));
+
+            return Task.FromResult(ExitCodes.Ok);
+        });
+    }
+
+    private static Task<int> RunFlow(string[] rawArgs, CancellationToken cancellationToken)
+    {
+        var args = ArgReader.Parse(rawArgs, ["root", "depth"], ["json", "mermaid"]);
+
+        return CommandEnvironment.WithSession(args, toolset =>
+        {
+            if (args.Positionals.Count != 1)
+            {
+                Console.Error.WriteLine("usage: codeanalyzer " + Flow.Usage);
+                return Task.FromResult(ExitCodes.Error);
+            }
+
+            var json = args.Switch("json");
+            var mermaid = args.Switch("mermaid");
+            if (json && mermaid)
+            {
+                Console.Error.WriteLine("--json and --mermaid are two different documents — pick one");
+                return Task.FromResult(ExitCodes.Error);
+            }
+
+            int? depth = null;
+            if (args.Value("depth") is { } depthText)
+            {
+                if (!int.TryParse(depthText, out var parsed) || parsed < 1)
+                {
+                    Console.Error.WriteLine($"--depth expects a positive integer, got '{depthText}'");
+                    return Task.FromResult(ExitCodes.Error);
+                }
+
+                depth = parsed;
+            }
+
+            if (!TryLocate(toolset, args.Positionals[0], json, cancellationToken, out var root))
+            {
+                return Task.FromResult(ExitCodes.Error);
+            }
+
+            var flow = toolset.Flow(root.Id, depth, cancellationToken);
+
+            Console.WriteLine(json
+                ? JsonFormatter.Flow(toolset.Session, root, flow)
+                : mermaid
+                    ? MermaidFlowWriter.Write(ExportedFlowDocument.From(flow))
+                    : TerseFormatter.Flow(root, flow));
 
             return Task.FromResult(ExitCodes.Ok);
         });

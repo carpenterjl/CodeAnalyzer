@@ -60,7 +60,7 @@ public static class MermaidGraphWriter
             text.Append("    ").Append(source).Append(' ').Append(arrow);
             if (label.Length > 0)
             {
-                text.Append("|\"").Append(Escape(label)).Append("\"|");
+                text.Append("|\"").Append(MermaidText.Escape(label)).Append("\"|");
             }
 
             text.Append(' ').Append(target).Append('\n');
@@ -81,7 +81,7 @@ public static class MermaidGraphWriter
     /// </summary>
     private static string Shape(ExportedGraphNode node)
     {
-        var label = Escape(Label(node));
+        var label = MermaidText.Escape(Label(node));
         if (node.IoBoundary is not null)
         {
             return $"[/\"{label}\"/]";
@@ -154,36 +154,4 @@ public static class MermaidGraphWriter
     /// escape introduces one. Covers operator&lt;&lt; and blocks a source string from
     /// smuggling in an %%{init}%% directive or closing the quote early.
     /// </summary>
-    private static string Escape(string text) => CollapseWhitespace(text)
-        .Replace("#", "#35;")
-        .Replace("\"", "#quot;")
-        .Replace("<", "#lt;")
-        .Replace(">", "#gt;")
-        .Replace("`", "#96;")
-        .Replace("|", "#124;");
-
-    /// <summary>A label is one line; a newline in a verbatim slice must not end it early.</summary>
-    private static string CollapseWhitespace(string text)
-    {
-        var result = new StringBuilder(text.Length);
-        var pendingSpace = false;
-        foreach (var c in text)
-        {
-            if (char.IsWhiteSpace(c))
-            {
-                pendingSpace = result.Length > 0;
-                continue;
-            }
-
-            if (pendingSpace)
-            {
-                result.Append(' ');
-                pendingSpace = false;
-            }
-
-            result.Append(c);
-        }
-
-        return result.ToString();
-    }
 }

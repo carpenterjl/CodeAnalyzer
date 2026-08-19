@@ -50,6 +50,46 @@ public class McpToolTests(CliWorkspaceFixture fixture)
     }
 
     [Fact]
+    public void TheCallFlowAnswersInSourceOrderWithItsHonestyFooter()
+    {
+        using var holder = new McpSessionHolder(fixture.Root);
+        var tools = new CodeAnalyzerTools(holder);
+
+        var text = tools.GetCallFlow("main");
+
+        Assert.Contains("flow of ", text);
+        // main's body calls in written order; the flow must keep it.
+        var uartInit = text.IndexOf("uart_init", StringComparison.Ordinal);
+        var uartWrite = text.IndexOf("uart_write", StringComparison.Ordinal);
+        Assert.True(uartInit >= 0 && uartWrite > uartInit, "source order was not kept");
+        Assert.Contains("call sites in source order", text);
+    }
+
+    [Fact]
+    public void TheCallFlowAnswersMermaidWhenAsked()
+    {
+        using var holder = new McpSessionHolder(fixture.Root);
+        var tools = new CodeAnalyzerTools(holder);
+
+        var text = tools.GetCallFlow("main", mermaid: true);
+
+        Assert.Contains("flowchart TD", text);
+        Assert.Contains("root([", text);
+        Assert.Contains("uart_init", text);
+    }
+
+    [Fact]
+    public void AnUnknownFlowRootAnswersTheLocateSentence()
+    {
+        using var holder = new McpSessionHolder(fixture.Root);
+        var tools = new CodeAnalyzerTools(holder);
+
+        var text = tools.GetCallFlow("no_such_function_anywhere");
+
+        Assert.Contains("no definition named", text);
+    }
+
+    [Fact]
     public void AnAmbiguousNameAnswersWithTheCandidateList()
     {
         using var holder = new McpSessionHolder(fixture.Root);

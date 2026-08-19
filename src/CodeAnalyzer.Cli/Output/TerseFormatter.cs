@@ -43,6 +43,10 @@ internal static class TerseFormatter
     private const string ConfidenceFooter =
         $"({AmbiguousMark} = one of several name matches, {WeakMark} = cross-language name match)";
 
+    private const string FateFooter =
+        "(fates: →x assigned to x · →return returned · →arg passed to another call · "
+        + "→if tested · discard result unused; unmarked = no claim)";
+
     /// <summary>
     /// Collapses runs of whitespace to one space for one-line contexts. A verbatim
     /// parameter list spanning several source lines would otherwise break the line
@@ -648,6 +652,130 @@ internal static class TerseFormatter
         else if (related.Count >= listCap)
         {
             builder.AppendLine($"  … list capped at {listCap} per direction");
+        }
+
+        if (anyUncertain)
+        {
+            builder.AppendLine(ConfidenceFooter);
+        }
+
+        return builder.Finish();
+    }
+
+    /// <summary>
+    /// The depth-first trace: every call the root makes, in source order, each step
+    /// saying where its value went and where its name resolved. Ordinals carry the
+    /// nesting; the indent only makes it scannable. No box-drawing — a glyph per step
+    /// costs a reader of the terse surface a token and says nothing the ordinal does not.
+    /// </summary>
+    public static string Flow(LocatedSymbol root, CallFlow flow)
+    {
+        if (!flow.RootExists)
+        {
+            return $"#{flow.RootId} is no longer in the index — re-run search";
+        }
+
+        var builder = new StringBuilder();
+        var head = $"flow of {SymbolLine(root)} — depth {flow.DepthUsed}, "
+            + $"{flow.TotalSteps} step(s)";
+        builder.AppendLine(flow.WasTruncated ? head + ", cut by a cap:" : head + ":");
+
+        if (flow.Steps.Count == 0)
+        {
+            builder.AppendLine("  no calls recorded inside it");
+            return builder.Finish();
+        }
+
+        var anyUncertain = false;
+        var anyFate = false;
+
+        void Append(IReadOnlyList<CallFlowStep> steps, int depth)
+        {
+            var indent = new string(' ', depth * 2);
+            foreach (var step in steps)
+            {
+                var receiver = step.ReceiverText is { Length: > 0 } r ? r + "." : string.Empty;
+                var prefix = step.Kind is ReferenceKind.TypeUse or ReferenceKind.Instantiate
+                    ? "new " : string.Empty;
+                var call = prefix + receiver + step.Name
+                    + (Flatten(Clip(step.ArgumentText, 80)) ?? string.Empty);
+
+                var fate = step.Fate switch
+                {
+                    ResultFate.Assigned => step.FateName is { Length: > 0 } n
+                        ? "→" + Flatten(Clip(n, 40)) : "→assigned",
+                    ResultFate.Discarded => "discard",
+                    ResultFate.Returned => "→return",
+                    ResultFate.PassedAsArgument => "→arg",
+                    ResultFate.Tested => "→if",
+                    _ => null,
+                };
+                anyFate |= fate is not null;
+
+                string resolution;
+                if (step.IsUnresolved)
+                {
+                    resolution = "[unresolved]";
+                }
+                else if (step.IsCycle)
+                {
+                    resolution = $"↺ recursion to #{step.TargetId}";
+                }
+                else if (step.CollapsedAt is { } at)
+                {
+                    resolution = $"= subtree at {at} (#{step.TargetId})";
+                }
+                else
+                {
+                    resolution = $"#{step.TargetId} {KindTokens.For(step.TargetKind)} "
+                        + $"{step.TargetPath}:{step.TargetLine}{ConfidenceMark(step.Confidence)}";
+                    anyUncertain |= Uncertain(step.Confidence);
+                }
+
+                var io = step.IsIoBoundary
+                    ? $" [io:{IoDirectionLabels.For(step.IoDirection)}"
+                        + (step.IoFamily is null ? "]" : $" — {step.IoFamily}]")
+                    : string.Empty;
+
+                builder.AppendLine($"{indent}{step.Ordinal} :{step.Line} {call}"
+                    + (fate is null ? string.Empty : " " + fate)
+                    + $"  {resolution}{io}");
+
+                foreach (var candidate in step.OtherCandidates)
+                {
+                    builder.AppendLine($"{indent}    also matches: #{candidate.Id} "
+                        + $"{KindTokens.For(candidate.Kind)} {candidate.RelativePath}:{candidate.Line}");
+                }
+
+                if (step.Children.Count > 0)
+                {
+                    Append(step.Children, depth + 1);
+                }
+
+                if (step.ChildrenTruncated)
+                {
+                    builder.AppendLine(step.Children.Count == 0
+                        ? $"{indent}  … {step.CallSitesInBody} call(s) inside #{step.TargetId} "
+                            + "not expanded — raise --depth or re-root there"
+                        : $"{indent}  … showing {step.Children.Count} of {step.CallSitesInBody} "
+                            + $"calls in #{step.TargetId}");
+                }
+            }
+        }
+
+        Append(flow.Steps, 0);
+
+        if (flow.RootTruncated && flow.RootCallSites > 0)
+        {
+            builder.AppendLine(
+                $"  … showing {flow.Steps.Count} of {flow.RootCallSites} calls in {root.Name}");
+        }
+
+        builder.AppendLine("(call sites in source order — the index holds no branch facts, "
+            + "so both arms of an if appear)");
+        if (anyFate)
+        {
+            builder.AppendLine(FateFooter);
         }
 
         if (anyUncertain)

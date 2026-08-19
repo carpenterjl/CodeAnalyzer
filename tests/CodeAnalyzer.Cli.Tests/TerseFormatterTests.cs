@@ -20,6 +20,143 @@ public class TerseFormatterTests
     private static FileErrorRecord Stumbled(string path, int line, string? text) =>
         new(path, "C#", Message: null, SymbolCount: 12, Line: line, Text: text);
 
+    private static CallFlow SampleFlow() => new()
+    {
+        RootId = 86,
+        RootExists = true,
+        RootName = "Run",
+        RootKind = SymbolKind.Method,
+        RootPath = "src/App.cs",
+        RootLine = 12,
+        DepthUsed = 3,
+        TotalSteps = 7,
+        WasTruncated = true,
+        RootTruncated = true,
+        RootCallSites = 9,
+        Steps =
+        [
+            new CallFlowStep
+            {
+                RefId = 1, Ordinal = "1", Name = "LoadConfig", Kind = ReferenceKind.Call,
+                ArgumentText = "(path)", Line = 14, Fate = ResultFate.Assigned, FateName = "cfg",
+                TargetId = 91, TargetName = "LoadConfig", TargetKind = SymbolKind.Function,
+                TargetPath = "src/Config.cs", TargetLine = 8, Confidence = EdgeConfidence.Unique,
+                Children =
+                [
+                    new CallFlowStep
+                    {
+                        RefId = 2, Ordinal = "1.1", Name = "ReadAllText", Kind = ReferenceKind.Call,
+                        ArgumentText = "(path)", Line = 22, Fate = ResultFate.Assigned,
+                        FateName = "text", IsUnresolved = true,
+                    },
+                    new CallFlowStep
+                    {
+                        RefId = 3, Ordinal = "1.2", Name = "CheckPaths", Kind = ReferenceKind.Call,
+                        ArgumentText = "(cfg.Paths)", Line = 44, Fate = ResultFate.Discarded,
+                        TargetId = 103, TargetKind = SymbolKind.Function,
+                        TargetPath = "src/Config.cs", TargetLine = 60,
+                        Confidence = EdgeConfidence.Ambiguous,
+                        OtherCandidates =
+                        [
+                            new FlowCandidate(104, "CheckPaths", SymbolKind.Function,
+                                "tools/Config.cs", 12, EdgeConfidence.Ambiguous),
+                        ],
+                    },
+                ],
+            },
+            new CallFlowStep
+            {
+                RefId = 4, Ordinal = "2", Name = "WriteLine", Kind = ReferenceKind.Call,
+                ReceiverText = "Console", ArgumentText = "(\"valid\")", Line = 15,
+                Fate = ResultFate.Discarded, TargetId = 201, TargetKind = SymbolKind.Function,
+                TargetPath = "src/Log.cs", TargetLine = 5, Confidence = EdgeConfidence.Unique,
+                IsIoBoundary = true, IoDirection = IoDirection.Output, IoFamily = ".NET Console",
+            },
+            new CallFlowStep
+            {
+                RefId = 5, Ordinal = "3", Name = "Retry", Kind = ReferenceKind.Call,
+                ArgumentText = "(cfg)", Line = 17, Fate = ResultFate.PassedAsArgument,
+                TargetId = 86, TargetKind = SymbolKind.Method, Confidence = EdgeConfidence.Unique,
+                IsCycle = true,
+            },
+            new CallFlowStep
+            {
+                RefId = 6, Ordinal = "4", Name = "Parse", Kind = ReferenceKind.Call,
+                ArgumentText = "(fallback)", Line = 18, Fate = ResultFate.Returned,
+                TargetId = 97, TargetKind = SymbolKind.Function, TargetPath = "src/Config.cs",
+                TargetLine = 41, Confidence = EdgeConfidence.Unique, CollapsedAt = "1.2",
+            },
+            new CallFlowStep
+            {
+                RefId = 7, Ordinal = "5", Name = "Deep", Kind = ReferenceKind.Call,
+                ArgumentText = "()", Line = 19, TargetId = 300, TargetKind = SymbolKind.Function,
+                TargetPath = "src/Deep.cs", TargetLine = 3, Confidence = EdgeConfidence.Unique,
+                Fate = ResultFate.Unknown, ChildrenTruncated = true, CallSitesInBody = 2,
+            },
+        ],
+    };
+
+    [Fact]
+    public void TheFlowOutlineSaysWhereEveryValueWentAndWhereEveryNameLanded()
+    {
+        var root = new LocatedSymbol(86, "Run", SymbolKind.Method, "()", "src/App.cs", 12);
+
+        var text = TerseFormatter.Flow(root, SampleFlow());
+
+        Assert.Contains("flow of #86 Run() method src/App.cs:12 — depth 3, 7 step(s), cut by a cap:", text);
+        Assert.Contains("\n1 :14 LoadConfig(path) →cfg  #91 fn src/Config.cs:8\n", text);
+        Assert.Contains("\n  1.1 :22 ReadAllText(path) →text  [unresolved]\n", text);
+        Assert.Contains("\n  1.2 :44 CheckPaths(cfg.Paths) discard  #103 fn src/Config.cs:60~\n", text);
+        Assert.Contains("\n      also matches: #104 fn tools/Config.cs:12\n", text);
+        Assert.Contains("\n2 :15 Console.WriteLine(\"valid\") discard  #201 fn src/Log.cs:5 [io:output — .NET Console]\n", text);
+        Assert.Contains("\n3 :17 Retry(cfg) →arg  ↺ recursion to #86\n", text);
+        Assert.Contains("\n4 :18 Parse(fallback) →return  = subtree at 1.2 (#97)\n", text);
+        Assert.Contains("\n5 :19 Deep()  #300 fn src/Deep.cs:3\n", text);
+        Assert.Contains("\n  … 2 call(s) inside #300 not expanded — raise --depth or re-root there\n", text);
+        Assert.Contains("\n  … showing 5 of 9 calls in Run\n", text);
+        Assert.Contains("(call sites in source order", text);
+        Assert.Contains("(fates:", text);
+        Assert.Contains("one of several name matches", text);
+    }
+
+    [Fact]
+    public void AFlowWithNoUncertaintyAndNoFatesCarriesNeitherFooter()
+    {
+        var root = new LocatedSymbol(7, "run", SymbolKind.Function, "(void)", "a.c", 1);
+        var flow = new CallFlow
+        {
+            RootId = 7, RootExists = true, RootName = "run", RootKind = SymbolKind.Function,
+            RootPath = "a.c", RootLine = 1, DepthUsed = 3, TotalSteps = 1,
+            Steps =
+            [
+                new CallFlowStep
+                {
+                    RefId = 1, Ordinal = "1", Name = "tick", Kind = ReferenceKind.Call,
+                    ArgumentText = "()", Line = 2, Fate = ResultFate.Unknown,
+                    TargetId = 9, TargetKind = SymbolKind.Function, TargetPath = "a.c",
+                    TargetLine = 5, Confidence = EdgeConfidence.Unique,
+                },
+            ],
+        };
+
+        var text = TerseFormatter.Flow(root, flow);
+
+        Assert.Contains("1 step(s):", text);
+        Assert.DoesNotContain("(fates:", text);
+        Assert.DoesNotContain("name matches", text);
+        Assert.DoesNotContain("cut", text);
+    }
+
+    [Fact]
+    public void AVanishedFlowRootSaysSoInsteadOfAnsweringEmptily()
+    {
+        var root = new LocatedSymbol(5, "gone", SymbolKind.Function, null, "a.c", 1);
+
+        var text = TerseFormatter.Flow(root, new CallFlow { RootId = 5, RootExists = false });
+
+        Assert.Contains("no longer in the index", text);
+    }
+
     [Fact]
     public void TheTallyLeadsBecauseItIsUsuallyTheWholeAnswer()
     {

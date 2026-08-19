@@ -169,6 +169,31 @@ internal sealed class CodeAnalyzerTools(McpSessionHolder holder)
             return TerseFormatter.Trace(fromSymbol, resolvedTo.Symbol, trace);
         });
 
+    [McpServerTool(Name = "get_call_flow")]
+    [Description("Depth-first trace of every call a function makes, in source order, "
+        + "transitively: each step is one call site with how its result is used (assigned "
+        + "to which name / discarded / returned / passed into another call / tested), where "
+        + "the name resolved, and the resolution's confidence. A repeated subtree collapses "
+        + "to '= subtree at N', recursion is marked and never re-expanded, unresolved calls "
+        + "are explicit leaves, and I/O boundary calls are tagged. Depth and a step budget "
+        + "cap the answer and every cut is stated. Source order is not execution order — "
+        + "the index holds no branch facts.")]
+    public string GetCallFlow(
+        [Description("Root symbol: name, path/to/file.cs:name, Container.Name, or #id from a previous result")]
+        string symbol,
+        [Description("Levels to expand below the root (1-10), default 3")]
+        int depth = 3,
+        [Description("Answer a Mermaid flowchart instead of the text outline")]
+        bool mermaid = false,
+        CancellationToken cancellationToken = default) =>
+        WithLocated(symbol, cancellationToken, (toolset, focus) =>
+        {
+            var flow = toolset.Flow(focus.Id, depth, cancellationToken);
+            return mermaid
+                ? MermaidFlowWriter.Write(ExportedFlowDocument.From(flow))
+                : TerseFormatter.Flow(focus, flow);
+        });
+
     [McpServerTool(Name = "repo_map")]
     [Description("Codebase overview to prime context with: definitions ranked by how many "
         + "distinct symbols reference them, grouped by file, cut to a character budget.")]
