@@ -62,6 +62,13 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
 
             var symbols = ExtractSymbols(tree, cancellationToken, out var symbolMatchesDropped);
             AssignContainers(symbols);
+
+            // After containers and before doc comments, both deliberately. A generated
+            // member takes its container from the declaration that triggered it rather than
+            // from a span comparison — it shares that declaration's span exactly, and
+            // AssignContainers would read the tie as nesting — and it should inherit the
+            // comment written above that declaration, which is the only prose describing it.
+            AddGeneratedMembers(symbols);
             AttachDocComments(tree.RootNode, source, symbols);
 
             var references = ExtractReferences(tree, symbols, cancellationToken, out var referenceMatchesDropped);
@@ -452,7 +459,17 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
     }
 
     /// <summary>A symbol plus the span of its name, which reference filtering needs.</summary>
-    private sealed record ExtractedSymbol(SymbolRecord Record, int NameStartOffset, int NameEndOffset);
+    /// <param name="Attributes">
+    /// Attribute names written on the declaration, in source order, or <see langword="null"/>
+    /// when it carries none. Kept beside the record rather than on it because the record is
+    /// what the index stores and a declaration's attributes are not stored — they exist here
+    /// only long enough for <see cref="AddGeneratedMembers"/> to read them.
+    /// </param>
+    private sealed record ExtractedSymbol(
+        SymbolRecord Record,
+        int NameStartOffset,
+        int NameEndOffset,
+        IReadOnlyList<string>? Attributes = null);
 
     private List<ExtractedSymbol> ExtractSymbols(Tree tree, CancellationToken cancellationToken, out bool matchLimitExceeded)
     {
@@ -473,6 +490,10 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
         // modifier its match happened to carry.
         var modifiersByName = new Dictionary<int, SortedDictionary<int, string>>();
 
+        // Attribute names per name offset, accumulated exactly as modifiers are and for the
+        // same reason: a declaration with two attributes arrives as two matches.
+        var attributesByName = new Dictionary<int, SortedDictionary<int, string>>();
+
         using var cursor = _symbolQuery.Execute(tree.RootNode, new QueryOptions { MatchLimit = (uint)MaxMatchesInProgress });
 
         // Matches (not captures) keep a pattern's name/value/type captures grouped together.
@@ -488,6 +509,7 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
             Node? typeNode = null;
             Node? parametersNode = null;
             List<Node>? modifierNodes = null;
+            List<Node>? attributeNodes = null;
 
             foreach (var capture in match.Captures)
             {
@@ -518,6 +540,9 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
                         // modifier nodes in a single match.
                         (modifierNodes ??= []).Add(capture.Node);
                         break;
+                    case CaptureNames.Attribute:
+                        (attributeNodes ??= []).Add(capture.Node);
+                        break;
                 }
             }
 
@@ -545,6 +570,19 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
                 foreach (var modifier in modifierNodes)
                 {
                     accumulated[modifier.StartIndex] = modifier.Text;
+                }
+            }
+
+            if (attributeNodes is not null)
+            {
+                if (!attributesByName.TryGetValue(nameNode.StartIndex, out var accumulated))
+                {
+                    attributesByName[nameNode.StartIndex] = accumulated = [];
+                }
+
+                foreach (var attribute in attributeNodes)
+                {
+                    accumulated[attribute.StartIndex] = attribute.Text;
                 }
             }
 
@@ -582,7 +620,9 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
 
         matchLimitExceeded = cursor.IsMatchLimitExceeded;
 
-        // Stamp the accumulated modifiers onto whichever record won each position.
+        // Stamp the accumulated modifiers and attributes onto whichever record won each
+        // position. Modifiers go on the record, which the index stores; attributes go
+        // beside it, for the generated-member rules alone.
         for (var i = 0; i < results.Count; i++)
         {
             if (modifiersByName.TryGetValue(results[i].NameStartOffset, out var accumulated))
@@ -591,6 +631,11 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
                 {
                     Record = results[i].Record with { Modifiers = string.Join(' ', accumulated.Values) },
                 };
+            }
+
+            if (attributesByName.TryGetValue(results[i].NameStartOffset, out var attributes))
+            {
+                results[i] = results[i] with { Attributes = [.. attributes.Values] };
             }
         }
 
@@ -701,6 +746,91 @@ public sealed class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
             }
 
             stack.Push(index);
+        }
+    }
+
+    /// <summary>
+    /// Appends the members a source generator would add for the attributes this file's
+    /// declarations carry.
+    /// <para>
+    /// The index otherwise holds only what someone typed, and on a CommunityToolkit.Mvvm
+    /// application that is the wrong half: <c>[ObservableProperty] private double
+    /// _boxSizeX</c> is written, <c>BoxSizeX</c> is what the XAML binds and what the rest
+    /// of the C# reads, and only the former was ever a definition. Every such reference
+    /// landed nowhere, and — worse than nowhere — a <c>get_callers</c> on the field
+    /// answered "nothing uses this" about a property the whole UI is bound to.
+    /// </para>
+    /// <para>
+    /// The synthesised record carries the attribute verbatim at the head of its modifiers,
+    /// so every surface that prints modifiers says where the member came from. That is not
+    /// decoration: this index's contract is that a definition is a thing someone wrote, and
+    /// these are the only rows that break it. They say so themselves.
+    /// </para>
+    /// </summary>
+    private void AddGeneratedMembers(List<ExtractedSymbol> symbols)
+    {
+        if (_definition.GeneratedMembers.Count == 0)
+        {
+            return;
+        }
+
+        // Only names this file does not already declare. A hand-written property beside the
+        // generated one means the author turned the generator off for that member, and the
+        // real declaration is the better answer.
+        var declared = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var symbol in symbols)
+        {
+            declared.Add(symbol.Record.Name);
+        }
+
+        // Snapshot: the loop appends, and a generated member never triggers another.
+        var sourceCount = symbols.Count;
+
+        for (var i = 0; i < sourceCount; i++)
+        {
+            var source = symbols[i];
+            if (source.Attributes is null)
+            {
+                continue;
+            }
+
+            foreach (var rule in _definition.GeneratedMembers)
+            {
+                if (source.Record.Kind != rule.AppliesTo
+                    || !source.Attributes.Contains(rule.Attribute, StringComparer.Ordinal))
+                {
+                    continue;
+                }
+
+                var name = GeneratedMemberRule.NameFor(rule.NameStyle, source.Record.Name);
+                if (name is null || !declared.Add(name))
+                {
+                    continue;
+                }
+
+                var type = rule.TypeText ?? source.Record.TypeText;
+
+                symbols.Add(source with
+                {
+                    Record = source.Record with
+                    {
+                        Name = name,
+                        Kind = rule.Produces,
+                        Signature = type is null ? name : $"{type} {name}",
+                        TypeText = type,
+                        Value = null,
+                        ParameterCount = null,
+                        ParameterText = null,
+                        DocComment = null,
+                        Modifiers = $"[{rule.Attribute}] public",
+
+                        // The triggering declaration's container, not a span lookup: the two
+                        // records share a span exactly, and nesting cannot be read off a tie.
+                        ContainerLocalIndex = source.Record.ContainerLocalIndex,
+                    },
+                    Attributes = null,
+                });
+            }
         }
     }
 

@@ -39,6 +39,37 @@ public static class LanguageRegistry
             GrammarId = "C#",
             Extensions = [".cs"],
             QueryPackName = "csharp",
+
+            // CommunityToolkit.Mvvm. Both of these are the whole bound surface of a WPF or
+            // MAUI application written this decade: the XAML says {Binding BoxSizeX} and
+            // {Binding SaveCommand}, and neither name is written in any .cs file. Measured
+            // on OpenSim Studio before these were added — 239 [ObservableProperty] fields
+            // and 70 [RelayCommand] methods across 26 files, 265 generated names the index
+            // held no definition of, 37 unresolved bindings and 925 other unresolved
+            // references naming one of them.
+            GeneratedMembers =
+            [
+                new()
+                {
+                    Attribute = "ObservableProperty",
+                    AppliesTo = SymbolKind.Field,
+                    Produces = SymbolKind.Property,
+                    NameStyle = GeneratedNameStyle.PascalCaseOfBackingField,
+                },
+                new()
+                {
+                    Attribute = "RelayCommand",
+                    AppliesTo = SymbolKind.Method,
+                    Produces = SymbolKind.Property,
+                    NameStyle = GeneratedNameStyle.CommandForMethod,
+
+                    // The generator picks IRelayCommand, IAsyncRelayCommand or a generic
+                    // form from the method's signature. The interface every one of them
+                    // implements is the part that is knowable without running it, and a
+                    // declared type that is right but imprecise beats one that is neither.
+                    TypeText = "IRelayCommand",
+                },
+            ],
         },
         new()
         {

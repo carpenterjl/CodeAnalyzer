@@ -217,3 +217,34 @@
     type: (_) @type
     (variable_declarator
       name: (identifier) @name))) @def.field
+
+; ------------------------------------------------------------ attribute harvest
+;
+; Attributes accumulate exactly as modifiers do, and for the same reason: a declaration
+; carrying N of them arrives as N separate matches. Like the modifier patterns these
+; restate the base rules at equal or lower rank, so they never change which record wins a
+; position.
+;
+; They are not stamped onto the declaration they sit on. They exist so the analyzer can
+; synthesise the members a source generator adds — a `[ObservableProperty] private double
+; _boxSizeX` is the only place the `BoxSizeX` that a XAML binding names is ever written,
+; and until this the index held the field and nothing else.
+
+(field_declaration
+  (attribute_list (attribute name: (identifier) @attribute))
+  (variable_declaration
+    type: (_) @type
+    (variable_declarator
+      name: (identifier) @name))) @def.field
+
+; The prototype kind again, so an attributed harvest match cannot out-rank the bodied rule.
+(method_declaration
+  (attribute_list (attribute name: (identifier) @attribute))
+  returns: (_) @type
+  name: (identifier) @name
+  parameters: (parameter_list) @params) @def.method_prototype
+
+(property_declaration
+  (attribute_list (attribute name: (identifier) @attribute))
+  type: (_) @type
+  name: (identifier) @name) @def.property

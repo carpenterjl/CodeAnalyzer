@@ -30,6 +30,12 @@ public sealed record LanguageDefinition
     /// </summary>
     public IReadOnlySet<SymbolKind> CallerKinds { get; init; } = DefaultCallerKinds;
 
+    /// <summary>
+    /// Members a source generator adds to declarations carrying a given attribute. Empty
+    /// for every language whose toolchain has no such step, which is most of them.
+    /// </summary>
+    public IReadOnlyList<GeneratedMemberRule> GeneratedMembers { get; init; } = [];
+
     public static readonly IReadOnlySet<SymbolKind> DefaultCallerKinds = new HashSet<SymbolKind>
     {
         SymbolKind.Function,

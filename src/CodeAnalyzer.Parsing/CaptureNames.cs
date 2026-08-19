@@ -20,6 +20,14 @@ internal static class CaptureNames
     public const string Receiver = "receiver";
 
     /// <summary>
+    /// The name of an attribute written on a declaration, without its brackets or
+    /// arguments. Accumulated like <see cref="Modifier"/> and consumed by the
+    /// generated-member rules, which are the only reason it is captured: a declaration's
+    /// own record does not carry its attributes.
+    /// </summary>
+    public const string Attribute = "attribute";
+
+    /// <summary>
     /// A binding-context element — a XAML <c>DataTemplate</c>, or any element carrying a
     /// <c>DataContext</c> attribute — whose extent re-scopes what the bindings inside it
     /// resolve against. Not a reference and not a declaration: the match contributes only
