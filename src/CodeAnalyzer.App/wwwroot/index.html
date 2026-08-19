@@ -171,6 +171,28 @@
         </div>
     </section>
 
+    <section id="view-flow" class="view" hidden>
+        <div id="flow-toolbar" class="flow-toolbar">
+            <div id="flow-layouts" class="flow-seg" role="group" aria-label="Layout"></div>
+            <div class="flow-depth">
+                <span class="flow-depth-label">depth</span>
+                <button id="flow-depth-down" class="flow-depth-btn" title="Shallower">−</button>
+                <span id="flow-depth-value" class="flow-depth-value">3</span>
+                <button id="flow-depth-up" class="flow-depth-btn" title="Deeper">+</button>
+            </div>
+            <nav id="flow-crumbs" class="crumbs flow-crumbs"></nav>
+        </div>
+        <div id="flow-note" class="notice" hidden></div>
+        <div id="flow-tree" class="scroll-pane flow-pane"></div>
+        <div id="flow-tip" class="tip" hidden></div>
+        <div id="flow-picker" class="context-menu" hidden></div>
+        <div class="overlay" id="flow-empty">
+            <p>Pick a function and press "Use selection" to trace the calls it makes.</p>
+            <p class="overlay-hint">Steps come in source order — the index holds no branch facts,
+               so both arms of an if appear.</p>
+        </div>
+    </section>
+
     <script src="lib/cytoscape.min.js"></script>
     <script src="lib/layout-base.js"></script>
     <script src="lib/cose-base.js"></script>
@@ -187,5 +209,6 @@
     <script src="views/wheel.js"></script>
     <script src="views/boundaries.js"></script>
     <script src="views/constants.js"></script>
+    <script src="views/flow.js"></script>
 </body>
 </html>

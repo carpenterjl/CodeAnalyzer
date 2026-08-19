@@ -36,6 +36,12 @@ public enum GraphViewMode
 
     /// <summary>Values written in more than one place that no reference connects.</summary>
     Constants,
+
+    /// <summary>
+    /// The call flow: every call one function makes, in source order, transitively, with
+    /// what happened to each result — a trace of sites, not a graph of names.
+    /// </summary>
+    Flow,
 }
 
 /// <summary>
@@ -56,6 +62,16 @@ public sealed record GraphEdgeSelection(long SourceId, long TargetId, ReferenceK
 
 /// <summary>An edge (or one of its call-site rows) asked to open the source at a line.</summary>
 public sealed record GraphEdgeActivation(long SourceId, int Line);
+
+/// <summary>
+/// A flow step's "+N calls" affordance was clicked. The page sends the target to trace,
+/// the ordinal to graft under, and the target ids of every enclosing occurrence — the
+/// trace needs the chain so a deepened branch cannot re-expand its own ancestors.
+/// </summary>
+public sealed record FlowDeepenRequest(long TargetId, string Ordinal, IReadOnlyList<long> Ancestors);
+
+/// <summary>An ambiguous flow step's candidate picker chose a definition to follow.</summary>
+public sealed record FlowPinSelection(long RefId, long CandidateId);
 
 /// <summary>
 /// An I/O boundary stub was clicked. The display strings ride along because the page is
@@ -194,6 +210,24 @@ public interface IGraphViewService
 
     /// <summary>Replaces the constants view. Null empties it.</summary>
     Task ShowConstantsAsync(ConstantsPayload? payload);
+
+    /// <summary>Replaces the call flow. Null returns the view to its prompt.</summary>
+    Task ShowFlowAsync(FlowPayload? payload);
+
+    /// <summary>Grafts a deepened subtree under one drawn step.</summary>
+    Task ShowFlowBranchAsync(FlowBranchPayload payload);
+
+    /// <summary>A flow node was double-clicked or a crumb chosen: re-root the trace there.</summary>
+    event EventHandler<long>? FlowRootRequested;
+
+    /// <summary>A flow step asked for the calls below its horizon.</summary>
+    event EventHandler<FlowDeepenRequest>? FlowDeepenRequested;
+
+    /// <summary>An ambiguous flow step was pinned to one candidate.</summary>
+    event EventHandler<FlowPinSelection>? FlowPinChosen;
+
+    /// <summary>The flow's depth stepper was used.</summary>
+    event EventHandler<int>? FlowDepthChanged;
 
     /// <summary>The constants view's filters changed; the host re-queries and re-sends.</summary>
     event EventHandler<ConstantsOptions>? ConstantsOptionsChanged;

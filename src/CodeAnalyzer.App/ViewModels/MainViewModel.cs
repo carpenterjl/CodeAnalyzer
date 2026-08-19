@@ -121,6 +121,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         Graph.ExportProduced += (_, result) => _ = SaveExportAsync(result);
         Graph.DrillRequested += (_, path) => _ = DrillTreemapAsync(path);
         Graph.PathEndpointsChanged += (_, _) => _ = TracePathsAsync();
+        Graph.FlowRootChanged += (_, _) => _ = LoadFlowAsync();
+        Graph.FlowRootRequested += (_, id) => _ = RerootFlowAsync(id);
+        Graph.FlowDeepenRequested += (_, request) => _ = DeepenFlowAsync(request);
+        Graph.FlowPinsChanged += (_, _) => _ = LoadFlowAsync();
+        Graph.FlowDepthStepped += (_, _) => _ = LoadFlowAsync();
         Graph.WheelSourceChanged += (_, _) => _ = LoadWheelAsync();
         Graph.ConstantsOptionsChanged += (_, _) => _ = LoadConstantsAsync();
 
@@ -1148,6 +1153,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         GraphViewMode.Wheel => LoadWheelAsync(),
         GraphViewMode.Boundaries => LoadBoundariesAsync(),
         GraphViewMode.Constants => LoadConstantsAsync(),
+        GraphViewMode.Flow => LoadFlowAsync(),
         _ => Task.CompletedTask,
     };
 
@@ -1274,6 +1280,120 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// Traces the flow from the chosen root and hands it to the page. The trace runs on a
+    /// worker like every index read; pins and depth ride from the view model so a
+    /// re-trace asks the same question the user last shaped.
+    /// </summary>
+    private async Task LoadFlowAsync()
+    {
+        if (_session is null || Graph.FlowRootId is null)
+        {
+            await Graph.ShowFlowAsync(null).ConfigureAwait(true);
+            return;
+        }
+
+        try
+        {
+            var session = _session;
+            var rootId = Graph.FlowRootId.Value;
+            var depth = Graph.FlowDepth;
+            var pins = new Dictionary<long, long>(Graph.FlowPins);
+
+            Status.Message = $"Tracing calls from {Graph.FlowRootName}…";
+
+            var flow = await Task
+                .Run(() => session.Read(() => session.CallFlows.GetCallFlow(
+                    rootId,
+                    depth,
+                    session.IoBoundaries,
+                    Core.Graph.IoCatalog.BuiltIn.Entries,
+                    session.Settings.IoMarks,
+                    pins)))
+                .ConfigureAwait(true);
+
+            await Graph.ShowFlowAsync(flow).ConfigureAwait(true);
+
+            Status.Message = flow.WasTruncated
+                ? $"{flow.TotalSteps:N0} call step(s), cut by a depth or budget cap."
+                : $"{flow.TotalSteps:N0} call step(s).";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to trace the call flow");
+            Status.Message = "Call flow failed.";
+        }
+    }
+
+    /// <summary>Re-roots the flow at a symbol the page pointed at.</summary>
+    private async Task RerootFlowAsync(long symbolId)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var session = _session;
+            var detail = await Task
+                .Run(() => session.Read(() => session.Graph.GetDetail(symbolId)))
+                .ConfigureAwait(true);
+
+            if (detail is null)
+            {
+                Status.Message = "That symbol is no longer in the index.";
+                return;
+            }
+
+            Graph.SetFlowRoot(detail.Id, detail.Name, detail.RelativePath, detail.StartLine);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to re-root the call flow");
+        }
+    }
+
+    /// <summary>
+    /// Answers one "+N calls" click with a subtree, grafted where it was asked for. The
+    /// page's ancestor chain seeds cycle detection so the branch cannot re-expand its way
+    /// back up through its own callers.
+    /// </summary>
+    private async Task DeepenFlowAsync(FlowDeepenRequest request)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var session = _session;
+            var pins = new Dictionary<long, long>(Graph.FlowPins);
+
+            var branch = await Task
+                .Run(() => session.Read(() => session.CallFlows.GetCallFlow(
+                    request.TargetId,
+                    Graph.FlowDepth,
+                    session.IoBoundaries,
+                    Core.Graph.IoCatalog.BuiltIn.Entries,
+                    session.Settings.IoMarks,
+                    pins,
+                    activeAncestors: request.Ancestors,
+                    ordinalPrefix: request.Ordinal)))
+                .ConfigureAwait(true);
+
+            if (branch.RootExists)
+            {
+                await Graph.ShowFlowBranchAsync(branch, request.Ordinal).ConfigureAwait(true);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to deepen the call flow");
+        }
+    }
+
     private async Task DrillTreemapAsync(string path)
     {
         _treemapPath = path ?? string.Empty;
@@ -1355,6 +1475,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand(CanExecute = nameof(CanSetPathEndpoint))]
     private void SetPathEnd() =>
         Graph.SetPathEndpoint(start: false, Detail.SymbolId, Detail.Name, Detail.RelativePath!, Detail.Line);
+
+    [RelayCommand(CanExecute = nameof(CanSetPathEndpoint))]
+    private void SetFlowRoot() =>
+        Graph.SetFlowRoot(Detail.SymbolId, Detail.Name, Detail.RelativePath!, Detail.Line);
 
     private void ApplyDetail(Core.Graph.SymbolDetail detail, Core.Graph.ValueMatchSet? sameValues)
     {

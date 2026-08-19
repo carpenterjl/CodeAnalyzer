@@ -68,6 +68,21 @@ public sealed partial class GraphViewModel : ObservableObject
             ShowNodeDetailsChanged?.Invoke(this, EventArgs.Empty);
         };
 
+        // Flow interactions, forwarded like the rest: the shell holds the session, so it
+        // runs the trace and answers the page.
+        _service.FlowRootRequested += (_, id) => FlowRootRequested?.Invoke(this, id);
+        _service.FlowDeepenRequested += (_, request) => FlowDeepenRequested?.Invoke(this, request);
+        _service.FlowPinChosen += (_, pin) =>
+        {
+            FlowPins[pin.RefId] = pin.CandidateId;
+            FlowPinsChanged?.Invoke(this, EventArgs.Empty);
+        };
+        _service.FlowDepthChanged += (_, depth) =>
+        {
+            FlowDepth = Math.Clamp(depth, 1, 10);
+            FlowDepthStepped?.Invoke(this, EventArgs.Empty);
+        };
+
         _themeService.ThemeChanged += (_, theme) => _ = _service.SetThemeAsync(theme);
     }
 
@@ -174,6 +189,21 @@ public sealed partial class GraphViewModel : ObservableObject
     /// <summary>Both path endpoints are set, so a trace can be run.</summary>
     public event EventHandler? PathEndpointsChanged;
 
+    /// <summary>The flow should re-root at this symbol (double-click, breadcrumb).</summary>
+    public event EventHandler<long>? FlowRootRequested;
+
+    /// <summary>A flow step asked for the calls below its horizon.</summary>
+    public event EventHandler<FlowDeepenRequest>? FlowDeepenRequested;
+
+    /// <summary>A pin was recorded; the shell re-traces so the choice takes effect.</summary>
+    public event EventHandler? FlowPinsChanged;
+
+    /// <summary>The page's depth stepper moved; the shell re-traces at the new depth.</summary>
+    public event EventHandler? FlowDepthStepped;
+
+    /// <summary>The flow root was set or changed host-side.</summary>
+    public event EventHandler? FlowRootChanged;
+
     /// <summary>The wheel should be redrawn from the other set of facts.</summary>
     public event EventHandler? WheelSourceChanged;
 
@@ -215,6 +245,7 @@ public sealed partial class GraphViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsWheelView))]
     [NotifyPropertyChangedFor(nameof(IsBoundariesView))]
     [NotifyPropertyChangedFor(nameof(IsCanvasView))]
+    [NotifyPropertyChangedFor(nameof(IsFlowView))]
     private GraphViewMode _viewMode = GraphViewMode.Graph;
 
     /// <summary>Drives the toolbar controls that only make sense over one of the views.</summary>
@@ -225,6 +256,8 @@ public sealed partial class GraphViewModel : ObservableObject
     public bool IsWheelView => ViewMode == GraphViewMode.Wheel;
 
     public bool IsBoundariesView => ViewMode == GraphViewMode.Boundaries;
+
+    public bool IsFlowView => ViewMode == GraphViewMode.Flow;
 
     /// <summary>The two cytoscape pictures — the views PNG and Mermaid exports speak for.</summary>
     public bool IsCanvasView => ViewMode is GraphViewMode.Graph or GraphViewMode.Paths;
@@ -271,6 +304,58 @@ public sealed partial class GraphViewModel : ObservableObject
     /// ids do not survive their file being re-parsed; a file and a name do.
     /// </summary>
     public sealed record PathEndpoint(string Name, string RelativePath, int Line);
+
+    // ---- Flow root --------------------------------------------------------
+
+    [ObservableProperty]
+    private long? _flowRootId;
+
+    [ObservableProperty]
+    private string _flowRootName = "not set";
+
+    /// <summary>Same rule as <see cref="PathEndpoint"/>: ids die on re-parse, anchors survive.</summary>
+    public sealed record FlowAnchor(string Name, string RelativePath, int Line);
+
+    public FlowAnchor? FlowRoot { get; private set; }
+
+    /// <summary>
+    /// The candidates a user pinned this session, by reference id. Held host-side so a
+    /// re-trace — deepen, depth change, live update — asks the same question again. Pins
+    /// die with the refs they name on re-index, and that is accepted: a pin is a session
+    /// choice, never a stored fact.
+    /// </summary>
+    public Dictionary<long, long> FlowPins { get; } = [];
+
+    /// <summary>Auto-expansion depth for the flow, page- and host-adjustable.</summary>
+    [ObservableProperty]
+    private int _flowDepth = 3;
+
+    public void SetFlowRoot(long symbolId, string name, string relativePath, int line)
+    {
+        FlowRootId = symbolId;
+        FlowRootName = name;
+        FlowRoot = new FlowAnchor(name, relativePath, line);
+        FlowPins.Clear();
+        FlowRootChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Points the root at its new id after a re-parse, or clears it loudly.</summary>
+    public void RelocateFlowRoot(long? symbolId)
+    {
+        if (FlowRoot is null || symbolId == FlowRootId)
+        {
+            return;
+        }
+
+        FlowRootId = symbolId;
+        if (symbolId is null)
+        {
+            FlowRootName = $"{FlowRoot.Name} (gone)";
+            FlowRoot = null;
+        }
+
+        FlowRootChanged?.Invoke(this, EventArgs.Empty);
+    }
 
     public PathEndpoint? PathStart { get; private set; }
 
@@ -404,6 +489,12 @@ public sealed partial class GraphViewModel : ObservableObject
 
     public Task ShowPathsAsync(PathTrace? trace) =>
         _service.ShowPathsAsync(trace is null ? null : ViewPayloadBuilder.Build(trace));
+
+    public Task ShowFlowAsync(CallFlow? flow) =>
+        _service.ShowFlowAsync(flow is null ? null : FlowPayloadBuilder.Build(flow));
+
+    public Task ShowFlowBranchAsync(CallFlow flow, string atOrdinal) =>
+        _service.ShowFlowBranchAsync(FlowPayloadBuilder.BuildBranch(flow, atOrdinal));
 
     public Task ShowTreemapAsync(TreemapLevel? level) =>
         _service.ShowTreemapAsync(level is null ? null : ViewPayloadBuilder.Build(level));

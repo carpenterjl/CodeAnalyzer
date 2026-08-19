@@ -26,6 +26,7 @@
         <KeyBinding Modifiers="Control" Key="D5" Command="{Binding Graph.SelectViewCommand}" CommandParameter="Wheel" />
         <KeyBinding Modifiers="Control" Key="D6" Command="{Binding Graph.SelectViewCommand}" CommandParameter="Boundaries" />
         <KeyBinding Modifiers="Control" Key="D7" Command="{Binding Graph.SelectViewCommand}" CommandParameter="Constants" />
+        <KeyBinding Modifiers="Control" Key="D8" Command="{Binding Graph.SelectViewCommand}" CommandParameter="Flow" />
         <KeyBinding Modifiers="Control" Key="E" Command="{Binding ExportPngCommand}" />
         <KeyBinding Modifiers="Control+Shift" Key="E" Command="{Binding ExportJsonCommand}" />
         <KeyBinding Modifiers="Control" Key="M" Command="{Binding CopyMermaidCommand}" />
@@ -298,6 +299,11 @@
                                      IsChecked="{Binding Graph.ViewMode, Mode=OneWay,
                                                  Converter={StaticResource ViewModeToBool}, ConverterParameter=Constants}"
                                      ToolTip="Values written in more than one language — the agreements no call graph can draw" />
+                        <RadioButton Style="{StaticResource ViewTab}" Content="Flow"
+                                     Command="{Binding Graph.SelectViewCommand}" CommandParameter="Flow"
+                                     IsChecked="{Binding Graph.ViewMode, Mode=OneWay,
+                                                 Converter={StaticResource ViewModeToBool}, ConverterParameter=Flow}"
+                                     ToolTip="Every call the chosen function makes, in source order, with where each result went" />
                     </StackPanel>
 
                     <StackPanel Grid.Column="2" Orientation="Horizontal">
@@ -366,6 +372,22 @@
                         <Button Style="{StaticResource QuietButton}"
                                 Content="Clear" Command="{Binding Graph.ClearPathEndpointsCommand}"
                                 Margin="5,0,0,0" />
+                    </StackPanel>
+                </Grid>
+
+                <!-- Flow root. Same discipline as the path endpoints: an explicit action,
+                     never "whatever was clicked last". -->
+                <Grid Margin="0,7,0,0"
+                      Visibility="{Binding Graph.IsFlowView, Converter={StaticResource BoolToVisibility}}">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                        <TextBlock Text="Trace from" Style="{StaticResource Caption}" VerticalAlignment="Center" />
+                        <Border Style="{StaticResource EndpointChip}">
+                            <TextBlock Text="{Binding Graph.FlowRootName}" Style="{StaticResource Mono}"
+                                       TextTrimming="CharacterEllipsis" MaxWidth="220" />
+                        </Border>
+                        <Button Style="{StaticResource ToolbarButton}"
+                                Content="Use selection" Command="{Binding SetFlowRootCommand}"
+                                ToolTip="Trace the calls the selected symbol makes" />
                     </StackPanel>
                 </Grid>
             </StackPanel>

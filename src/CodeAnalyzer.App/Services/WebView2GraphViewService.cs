@@ -53,6 +53,10 @@ public sealed class WebView2GraphViewService(IUiDispatcher dispatcher, ILogger<W
     public event EventHandler<string>? DrillRequested;
     public event EventHandler<GraphExportResult>? ExportProduced;
     public event EventHandler<ConstantsOptions>? ConstantsOptionsChanged;
+    public event EventHandler<long>? FlowRootRequested;
+    public event EventHandler<FlowDeepenRequest>? FlowDeepenRequested;
+    public event EventHandler<FlowPinSelection>? FlowPinChosen;
+    public event EventHandler<int>? FlowDepthChanged;
 
     /// <summary>
     /// Called from the view's code-behind once the control exists. Initialisation is async
@@ -241,6 +245,46 @@ public sealed class WebView2GraphViewService(IUiDispatcher dispatcher, ILogger<W
                     DrillRequested?.Invoke(this, payload?["path"]?.GetValue<string>() ?? string.Empty);
                     break;
 
+                case "flowRoot" when TryGetId(payload, out var flowRootId):
+                    FlowRootRequested?.Invoke(this, flowRootId);
+                    break;
+
+                case "flowDeepen":
+                    if (TryGetLong(payload?["targetId"], out var deepenTargetId)
+                        && payload?["ordinal"]?.GetValue<string>() is { } deepenOrdinal)
+                    {
+                        var ancestors = new List<long>();
+                        if (payload["ancestors"] is JsonArray ancestorArray)
+                        {
+                            foreach (var node in ancestorArray)
+                            {
+                                if (TryGetLong(node, out var ancestorId))
+                                {
+                                    ancestors.Add(ancestorId);
+                                }
+                            }
+                        }
+
+                        FlowDeepenRequested?.Invoke(
+                            this, new FlowDeepenRequest(deepenTargetId, deepenOrdinal, ancestors));
+                    }
+                    break;
+
+                case "flowPin":
+                    if (TryGetLong(payload?["refId"], out var pinRefId)
+                        && TryGetLong(payload?["candidateId"], out var pinCandidateId))
+                    {
+                        FlowPinChosen?.Invoke(this, new FlowPinSelection(pinRefId, pinCandidateId));
+                    }
+                    break;
+
+                case "flowDepth":
+                    if (payload?["depth"]?.GetValue<int>() is { } flowDepth)
+                    {
+                        FlowDepthChanged?.Invoke(this, flowDepth);
+                    }
+                    break;
+
                 case "exportResult":
                     var format = payload?["format"]?.GetValue<string>() switch
                     {
@@ -336,6 +380,12 @@ public sealed class WebView2GraphViewService(IUiDispatcher dispatcher, ILogger<W
     public Task ShowConstantsAsync(ConstantsPayload? payload) =>
         PostAsync("setConstants", new ConstantsMessage(payload));
 
+    public Task ShowFlowAsync(FlowPayload? payload) =>
+        PostAsync("setFlow", new FlowMessage(payload));
+
+    public Task ShowFlowBranchAsync(FlowBranchPayload payload) =>
+        PostAsync("flowBranch", new FlowBranchMessage(payload));
+
     public Task RequestExportAsync(GraphExportFormat format) =>
         PostAsync("exportView", new ExportMessage(ExportFormatName(format)));
 
@@ -367,6 +417,7 @@ public sealed class WebView2GraphViewService(IUiDispatcher dispatcher, ILogger<W
         GraphViewMode.Wheel => "wheel",
         GraphViewMode.Boundaries => "boundaries",
         GraphViewMode.Constants => "constants",
+        GraphViewMode.Flow => "flow",
         _ => "graph",
     };
 
@@ -505,4 +556,8 @@ public sealed class WebView2GraphViewService(IUiDispatcher dispatcher, ILogger<W
 
     private sealed record ConstantsMessage(
         [property: JsonPropertyName("constants")] ConstantsPayload? Constants);
+
+    private sealed record FlowMessage([property: JsonPropertyName("flow")] FlowPayload? Flow);
+
+    private sealed record FlowBranchMessage([property: JsonPropertyName("branch")] FlowBranchPayload Branch);
 }

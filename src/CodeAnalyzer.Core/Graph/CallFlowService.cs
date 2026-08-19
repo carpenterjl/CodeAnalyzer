@@ -57,6 +57,10 @@ public sealed class CallFlowService(SqliteConnection connection)
     /// Symbol ids already on the caller's stack when this trace roots a subtree of a
     /// larger flow — what keeps a deepened branch from re-expanding its own ancestors.
     /// </param>
+    /// <param name="ordinalPrefix">
+    /// Ordinal the subtree grows under ("2.3"), so a grafted branch's steps carry their
+    /// true position in the larger flow. Empty for a whole flow.
+    /// </param>
     public CallFlow GetCallFlow(
         long rootId,
         int? depth = null,
@@ -65,6 +69,7 @@ public sealed class CallFlowService(SqliteConnection connection)
         IReadOnlyList<IoMark>? marks = null,
         IReadOnlyDictionary<long, long>? pins = null,
         IReadOnlyCollection<long>? activeAncestors = null,
+        string ordinalPrefix = "",
         CancellationToken cancellationToken = default)
     {
         var levels = Math.Clamp(depth ?? DefaultDepth, 1, MaxDepth);
@@ -78,7 +83,7 @@ public sealed class CallFlowService(SqliteConnection connection)
         var state = new TraverseState(pins, cancellationToken) { Budget = MaxSteps };
         var active = new HashSet<long>(activeAncestors ?? []) { rootId };
 
-        var (steps, rootCut, rootTotal) = Expand(rootId, levels, prefix: "", active, state);
+        var (steps, rootCut, rootTotal) = Expand(rootId, levels, ordinalPrefix, active, state);
 
         if (io is not null && state.ExpandedCallers.Count > 0)
         {
