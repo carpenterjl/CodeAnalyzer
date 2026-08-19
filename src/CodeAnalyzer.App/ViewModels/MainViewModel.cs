@@ -580,6 +580,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         await RelocateSelectionAsync().ConfigureAwait(true);
         await RelocatePathEndpointsAsync().ConfigureAwait(true);
+        await RelocateFlowRootAsync().ConfigureAwait(true);
         await RefreshCurrentViewAsync().ConfigureAwait(true);
 
         if (!string.IsNullOrWhiteSpace(Search.Query))
@@ -635,6 +636,34 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             .ConfigureAwait(true);
 
         Graph.RelocateEndpoints(located.Start, located.End);
+    }
+
+    /// <summary>
+    /// Same rule as the path endpoints: the flow root is anchored by name and file, and a
+    /// re-parse hands it its new id — or clears it loudly rather than tracing a dead one.
+    /// Stale pins go with it: they name refs of the file that just changed.
+    /// </summary>
+    private async Task RelocateFlowRootAsync()
+    {
+        if (_session is null || Graph.FlowRootId is null || Graph.FlowRoot is null)
+        {
+            return;
+        }
+
+        var session = _session;
+        var anchor = Graph.FlowRoot;
+
+        var located = await Task
+            .Run(() => session.Read(
+                () => session.Graph.FindDefinitionId(anchor.RelativePath, anchor.Name, anchor.Line)))
+            .ConfigureAwait(true);
+
+        if (located != Graph.FlowRootId)
+        {
+            Graph.FlowPins.Clear();
+        }
+
+        Graph.RelocateFlowRoot(located);
     }
 
     /// <summary>

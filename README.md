@@ -25,6 +25,12 @@ is inferred, defaulted in, or guessed.
   a Verilog module's ports and parameters; what a type extends and what it implements.
 - **Path tracer** — every *shortest* route between two symbols, with an explicit distinction
   between "there is no route" and "we stopped looking".
+- **Call flow** — every call one function makes, in source order, transitively, with what
+  happened to each result (assigned to which name, discarded, returned, passed on, tested).
+  Four layouts — indented tree, flowchart, sequence diagram, flame — over one trace; repeats
+  collapse to the subtree already drawn, recursion is marked and never re-expanded, and
+  every depth or budget cut says what it cut. Source order, stated plainly: the index holds
+  no branch facts, so both arms of an if appear.
 - **Cross-language constant tracing** — a command byte written `0xA5` in the C# that sends
   it, `165` in the C that receives it and `8'hA5` in the RTL that decodes it is one
   agreement spelled three ways, and no reference connects them. Search `=0xA5` to find all
@@ -148,7 +154,7 @@ while keeping the summary.
 
 For AI agents, the MCP server exposes the same queries as tools
 (`search_symbols`, `get_symbol`, `get_context`, `get_callers`, `get_callees`,
-`trace_paths`, `repo_map`, `file_outline`, `io_boundaries`, `find_by_value`,
+`trace_paths`, `get_call_flow`, `repo_map`, `file_outline`, `io_boundaries`, `find_by_value`,
 `shared_constants`, `parse_errors`, `stats`, `reindex`). This
 repo's `.mcp.json` registers it for Claude Code.
 
