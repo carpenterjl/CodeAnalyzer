@@ -124,6 +124,133 @@ public class ReceiverResolutionTests : IDisposable
     }
 
     /// <summary>
+    /// A namespace-qualified static call, and the reason it is worth a rule of its own: it
+    /// is not a miss, it is a confident wrong answer. <c>Geometry.PrimitiveFactory
+    /// .CreateBox(a, b, c)</c> written inside a method also called <c>CreateBox</c> bound to
+    /// that method — same top-level directory, so tier eliminated the only arity-matching
+    /// candidate before arity was consulted — and the edge was marked Unique. Two field
+    /// reports read the resulting empty caller list as a resolver that gives up on
+    /// qualified names.
+    /// </summary>
+    [Fact]
+    public async Task AQualifiedStaticCallResolvesToTheTypeItNamesNotToANeighbour()
+    {
+        WriteFile("app/GeometryViewModel.cs", """
+            public class GeometryViewModel
+            {
+                private void CreateBox()
+                {
+                    SetGeometry(Geometry.PrimitiveFactory.CreateBox(1, 2, 3));
+                }
+
+                private void SetGeometry(object shape) { }
+            }
+            """);
+        WriteFile("geometry/PrimitiveFactory.cs", """
+            namespace Geometry
+            {
+                public static class PrimitiveFactory
+                {
+                    public static object CreateBox(double x, double y, double z) => null;
+                }
+            }
+            """);
+
+        var store = await IndexAsync();
+        var factoryBox = SymbolId(store, "CreateBox", "geometry/PrimitiveFactory.cs");
+        var detail = new GraphQueryService(store.Connection).GetDetail(factoryBox);
+
+        var caller = Assert.Single(detail!.Callers, c => c.Name == "CreateBox");
+        Assert.Equal(EdgeConfidence.Unique, caller.Confidence);
+    }
+
+    /// <summary>
+    /// The guard, which is the language's own rule and not a proxy for it: <c>A.B.C(…)</c>
+    /// means "the type B in namespace A" only when A is not a value in scope. Here
+    /// <c>surface</c> is a field, so the qualified-name rule must stand down and leave the
+    /// two-step walk in charge — otherwise a receiver whose tail happens to share a type's
+    /// name would be typed by the coincidence rather than by the declaration.
+    /// </summary>
+    [Fact]
+    public async Task AHeadThatNamesAValueInThisFileIsLeftToTheWalk()
+    {
+        WriteFile("src/Panel.cs", """
+            public class Panel
+            {
+                private Surface surface;
+
+                public void Paint()
+                {
+                    surface.Colormap.Sample(0.5);
+                }
+            }
+            """);
+        WriteFile("src/Surface.cs", """
+            public class Surface
+            {
+                public Palette Colormap { get; set; }
+            }
+            """);
+        WriteFile("src/Palette.cs", """
+            public class Palette
+            {
+                public int Sample(double t) => 0;
+            }
+            """);
+
+        // A rival type named for the receiver's tail. Without the guard the tail would be
+        // read as this type and Sample looked up on it, which is the wrong class entirely.
+        WriteFile("src/Colormap.cs", """
+            public class Colormap
+            {
+                public int Sample(double t) => 1;
+            }
+            """);
+
+        var store = await IndexAsync();
+        var palette = SymbolId(store, "Sample", "src/Palette.cs");
+        var detail = new GraphQueryService(store.Connection).GetDetail(palette);
+
+        Assert.Contains(detail!.Callers, c => c.Name == "Paint");
+    }
+
+    /// <summary>
+    /// A namespace-qualified construction. <c>new OpenSim.Pcb.Import.NetMesher()</c> puts a
+    /// qualified_name in the <c>type:</c> field, which none of the type-position patterns
+    /// matched, so the trailing identifier fell to the bare-identifier rule and was filed as
+    /// a Use — and a Use is not kind-compatible with a class, so it resolved to nothing at
+    /// all while the unqualified spelling resolved fine.
+    /// </summary>
+    [Fact]
+    public async Task AQualifiedConstructionReachesTheTypeItConstructs()
+    {
+        WriteFile("tests/BoardTests.cs", """
+            public class BoardTests
+            {
+                public void Meshes()
+                {
+                    var result = new Pcb.Import.NetMesher().MeshNet(1);
+                }
+            }
+            """);
+        WriteFile("pcb/NetMesher.cs", """
+            namespace Pcb.Import
+            {
+                public class NetMesher
+                {
+                    public int MeshNet(int net) => net;
+                }
+            }
+            """);
+
+        var store = await IndexAsync();
+        var mesher = SymbolId(store, "NetMesher", "pcb/NetMesher.cs");
+        var detail = new GraphQueryService(store.Connection).GetDetail(mesher);
+
+        Assert.Contains(detail!.Callers, c => c.Name == "Meshes");
+    }
+
+    /// <summary>
     /// The other half of the same story. Storing the receiver stopped the false edge from
     /// being called exact; reading its declared type finds the true one. Both facts were
     /// already in the index — the receiver on the reference, the type on the field — and

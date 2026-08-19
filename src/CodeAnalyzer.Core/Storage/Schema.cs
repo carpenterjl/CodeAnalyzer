@@ -62,6 +62,21 @@ public static class Schema
     /// locate a symbol precisely and not repeat a word of what its author wrote about it.
     /// </para>
     /// <para>
+    /// Version 32 (M33.1, M33.2, M33.3) changes no DDL and needs a number three times over,
+    /// each time
+    /// because the parser now writes rows an older one did not. The C# pack reads a
+    /// namespace-qualified name in a type position — <c>new OpenSim.Pcb.Import.NetMesher()</c>
+    /// is a type use of NetMesher, and was previously filed as a bare identifier use that no
+    /// class could satisfy — and the analyzer appends the members a source generator adds,
+    /// so a <c>[ObservableProperty] private double _boxSizeX</c> now also declares the
+    /// <c>BoxSizeX</c> that every binding names. The third is <c>symbol.doc_comment</c>,
+    /// which kept the XML tags of a single-line <c>/// &lt;summary&gt;…&lt;/summary&gt;</c>
+    /// because the tag-only-line rule that cleans a multi-line block never sees them — 40.9%
+    /// of OpenSim Studio's stored comments, 46.2% of JGraph's. An unchanged file the
+    /// incremental gate skips would hold the old text in all three cases, and no resolve can
+    /// rewrite a row the parser already stored.
+    /// </para>
+    /// <para>
     /// Version 22 (M21.1) adds <c>file.error_line</c> and <c>file.error_text</c>: where the
     /// parser first lost its footing and the text it could not read. Needed by the rule
     /// below — the parser now writes a value it never wrote before, and an unchanged file
@@ -208,7 +223,7 @@ public static class Schema
     /// 26 and 27 — the analyzer moved and the source did not, so nothing but a version
     /// change makes the incremental gate re-read these files.
     /// </para>
-    public const int Version = 31;
+    public const int Version = 32;
 
     public const string MetaSchemaVersion = "schema_version";
     public const string MetaRootPath = "root_path";

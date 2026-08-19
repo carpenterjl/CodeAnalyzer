@@ -43,6 +43,29 @@
 ; `new Frame(…)` depends on the type; that is the declaration it can resolve to.
 (object_creation_expression type: (identifier) @name) @ref.type
 
+; The same type positions written with a namespace in front. `new OpenSim.Pcb.Import
+; .NetMesher()` names the identical declaration `new NetMesher()` does, but its `type:`
+; field is a qualified_name rather than an identifier, so none of the rules above see it.
+; The trailing identifier was then left to the bare-identifier rule at the foot of this
+; file, which files it as a Use — and a Use is not kind-compatible with a class, so a
+; namespace-qualified construction resolved to nothing at all while the unqualified form
+; resolved fine. Measured on OpenSim Studio before these were written: four
+; `new OpenSim.Pcb.Import.NetMesher()` sites carried no edge, and the field report that
+; found them read the silence as a resolver rule about relative qualifiers.
+;
+; qualified_name's `name:` field is the last segment however deep the qualifier nests, and
+; a generic tail is already covered by the (generic_name …) rule above, which matches
+; wherever a generic_name appears.
+(object_creation_expression type: (qualified_name name: (identifier) @name)) @ref.type
+(variable_declaration type: (qualified_name name: (identifier) @name)) @ref.type
+(parameter type: (qualified_name name: (identifier) @name)) @ref.type
+(method_declaration returns: (qualified_name name: (identifier) @name)) @ref.type
+(property_declaration type: (qualified_name name: (identifier) @name)) @ref.type
+(array_type type: (qualified_name name: (identifier) @name)) @ref.type
+(nullable_type (qualified_name name: (identifier) @name)) @ref.type
+(cast_expression type: (qualified_name name: (identifier) @name)) @ref.type
+(base_list (qualified_name name: (identifier) @name)) @ref.inherit
+
 ; Namespace imports. These feed the file dependency graph rather than symbol edges;
 ; a namespace is not a file, so most stay unresolved, which is the honest answer.
 (using_directive (qualified_name) @name) @ref.import

@@ -738,6 +738,15 @@ public sealed class ReferenceResolver(SqliteConnection connection)
         // alone rather than half-read.
         const string Head = "substr(p.receiver_text, 1, instr(p.receiver_text, '.') - 1)";
         const string Tail = "substr(p.receiver_text, instr(p.receiver_text, '.') + 1)";
+
+        // The segment after the *last* dot, however many there are. SQLite has no
+        // last-index-of: rtrim(s, every character of s that is not a dot) leaves the prefix
+        // up to and including the final dot, and deleting that prefix leaves the tail. Used
+        // by rule 5, which unlike the two-step walk must read `OpenSim.Pcb.Import.NetMesher`
+        // as well as `Geometry.PrimitiveFactory`.
+        const string LastSegment =
+            "replace(p.receiver_text, rtrim(p.receiver_text, "
+            + "replace(p.receiver_text, '.', '')), '')";
         const string DottedReceiver = """
             p.receiver_text LIKE '%.%'
               AND p.receiver_text NOT LIKE '%(%'
@@ -831,6 +840,44 @@ public sealed class ReferenceResolver(SqliteConnection connection)
             WHERE {DottedReceiver}
               AND {Head} IN ('this', 'self')
               AND {TypeOf("m")} <> ''
+
+            UNION ALL
+
+            -- 5. A namespace-qualified type name: `Geometry.PrimitiveFactory.CreateBox(…)`,
+            -- which is rule 3 with a namespace in front of it. Ranked below the walk on
+            -- purpose: rule 4 reads a declaration the source wrote, this one reads a name
+            -- that happens to match a type, and where both have something to say the
+            -- declaration is the better evidence.
+            --
+            -- The guard is the language's own rule rather than a proxy for it. `A.B.C(…)`
+            -- means "the type B in namespace A" precisely when A is not a value in scope,
+            -- so a head that names a field, property, local or parameter in this file is
+            -- refused outright and left to the walk. That errs toward not firing: measured
+            -- before this was written, the guard withholds the rule from 10 of OpenSim
+            -- Studio's 77 qualified receivers and 61 of JGraph's 144, some of which it
+            -- would have got right. Erring the other way is what this round is about.
+            --
+            -- What it costs to be absent: 62 of those 230 references across three corpora
+            -- resolved to a definition that is not a member of the named type, 24 of them
+            -- marked Unique — including both production callers of OpenSim Studio's
+            -- PrimitiveFactory, which bound instead to the zero-argument [RelayCommand]
+            -- method the call is written inside, because tier is consulted before arity and
+            -- that method sits in the same top-level directory. The field report read the
+            -- resulting `callers: 0` as a resolver that gives up on qualified names. It does
+            -- not give up; it answers confidently and wrongly, and receiver_match is the
+            -- one signal ranked above tier that could tell it not to.
+            SELECT p.id, 5, t.name
+            FROM pending_ref p
+            JOIN symbol t ON t.name = {LastSegment}
+                         AND t.is_definition = 1
+                         AND t.kind IN ({typeKinds})
+            WHERE p.receiver_text LIKE '%.%'
+              AND p.receiver_text NOT GLOB '*[^A-Za-z0-9_.]*'
+              AND NOT EXISTS (SELECT 1 FROM symbol v
+                              WHERE v.file_id = p.file_id
+                                AND v.name = {Head}
+                                AND v.is_definition = 1
+                                AND v.kind IN ({variableKinds}))
             """);
 
         Execute(transaction, "CREATE INDEX temp.ix_receiver_candidate ON receiver_candidate(ref_id, rank)");
