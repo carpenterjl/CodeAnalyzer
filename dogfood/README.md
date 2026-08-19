@@ -43,6 +43,21 @@ claude mcp list
 `claude mcp get codeanalyzer` says which scope won, which is what to check if a session seems to
 be running the wrong copy.
 
+### Which build you are reporting on
+
+```bash
+codeanalyzer version
+```
+
+One line: the commit the binary was built from, the index schema version it writes, and when
+it was built. Paste it verbatim into the report's **Tool build** row.
+
+This exists because it did not. Three consecutive reports carried `Tool build | schema v26`
+while the schema was 27, then 29, then 30 — not from carelessness but because no command
+would state it, so each session copied the row from the last report it could find. A row a
+reader cannot obtain is a row they will inherit. The same line rides at the foot of `stats`,
+since reports paste that block whole.
+
 ## Filing one
 
 Sessions have the `/codeanalyzer-field-report` skill installed at user level. It carries the
