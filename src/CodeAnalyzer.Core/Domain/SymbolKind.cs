@@ -119,3 +119,44 @@ public enum EdgeConfidence
     /// <summary>Matched only by name across a language boundary.</summary>
     Weak = 2,
 }
+
+/// <summary>
+/// How the result of a call is consumed at the site it is written. Persisted; keep
+/// values stable and append-only.
+/// <para>
+/// Read off the call node's ancestors at parse time, so it is a claim about syntax, not
+/// about execution: <c>var x = Foo();</c> assigns whatever <c>Foo</c> returns, including
+/// nothing useful. Stored on the reference because the call-flow view's whole narrative —
+/// "and the value came back and was stored as <c>cfg</c>" — is unanswerable without it,
+/// and a column is the difference between answering and re-reading source per step.
+/// </para>
+/// <para>
+/// <see cref="Unknown"/> is a real value, distinct from the column being NULL: a call
+/// site whose consumption the walker makes no claim about stores 0; a reference that is
+/// not a call site at all stores NULL. The trace query filters on that invariant.
+/// </para>
+/// </summary>
+public enum ResultFate
+{
+    /// <summary>
+    /// A call site, but no claim about its result — an unsupported language, or an
+    /// ancestor shape the walker does not read (<c>Foo().Bar()</c>, a lambda body,
+    /// a comprehension).
+    /// </summary>
+    Unknown = 0,
+
+    /// <summary>The result lands in a name: an initializer or an assignment.</summary>
+    Assigned = 1,
+
+    /// <summary>The call is its own statement; the result is not consumed.</summary>
+    Discarded = 2,
+
+    /// <summary>The result is returned (or yielded) by the enclosing callable.</summary>
+    Returned = 3,
+
+    /// <summary>The result is written directly inside another call's argument list.</summary>
+    PassedAsArgument = 4,
+
+    /// <summary>The result is tested: an if/while/ternary condition, an assert.</summary>
+    Tested = 5,
+}

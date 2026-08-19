@@ -156,6 +156,21 @@ public sealed record ReferenceRecord
     /// </summary>
     public string? ReceiverText { get; init; }
 
+    /// <summary>
+    /// How this call's result is consumed at the site, read off the call node's
+    /// ancestors, or <see cref="ResultFate.Unknown"/> where the walker makes no claim.
+    /// Null for any reference that is not a call site at all — absence of the fact, not
+    /// an unknown fact. The call-flow query filters on exactly that invariant.
+    /// </summary>
+    public ResultFate? Fate { get; init; }
+
+    /// <summary>
+    /// Verbatim assignment target when <see cref="Fate"/> is
+    /// <see cref="ResultFate.Assigned"/> — the <c>cfg</c> in <c>var cfg = Load();</c>,
+    /// a member access, a tuple — truncated like <see cref="ReceiverText"/>. Null otherwise.
+    /// </summary>
+    public string? FateName { get; init; }
+
     public required SourcePosition Position { get; init; }
 }
 

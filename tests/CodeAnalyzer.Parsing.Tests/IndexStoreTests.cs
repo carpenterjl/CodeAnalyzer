@@ -83,6 +83,40 @@ public class IndexStoreTests : IDisposable
         """;
 
     [Fact]
+    public async Task RoundTripsFateAndItsNullForNonCalls()
+    {
+        WriteFile("src/flow.cs", """
+            public class Runner
+            {
+                public void Run()
+                {
+                    var cfg = Load();
+                    Tick();
+                }
+            }
+            """);
+        var store = await IndexAsync();
+
+        using var query = store.Connection.CreateCommand();
+        query.CommandText =
+            "SELECT name, fate, fate_name FROM ref ORDER BY line, col";
+        var rows = new List<(string Name, object Fate, object FateName)>();
+        using var reader = query.ExecuteReader();
+        while (reader.Read())
+        {
+            rows.Add((reader.GetString(0), reader.GetValue(1), reader.GetValue(2)));
+        }
+
+        var load = rows.Single(r => r.Name == "Load");
+        Assert.Equal((long)(int)ResultFate.Assigned, load.Fate);
+        Assert.Equal("cfg", load.FateName);
+
+        var tick = rows.Single(r => r.Name == "Tick");
+        Assert.Equal((long)(int)ResultFate.Discarded, tick.Fate);
+        Assert.Equal(DBNull.Value, tick.FateName);
+    }
+
+    [Fact]
     public async Task PersistsSymbolsAndFiles()
     {
         WriteFile("src/uart.c", UartSource);

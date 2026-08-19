@@ -59,6 +59,16 @@ public static class KindLabels
         _ => string.Empty,
     };
 
+    public static string For(ResultFate fate) => fate switch
+    {
+        ResultFate.Assigned => "assigned",
+        ResultFate.Discarded => "result unused",
+        ResultFate.Returned => "returned",
+        ResultFate.PassedAsArgument => "passed to another call",
+        ResultFate.Tested => "tested in a condition",
+        _ => string.Empty,
+    };
+
     /// <summary>
     /// Collapses the symbol kinds into the handful of visual families the graph colours by.
     /// Returned verbatim as a CSS class suffix, so the values must stay lower-case and stable.
@@ -80,5 +90,16 @@ public static class KindLabels
         EdgeConfidence.Unique => "unique",
         EdgeConfidence.Ambiguous => "ambiguous",
         _ => "weak",
+    };
+
+    /// <summary>Wire name for a result fate. Stable: JSON output and the flow page key off it.</summary>
+    public static string TokenFor(ResultFate fate) => fate switch
+    {
+        ResultFate.Assigned => "assigned",
+        ResultFate.Discarded => "discarded",
+        ResultFate.Returned => "returned",
+        ResultFate.PassedAsArgument => "arg",
+        ResultFate.Tested => "tested",
+        _ => "unknown",
     };
 }

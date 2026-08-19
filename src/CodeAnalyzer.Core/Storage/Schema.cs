@@ -223,7 +223,17 @@ public static class Schema
     /// 26 and 27 — the analyzer moved and the source did not, so nothing but a version
     /// change makes the incremental gate re-read these files.
     /// </para>
-    public const int Version = 32;
+    /// <para>
+    /// 33 — the call-flow feature records how a call's result is consumed
+    /// (<c>ref.fate</c>, <c>ref.fate_name</c>), read off the call node's ancestors at
+    /// parse time. Same reason as 12, 26, 27 and 31 — the analyzer moved and the source
+    /// did not, so nothing but a version change makes the incremental gate re-read every
+    /// file. And the standing corollary, learned twice now: this bump covers exactly one
+    /// rebuild. A second parser-side change landing after the first reindex finds the
+    /// stored version already reading 33 and silently keeps stale rows — it needs
+    /// <c>index --full</c> or its own bump.
+    /// </para>
+    public const int Version = 33;
 
     public const string MetaSchemaVersion = "schema_version";
     public const string MetaRootPath = "root_path";
@@ -347,6 +357,16 @@ public static class Schema
             -- like arg_text. NULL where the reference is a bare name or the language pack
             -- captures no receiver — absence of a capture is not an assertion of bareness.
             receiver_text   TEXT,
+            -- How the call's result is consumed at the site, read off the call node's
+            -- ancestors: 1 assigned, 2 result unused, 3 returned, 4 passed inside another
+            -- call's arguments, 5 tested in a condition, 0 a call whose consumption the
+            -- walker makes no claim about. NULL for any reference that is not a call site
+            -- at all — absence of the fact, not an unknown fact. The call-flow query
+            -- filters on exactly that invariant.
+            fate            INTEGER,
+            -- Verbatim assignment target when fate = 1 ("cfg", "self._port", "x, y"),
+            -- truncated like receiver_text. NULL otherwise.
+            fate_name       TEXT,
             line            INTEGER NOT NULL,
             col             INTEGER NOT NULL
         );

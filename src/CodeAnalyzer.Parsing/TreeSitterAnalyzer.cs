@@ -1114,6 +1114,36 @@ public sealed partial class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
                 continue;
             }
 
+            // A call site records how its result is consumed; every other reference
+            // stores NULL — the call-flow query filters on exactly that split. C#
+            // constructions ride in as TypeUse on the creation expression, deliberately:
+            // resolution targets the type declaration, and changing the kind would touch
+            // the resolver's kind-compatibility rules for a display concern. A generic
+            // creation's winning capture is the generic_name in type position — the bare
+            // generic rule outranks the creation rules by pattern order — so the creation
+            // node is found one level up rather than by adding an order-dependent pattern.
+            // Measured before this was written: 173 generic creations here and 665 on
+            // OpenSim Studio, one construction in five or six.
+            ResultFate? fate = null;
+            string? fateName = null;
+            var fateNode = kind switch
+            {
+                ReferenceKind.Call or ReferenceKind.Instantiate => referenceNode,
+                ReferenceKind.TypeUse when referenceNode.Type == "object_creation_expression"
+                    => referenceNode,
+                ReferenceKind.TypeUse when referenceNode.Parent is { Type: "object_creation_expression" } creation
+                    => creation,
+                _ => null,
+            };
+            if (fateNode is not null)
+            {
+                var classified = CallFateClassifier.Classify(_definition.Name, fateNode);
+                fate = classified.Fate;
+                fateName = classified.Name is { } target
+                    ? TruncateForStorage(target, MaxReceiverTextLength)
+                    : null;
+            }
+
             byOffset[nameStart] = (
                 new ReferenceRecord
                 {
@@ -1122,6 +1152,8 @@ public sealed partial class TreeSitterAnalyzer : ILanguageAnalyzer, IDisposable
                     ArgumentCount = CountNamed(argumentsNode),
                     ArgumentText = argumentText,
                     ReceiverText = receiverText,
+                    Fate = fate,
+                    FateName = fateName,
                     Position = position,
                     // A member only ever claims what no callable would: its span cannot
                     // contain a method body, and a base list cannot sit inside a field.
