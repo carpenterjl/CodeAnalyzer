@@ -38,6 +38,64 @@ public class DocCommentTests : IDisposable
     private static string? DocOf(ParseResult result, string name) =>
         result.Symbols.Single(s => s.Name == name).DocComment;
 
+    /// <summary>
+    /// The single-line form, which the tag-only-line rule cannot reach: it drops a line that
+    /// holds nothing but a tag, and here the tags share their line with the prose. Measured
+    /// before the fix: 40.9% of OpenSim Studio's stored comments and 46.2% of JGraph's still
+    /// carried a summary tag.
+    /// </summary>
+    [Fact]
+    public void ASingleLineSummaryKeepsItsProseAndNotItsTags()
+    {
+        var result = _csharp.Analyze("t.cs", """
+            class Api
+            {
+                /// <summary>Steel with no strength characterised.</summary>
+                public void Send() { }
+            }
+            """, CancellationToken.None);
+
+        Assert.Equal("Steel with no strength characterised.", DocOf(result, "Send"));
+    }
+
+    /// <summary>
+    /// A cross-reference keeps the name it points at. That name is the searchable part of
+    /// the tag — often the only proper noun in the sentence — and dropping it would lose
+    /// the one word a reader might come looking for.
+    /// </summary>
+    [Fact]
+    public void ACrossReferenceKeepsTheNameItPointsAt()
+    {
+        var result = _csharp.Analyze("t.cs", """
+            class Api
+            {
+                /// <summary>Delegates to <see cref="WorkspaceSession"/> and returns.</summary>
+                public void Send() { }
+            }
+            """, CancellationToken.None);
+
+        Assert.Equal("Delegates to WorkspaceSession and returns.", DocOf(result, "Send"));
+    }
+
+    /// <summary>
+    /// The safety argument for stripping only the documented vocabulary. A doc comment
+    /// containing <c>List&lt;T&gt;</c> written without escaping is not valid XML and is
+    /// entirely normal; a rule that removed anything angle-bracketed would eat the prose.
+    /// </summary>
+    [Fact]
+    public void ProseThatMerelyLooksLikeMarkupSurvives()
+    {
+        var result = _csharp.Analyze("t.cs", """
+            class Api
+            {
+                // Returns List<Widget> when a < b, otherwise null.
+                public void Send() { }
+            }
+            """, CancellationToken.None);
+
+        Assert.Equal("Returns List<Widget> when a < b, otherwise null.", DocOf(result, "Send"));
+    }
+
     [Fact]
     public void ACommentDirectlyAboveADeclarationBelongsToIt()
     {
