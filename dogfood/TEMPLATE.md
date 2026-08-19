@@ -6,7 +6,7 @@
 | **Repo** | name, and what it is in one line |
 | **Languages** | as `stats` reports them, not as you assume |
 | **Size** | N files indexed / N symbols / N links |
-| **Tool build** | the one line `codeanalyzer version` prints — commit, index schema version, binary build time. Paste it verbatim; do not carry it from an earlier report, which is how three consecutive rounds filed `schema v26` against a schema that was 27, 29 and 30. |
+| **Tool build** | what `codeanalyzer version` prints — commit, index schema version and build time on the first line, the path of the binary that answered on the second, which is what settles a scope-precedence surprise. Paste it verbatim; do not carry it from an earlier report, which is how three consecutive rounds filed `schema v26` against a schema that was 27, 29 and 30. |
 | **What the session was actually doing** | the real task — a report from a session that only poked at the tool is worth less than one from a session that needed it |
 
 ## 1. `stats`, verbatim
