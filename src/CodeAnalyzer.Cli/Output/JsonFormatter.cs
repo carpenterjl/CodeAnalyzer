@@ -70,7 +70,8 @@ internal static class JsonFormatter
         ReadOnlyIndexSession session,
         string query,
         IReadOnlyList<SymbolSearchHit> hits,
-        IReadOnlyList<SymbolSearchHit>? commentRescue = null) =>
+        IReadOnlyList<SymbolSearchHit>? commentRescue = null,
+        IReadOnlyList<SymbolKind>? kindsThisIndexHasNoneOf = null) =>
         JsonSerializer.Serialize(new
         {
             index = Index(session),
@@ -79,6 +80,9 @@ internal static class JsonFormatter
             // Always present, so a consumer can tell "the second search found nothing" from
             // "the second search was not run" without inspecting the first list.
             commentRescue = (commentRescue ?? []).Select(Hit),
+            // Non-empty only when the kind filter, not the query, is what emptied the list.
+            kindsThisIndexHasNoneOf =
+                (kindsThisIndexHasNoneOf ?? []).Select(KindTokens.For),
         }, Options);
 
     public static string Locate(ReadOnlyIndexSession session, LocateResult result) => result switch
@@ -155,6 +159,10 @@ internal static class JsonFormatter
                 derivedBy = detail.DerivedTypes.Select(Related),
                 callers = detail.Callers.Select(Related),
                 callees = detail.Callees.Select(Related),
+
+                // Always emitted, 0 included, so a consumer can tell "its members are
+                // reached from nowhere either" from "this build did not look".
+                memberCallers = detail.MemberCallerTotal,
                 unresolved = detail.UnresolvedReferences.Select(u => new
                 {
                     name = u.Name,

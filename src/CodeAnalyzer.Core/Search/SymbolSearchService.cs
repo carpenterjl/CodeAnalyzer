@@ -113,6 +113,34 @@ public sealed class SymbolSearchService
     public int IndexedSymbolCount => _count;
 
     /// <summary>
+    /// How many searchable definitions this index holds of each kind. Free: the kinds are
+    /// already in memory, one per definition, for the search itself.
+    /// <para>
+    /// It exists so an empty result can distinguish two things a reader cannot otherwise
+    /// tell apart. <c>--kinds fn</c> on a C# workspace returns nothing, and so does a
+    /// genuine miss; the first is asking for a kind the language never declares — C# has
+    /// methods, not free functions — and no amount of rephrasing the query will help.
+    /// </para>
+    /// </summary>
+    public Dictionary<SymbolKind, int> DefinitionsByKind()
+    {
+        var counts = new Dictionary<SymbolKind, int>();
+        for (var i = 0; i < _count; i++)
+        {
+            // Locals are excluded from search results by default, so counting them here
+            // would report a kind as available that a default search can never return.
+            if (_isLocal[i])
+            {
+                continue;
+            }
+
+            counts[_kinds[i]] = counts.GetValueOrDefault(_kinds[i]) + 1;
+        }
+
+        return counts;
+    }
+
+    /// <summary>
     /// Rebuilds the in-memory table. Called after indexing completes; a full scan of
     /// three narrow columns is fast even at a million rows.
     /// </summary>

@@ -218,7 +218,9 @@ internal static class TerseFormatter
         string? kindFilter,
         bool exact = false,
         bool inComments = false,
-        IReadOnlyList<SymbolSearchHit>? commentRescue = null)
+        IReadOnlyList<SymbolSearchHit>? commentRescue = null,
+        IReadOnlyList<SymbolKind>? kindsThisIndexHasNoneOf = null,
+        int literalSites = 0)
     {
         if (hits.Count == 0)
         {
@@ -232,6 +234,26 @@ internal static class TerseFormatter
                     : $"no symbols match '{query}'";
 
             var head = kindFilter is null ? subject : $"{subject} with kinds {kindFilter}";
+
+            // A filter naming a kind this index holds none of has not narrowed the answer,
+            // it has emptied it, and rephrasing the query will never help. `--kinds fn` on
+            // a C# workspace is the reported case: C# declares methods and no free
+            // functions, so the token is answerable in principle and unanswerable here.
+            if (kindsThisIndexHasNoneOf is { Count: > 0 } absent)
+            {
+                head += Environment.NewLine
+                    + $"  this index holds no {string.Join(", ", absent.Select(KindTokens.For))} "
+                    + $"definition{(absent.Count == 1 ? string.Empty : "s")} at all — "
+                    + "the filter emptied the list, not the query "
+                    + "(kinds present: see 'stats')";
+            }
+
+            if (literalSites > 0)
+            {
+                head += Environment.NewLine
+                    + $"  '{query}' does appear as a literal value or a call argument — "
+                    + $"'value {query}' lists where";
+            }
 
             return inComments ? head : head + Environment.NewLine + Rescue(query, commentRescue);
         }

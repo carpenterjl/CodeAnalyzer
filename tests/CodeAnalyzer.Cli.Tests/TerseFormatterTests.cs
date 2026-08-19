@@ -678,6 +678,48 @@ public class TerseFormatterTests
         Assert.Contains("stats command", text);
     }
 
+    /// <summary>
+    /// A kind token this index holds nothing of has not narrowed the answer, it has emptied
+    /// it, and rephrasing the query will never help. <c>--kinds fn</c> on a C#/XAML
+    /// workspace is the reported case: C# declares methods and no free functions.
+    /// </summary>
+    [Fact]
+    public void AKindFilterTheIndexCanNeverSatisfySaysSoRatherThanLookingLikeAMiss()
+    {
+        var text = TerseFormatter.Search(
+            "Solve", [], kindFilter: "fn", commentRescue: [],
+            kindsThisIndexHasNoneOf: [SymbolKind.Function]);
+
+        Assert.Contains("holds no fn definition at all", text);
+        Assert.Contains("the filter emptied the list, not the query", text);
+    }
+
+    [Fact]
+    public void AKindFilterTheIndexCanSatisfyGetsNoSuchNote()
+    {
+        var text = TerseFormatter.Search(
+            "Solve", [], kindFilter: "method", commentRescue: [],
+            kindsThisIndexHasNoneOf: []);
+
+        Assert.DoesNotContain("holds no", text);
+    }
+
+    /// <summary>
+    /// The third question. A name index and a comment index both answer about declarations;
+    /// a literal is neither, and nothing in a search result said that call arguments are
+    /// indexed at all — which is what sent an OpenSim Studio session to grep for the field
+    /// names a solver emits, and to a wrong first answer.
+    /// </summary>
+    [Fact]
+    public void AFailedSearchPointsAtTheLiteralSearchWhenTheTextIsAValue()
+    {
+        var text = TerseFormatter.Search(
+            "Displacement", [], kindFilter: null, commentRescue: [], literalSites: 4);
+
+        Assert.Contains("does appear as a literal value or a call argument", text);
+        Assert.Contains("value Displacement", text);
+    }
+
     [Fact]
     public void AFailedSearchWithNoCommentAnswerSaysTheSecondQuestionWasAsked()
     {

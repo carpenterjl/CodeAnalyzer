@@ -25,7 +25,9 @@ internal sealed class IndexUnavailableException(string message) : Exception(mess
 /// </param>
 internal sealed record SymbolSearchAnswer(
     List<SymbolSearchHit> Hits,
-    List<SymbolSearchHit> CommentRescue);
+    List<SymbolSearchHit> CommentRescue,
+    IReadOnlyList<SymbolKind> KindsThisIndexHasNoneOf,
+    int LiteralSites);
 
 /// <summary>
 /// The one façade both entry points call: every CLI subcommand and every MCP tool is a
@@ -87,7 +89,31 @@ internal sealed class AgentToolset(ReadOnlyIndexSession session)
                 ? []
                 : Session.Search.SearchDocCommentWords(query, options with { Limit = 5 }, cancellationToken);
 
-            return new SymbolSearchAnswer(hits, rescue);
+            // Asked only when the filter is what emptied the result. A kind token the
+            // index holds nothing of is not a failed search, it is an impossible one, and
+            // the two are indistinguishable from the outside.
+            IReadOnlyList<SymbolKind> emptyKinds = [];
+            if (hits.Count == 0 && kinds is { Count: > 0 })
+            {
+                var present = Session.Search.DefinitionsByKind();
+                emptyKinds = [.. kinds.Where(kind => !present.ContainsKey(kind))];
+            }
+
+            // The third question, asked on the same failing path and for the same reason
+            // the second one is. A name index and a comment index both answer about
+            // declarations; a literal is neither. An OpenSim Studio session went to grep for
+            // the field names a solver emits — `new NodalScalarField("Displacement", …)` —
+            // and got a wrong first answer, because nothing in a search result says that
+            // constructor arguments are indexed at all. They are, and this is the place a
+            // reader is standing when it would have helped.
+            var literalSites = 0;
+            if (!inComments && hits.Count == 0 && emptyKinds.Count == 0)
+            {
+                var literals = Session.Values.FindByValue(query, limit: 1, cancellationToken: cancellationToken);
+                literalSites = (literals?.Matches.Count ?? 0) + (literals?.ArgumentSites.Count ?? 0);
+            }
+
+            return new SymbolSearchAnswer(hits, rescue, emptyKinds, literalSites);
         });
 
     public SymbolDetail? GetDetail(long symbolId, CancellationToken cancellationToken = default) =>

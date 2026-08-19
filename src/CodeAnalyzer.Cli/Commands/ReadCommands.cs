@@ -139,9 +139,11 @@ internal static class ReadCommands
                 withComments: args.Switch("with-comments"), cancellationToken);
 
             Console.WriteLine(args.Switch("json")
-                ? JsonFormatter.Search(toolset.Session, query, answer.Hits, answer.CommentRescue)
+                ? JsonFormatter.Search(toolset.Session, query, answer.Hits, answer.CommentRescue,
+                    answer.KindsThisIndexHasNoneOf)
                 : TerseFormatter.Search(
-                    query, answer.Hits, kindFilter, exact, inComments, answer.CommentRescue));
+                    query, answer.Hits, kindFilter, exact, inComments, answer.CommentRescue,
+                    answer.KindsThisIndexHasNoneOf, answer.LiteralSites));
 
             return Task.FromResult(ExitCodes.Ok);
         });

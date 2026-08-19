@@ -110,6 +110,19 @@ internal static class SymbolLocator
             suggestFor = name[(lastDot + 1)..];
         }
 
+        // A bare run of digits is never an identifier in any language this indexes, so it
+        // is decidable rather than a guess: the caller meant an id and left the '#' off.
+        // Every listing prints ids as '#412' and the disambiguation prompt says "pass an
+        // id" — and typing the number it just printed answered "no definition named
+        // '412'", which reads as "that id does not exist" rather than "that is not how an
+        // id is spelled".
+        if (name.Length > 0 && name.All(char.IsAsciiDigit))
+        {
+            return new LocateResult.NotFound(
+                $"'{name}' is not a name — an id is written with a leading hash: #{name}",
+                []);
+        }
+
         return new LocateResult.NotFound(
             $"no definition named '{name}'{where} in the index",
             Suggest(session, suggestFor, cancellationToken));

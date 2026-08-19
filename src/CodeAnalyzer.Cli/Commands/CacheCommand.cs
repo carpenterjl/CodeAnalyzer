@@ -22,6 +22,16 @@ internal static class CacheCommand
     private static Task<int> Run(string[] rawArgs, CancellationToken cancellationToken)
     {
         var args = ArgReader.Parse(rawArgs, [], ["prune", "json"]);
+
+        // `cache` takes no positional, and one handed to it was read by nothing and
+        // reported by nothing — the machine-wide listing came back looking like an answer
+        // to whatever was typed.
+        if (args.Positionals.Count > 0)
+        {
+            Console.Error.WriteLine("usage: codeanalyzer " + Spec.Usage);
+            return Task.FromResult(ExitCodes.Error);
+        }
+
         if (args.Error is not null)
         {
             Console.Error.WriteLine(args.Error);
